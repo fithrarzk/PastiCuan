@@ -1,20 +1,22 @@
-import os
-
 import streamlit as st
 from dotenv import load_dotenv
 
-from data.stock import get_stock_data
+from data.extended import get_extended_data
 from analysis.technical import analyze_technical
 from analysis.fundamental import analyze_fundamental
-from analysis.ai import generate_ai_analysis
-from ui.charts import render_price_chart
-from ui.components import (
-    render_ratios_table,
-    render_technical_panel,
-    render_fundamental_analysis,
+from analysis.valuation_bands import compute_valuation_bands
+from analysis.seasonality import compute_seasonality
+from ui.tabs import (
+    render_dashboard_tab,
+    render_valuation_tab,
+    render_comparison_tab,
+    render_seasonality_tab,
+    render_technical_tab,
 )
 
 load_dotenv()
+
+PERIOD_MAP = {"3 Years": "3y", "5 Years": "5y", "Max": "max"}
 
 
 def main():
@@ -32,18 +34,26 @@ def main():
 
         ticker_input = st.text_input(
             "Stock Ticker",
+            value="BBCA",
             placeholder="e.g. BBCA or BBCA.JK",
             help="Enter the IDX stock ticker. '.JK' suffix will be added automatically.",
         )
 
-        analyze_btn = st.button("Analyze", use_container_width=True, type="primary")
+        period_label = st.selectbox(
+            "Analysis Period",
+            options=list(PERIOD_MAP.keys()),
+            index=0,
+        )
+        period_yf = PERIOD_MAP[period_label]
+
+        analyze_btn = st.button("🔍 Analyze", use_container_width=True, type="primary")
 
         st.divider()
         st.caption("Data source: Yahoo Finance (yfinance)")
         st.caption("Prices in IDR (Indonesian Rupiah)")
 
-    # ── Main area ─────────────────────────────────────────────────────
-    if not ticker_input or not analyze_btn:
+    # ── Welcome screen ────────────────────────────────────────────────
+    if not ticker_input:
         st.markdown("## Welcome to PastiCuan 👋")
         st.info(
             "Enter a stock ticker in the **sidebar** (e.g. `BBCA`, `TLKM`, `BMRI`) "
@@ -52,38 +62,66 @@ def main():
         )
         st.stop()
 
-    with st.spinner(f"Fetching data for **{ticker_input.upper()}** …"):
-        data = get_stock_data(ticker_input)
+    # ── Session-state cache key ───────────────────────────────────────
+    request_key = (ticker_input.strip().upper(), period_yf)
+    if analyze_btn or st.session_state.get("last_request") != request_key:
+        # Clear all cached data when ticker/period change
+        if st.session_state.get("last_request") != request_key:
+            st.session_state["ai_result"] = None
+        st.session_state["last_request"] = request_key
 
-    if data["error"]:
-        st.error(data["error"])
+        with st.spinner(f"Fetching {period_label} data for **{ticker_input.upper()}** …"):
+            data = get_extended_data(ticker_input, period=period_yf)
+
+        if data["error"]:
+            st.error(data["error"])
+            st.stop()
+
+        ticker  = data["ticker"]
+        history = data["history"]
+        info    = data["info"]
+        sector  = data["basic"].get("sector", "N/A")
+
+        tech  = analyze_technical(history)
+        fund  = analyze_fundamental(info, sector)
+        bands = compute_valuation_bands(
+            history,
+            data["quarterly_income"],
+            data["quarterly_balance"],
+            info,
+        )
+        seasonality = compute_seasonality(history)
+
+        st.session_state["fetched_data"]  = data
+        st.session_state["tech"]          = tech
+        st.session_state["fund"]          = fund
+        st.session_state["bands"]         = bands
+        st.session_state["seasonality"]   = seasonality
+
+    elif not st.session_state.get("fetched_data"):
+        st.markdown("## Welcome to PastiCuan 👋")
+        st.info("Click **Analyze** in the sidebar to load data.", icon="👈")
         st.stop()
 
-    ticker  = data["ticker"]
-    basic   = data["basic"]
-    ratios  = data["ratios"]
-    history = data["history"]
-    info    = data["info"]
-    sector  = basic["sector"]
+    data        = st.session_state["fetched_data"]
+    tech        = st.session_state["tech"]
+    fund        = st.session_state["fund"]
+    bands       = st.session_state["bands"]
+    seasonality = st.session_state["seasonality"]
+    ticker      = data["ticker"]
+    basic       = data["basic"]
 
-    tech = analyze_technical(history)
-    fund = analyze_fundamental(info, sector)
-
-    # ── Session state: clear cached AI result when ticker changes ────
-    if st.session_state.get("ai_ticker") != ticker:
-        st.session_state["ai_ticker"] = ticker
-        st.session_state["ai_result"] = None
-
-    # ── 1. Header — Company name, sector, and price ──────────────────
+    # ── Header ────────────────────────────────────────────────────────
     col_title, col_price = st.columns([3, 1])
     with col_title:
         st.title(basic["longName"])
         st.markdown(
             f"🏷 **Ticker:** `{ticker}` &nbsp;&nbsp;|&nbsp;&nbsp; "
-            f"🏢 **Sector:** {sector} &nbsp;&nbsp;|&nbsp;&nbsp; "
-            f"📐 Benchmark: *{fund['sector_matched']}*"
+            f"🏢 **Sector:** {basic.get('sector', 'N/A')} &nbsp;&nbsp;|&nbsp;&nbsp; "
+            f"🗓 **Period:** {period_label}"
         )
     with col_price:
+        history = data["history"]
         if not history.empty:
             latest_close = history["Close"].iloc[-1]
             prev_close   = history["Close"].iloc[-2] if len(history) > 1 else latest_close
@@ -96,58 +134,29 @@ def main():
 
     st.divider()
 
-    # ── 2. Two columns: Fundamental Ratios (left) | Technical (right) ─
-    col_fund, col_tech = st.columns(2, gap="large")
+    # ── Tabs ──────────────────────────────────────────────────────────
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "🏠 Dashboard & AI",
+        "📐 Valuation Bands",
+        "🆚 Comparison",
+        "📅 Seasonality",
+        "📉 Technical Chart",
+    ])
 
-    with col_fund:
-        st.subheader("📊 Fundamental Ratios")
-        render_ratios_table(ratios, fund)
+    with tab1:
+        render_dashboard_tab(data, tech, fund)
 
-    with col_tech:
-        st.subheader("📡 Technical Indicators")
-        render_technical_panel(tech)
+    with tab2:
+        render_valuation_tab(bands, ticker)
 
-    st.divider()
+    with tab3:
+        render_comparison_tab(ticker, period_yf)
 
-    # ── 3. Candlestick chart ──────────────────────────────────────────
-    st.subheader("📉 Price Chart (1 Year)")
-    render_price_chart(tech, ticker)
+    with tab4:
+        render_seasonality_tab(seasonality, ticker)
 
-    with st.expander("📋 Raw Historical Data"):
-        fmt_hist = history[["Open", "High", "Low", "Close", "Volume"]].copy()
-        fmt_hist.index = fmt_hist.index.strftime("%Y-%m-%d")
-        st.dataframe(fmt_hist.sort_index(ascending=False), use_container_width=True)
-
-    st.divider()
-
-    # ── 4. AI Analysis Report (bottom) ────────────────────────────────
-    st.subheader("🤖 AI Analysis Report")
-
-    if not os.environ.get("GEMINI_API_KEY"):
-        st.info(
-            "Set `GEMINI_API_KEY` in your `.env` file to enable the AI Analysis Report.",
-            icon="🔑",
-        )
-    else:
-        # Display cached result if available for the current ticker
-        if st.session_state.get("ai_result"):
-            st.success(
-                "Analysis loaded from cache — click **Regenerate** to refresh.",
-                icon="💾",
-            )
-            st.markdown(st.session_state["ai_result"])
-
-        # Button label changes based on whether a result already exists
-        btn_label = (
-            "🔄 Regenerate Deep AI Analysis"
-            if st.session_state.get("ai_result")
-            else "🧠 Generate Deep AI Analysis"
-        )
-        if st.button(btn_label, type="primary"):
-            with st.spinner("Contacting Gemini 2.0 Flash — this may take a moment …"):
-                result = generate_ai_analysis(fund, tech, ticker)
-            st.session_state["ai_result"] = result
-            st.rerun()
+    with tab5:
+        render_technical_tab(tech, ticker, history)
 
 
 if __name__ == "__main__":
