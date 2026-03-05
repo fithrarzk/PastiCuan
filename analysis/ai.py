@@ -9,48 +9,79 @@ import os
 
 from dotenv import load_dotenv
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted
 
 load_dotenv()
 
 
 def _build_prompt(fundamental_data: dict, technical_data: dict, ticker: str) -> str:
-    """Build a structured prompt for the Gemini model."""
+    """Build a structured, senior-analyst-style prompt for the Gemini model."""
+
+    sector = fundamental_data.get("sector_matched", "N/A")
 
     fundamental_section = (
-        f"  Sector: {fundamental_data.get('sector_matched', 'N/A')}\n"
+        f"  Sector: {sector}\n"
         f"  PE Ratio: {fundamental_data.get('pe_value', 'N/A')} — {fundamental_data.get('pe_label', 'N/A')} "
         f"(Sector range: {fundamental_data.get('pe_range', 'N/A')})\n"
         f"  PBV Ratio: {fundamental_data.get('pbv_value', 'N/A')} — {fundamental_data.get('pbv_label', 'N/A')} "
         f"(Sector range: {fundamental_data.get('pbv_range', 'N/A')})\n"
-        f"  Overall Valuation: {fundamental_data.get('overall', 'N/A')}"
+        f"  Overall Valuation Signal: {fundamental_data.get('overall', 'N/A')}"
     )
 
     technical_section = (
         f"  RSI(14): {technical_data.get('rsi', 'N/A')} — {technical_data.get('rsi_signal', 'N/A')}\n"
         f"  SMA 50: {technical_data.get('sma50', 'N/A')}\n"
         f"  SMA 200: {technical_data.get('sma200', 'N/A')}\n"
-        f"  SMA Signal: {technical_data.get('sma_signal', 'N/A')}\n"
-        f"  Support: {technical_data.get('support', 'N/A')}\n"
-        f"  Resistance: {technical_data.get('resistance', 'N/A')}\n"
-        f"  Support/Resistance Signal: {technical_data.get('sr_signal', 'N/A')}\n"
-        f"  ATR(14): {technical_data.get('atr', 'N/A')} ({technical_data.get('atr_pct', 'N/A')}%)\n"
-        f"  ATR Signal: {technical_data.get('atr_signal', 'N/A')}"
+        f"  SMA Trend Signal: {technical_data.get('sma_signal', 'N/A')}\n"
+        f"  3-Month Support: {technical_data.get('support', 'N/A')}\n"
+        f"  3-Month Resistance: {technical_data.get('resistance', 'N/A')}\n"
+        f"  Price Position Signal: {technical_data.get('sr_signal', 'N/A')}\n"
+        f"  ATR(14): {technical_data.get('atr', 'N/A')} ({technical_data.get('atr_pct', 'N/A')}%) "
+        f"— {technical_data.get('atr_signal', 'N/A')}"
     )
 
-    prompt = (
-        f"You are a professional stock analyst. "
-        f"Based on this data for **{ticker}**:\n\n"
-        f"**Fundamental Data:**\n{fundamental_section}\n\n"
-        f"**Technical Data:**\n{technical_section}\n\n"
-        f"Provide a concise summary covering:\n"
-        f"1. Is it a **Good** or **Bad** time to buy?\n"
-        f"2. Analysis of the value (undervalued / overvalued).\n"
-        f"3. Technical trend analysis.\n"
-        f"4. Recommended **Take Profit** and **Cut Loss** levels based on the "
-        f"calculated Support/Resistance.\n\n"
-        f"Format the output in Markdown suitable for Streamlit rendering. "
-        f"Use headers, bullet points, and bold text for clarity."
-    )
+    prompt = f"""\
+Act as a Senior Equity Research Analyst with 20 years of experience on the IDX \
+(Indonesia Stock Exchange). Analyze the following data for ticker **{ticker}** \
+in the **{sector}** sector.
+
+---
+
+**Fundamentals:**
+{fundamental_section}
+
+**Technicals (RSI, SMA, Support/Resistance):**
+{technical_section}
+
+---
+
+Please provide a structured report using the four sections below. \
+Use bold Markdown headers for each section. Be professional, objective, \
+and slightly witty like a seasoned floor trader — concise but not dry.
+
+## 1. 📌 Investment Thesis
+A brief, punchy summary: is this stock a **Buy**, **Hold**, or **Sell** right now, \
+and why in one sentence?
+
+## 2. 🔍 Valuation Deep Dive
+Compare the current PE and PBV against sector norms. Is this a genuine discount \
+worth acting on, or could it be a value trap? Mention what the overall valuation \
+signal implies.
+
+## 3. 📈 Technical Setup
+Interpret price action relative to SMA 50 and SMA 200 (Golden Cross / Death Cross). \
+Comment on RSI momentum and whether the stock is near a key support or resistance \
+level. Factor in ATR volatility when assessing risk.
+
+## 4. 🎯 Actionable Plan
+Based strictly on the calculated Support and Resistance levels, provide:
+- **Entry Price** — suggested entry zone
+- **Take Profit** — target level with rationale
+- **Cut Loss** — hard stop-loss level
+
+Format all price levels clearly (e.g. "Rp 9,500"). \
+End with a one-line risk/reward summary.
+"""
 
     return prompt
 
@@ -90,6 +121,16 @@ def generate_ai_analysis(
         prompt = _build_prompt(fundamental_data, technical_data, ticker)
         response = model.generate_content(prompt)
         return response.text
+
+    except ResourceExhausted:
+        return (
+            "> ⚠️ **Quota limit reached (429 – Resource Exhausted).**\n>\n"
+            "> Gemini's free-tier rate limit has been hit. "
+            "> Please **wait 60 seconds** and try again.\n>\n"
+            "> If this keeps happening, consider spacing out requests "
+            "or upgrading your Gemini API plan."
+        )
+
     except Exception as exc:  # noqa: BLE001
         return (
             f"> ⚠️ **AI analysis failed.**\n>\n"

@@ -69,6 +69,11 @@ def main():
     tech = analyze_technical(history)
     fund = analyze_fundamental(info, sector)
 
+    # ── Session state: clear cached AI result when ticker changes ────
+    if st.session_state.get("ai_ticker") != ticker:
+        st.session_state["ai_ticker"] = ticker
+        st.session_state["ai_result"] = None
+
     # ── 1. Header — Company name, sector, and price ──────────────────
     col_title, col_price = st.columns([3, 1])
     with col_title:
@@ -117,15 +122,32 @@ def main():
 
     # ── 4. AI Analysis Report (bottom) ────────────────────────────────
     st.subheader("🤖 AI Analysis Report")
-    if os.environ.get("GEMINI_API_KEY"):
-        with st.spinner("Generating AI analysis — this may take a moment …"):
-            ai_result = generate_ai_analysis(fund, tech, ticker)
-        st.markdown(ai_result)
-    else:
+
+    if not os.environ.get("GEMINI_API_KEY"):
         st.info(
             "Set `GEMINI_API_KEY` in your `.env` file to enable the AI Analysis Report.",
             icon="🔑",
         )
+    else:
+        # Display cached result if available for the current ticker
+        if st.session_state.get("ai_result"):
+            st.success(
+                "Analysis loaded from cache — click **Regenerate** to refresh.",
+                icon="💾",
+            )
+            st.markdown(st.session_state["ai_result"])
+
+        # Button label changes based on whether a result already exists
+        btn_label = (
+            "🔄 Regenerate Deep AI Analysis"
+            if st.session_state.get("ai_result")
+            else "🧠 Generate Deep AI Analysis"
+        )
+        if st.button(btn_label, type="primary"):
+            with st.spinner("Contacting Gemini 2.0 Flash — this may take a moment …"):
+                result = generate_ai_analysis(fund, tech, ticker)
+            st.session_state["ai_result"] = result
+            st.rerun()
 
 
 if __name__ == "__main__":
