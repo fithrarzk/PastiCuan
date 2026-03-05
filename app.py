@@ -1,10 +1,16 @@
+import os
+
 import streamlit as st
+from dotenv import load_dotenv
 
 from data.stock import get_stock_data
 from analysis.technical import analyze_technical
 from analysis.fundamental import analyze_fundamental
+from analysis.ai import generate_ai_analysis
 from ui.charts import render_price_chart
 from ui.components import render_ratios, render_technical_summary, render_fundamental_analysis
+
+load_dotenv()
 
 
 def main():
@@ -90,6 +96,20 @@ def main():
 
     st.subheader("📡 Technical Indicators")
     render_technical_summary(tech)
+
+    st.divider()
+
+    # ── AI-Powered Analysis ──────────────────────────────────────────
+    st.subheader("🤖 AI-Powered Analysis")
+    if os.environ.get("GEMINI_API_KEY"):
+        with st.spinner("Generating AI analysis …"):
+            ai_result = generate_ai_analysis(fund, tech, ticker)
+        st.markdown(ai_result)
+    else:
+        st.info(
+            "Set `GEMINI_API_KEY` in your `.env` file to enable AI-powered analysis.",
+            icon="🔑",
+        )
 
     st.divider()
 
