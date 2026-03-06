@@ -107,9 +107,8 @@ def render_seasonality_tab(seasonality: dict, ticker: str) -> None:
             texttemplate="%{text}",
             textfont=dict(size=9),
             hovertemplate="Year %{y} %{x}: %{z:.2f}%<extra></extra>",
-            colorbar=dict(title="Return %",
-                          tickfont=dict(size=10, color="#6E6E73"),
-                          titlefont=dict(size=11, color="#6E6E73")),
+            colorbar=dict(title=dict(text="Return %", font=dict(size=11, color="#6E6E73")),
+                          tickfont=dict(size=10, color="#6E6E73")),
         ))
         fig3.update_layout(
             paper_bgcolor="rgba(0,0,0,0)",
