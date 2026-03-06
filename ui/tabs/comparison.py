@@ -7,28 +7,29 @@ import yfinance as yf
 
 from data.extended import get_comparison_data
 
-_COLORS = ["#29b6f6", "#ef5350", "#26a69a", "#f0a500", "#ba68c8", "#ff8f00", "#7c83fd"]
+_COLORS = ["#1E1E1E", "#10B981", "#EF4444", "#64748B", "#A78BFA", "#F59E0B", "#6E6E73"]
+_CONFIG = {"displayModeBar": False}
 
 
 def render_comparison_tab(main_ticker: str, period_yf: str) -> None:
-    st.markdown(
+    st.caption(
         "Enter comma-separated competitor tickers to compare normalised price performance "
         "and key metrics side by side."
     )
     comp_input = st.text_input(
         "Competitor Tickers",
         placeholder="e.g. BBRI, BMRI, BNIS",
-        help="IDX tickers separated by commas. '.JK' is appended automatically.",
+        help="IDX tickers separated by commas. The .JK suffix is appended automatically.",
         key="comparison_input",
     )
     if not comp_input.strip():
-        st.info("Enter competitor tickers above to begin comparison.", icon="👆")
+        st.info("Enter competitor tickers above to begin.")
         return
 
     tickers_raw = [t.strip() for t in comp_input.split(",") if t.strip()]
     all_tickers  = [main_ticker] + tickers_raw
 
-    with st.spinner("Fetching comparison data …"):
+    with st.spinner("Fetching comparison data…"):
         hist_map = get_comparison_data(all_tickers, period=period_yf)
 
     if not hist_map:
@@ -36,30 +37,38 @@ def render_comparison_tab(main_ticker: str, period_yf: str) -> None:
         return
 
     # ── Normalised performance chart ──────────────────────────────────────────
-    st.subheader("📈 Normalised Price Performance (Base = 100)")
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>Normalised Price Performance (Base = 100)</h3>",
+                unsafe_allow_html=True)
     fig = go.Figure()
     for i, (tkr, hist) in enumerate(hist_map.items()):
         close = hist["Close"]
         norm  = close / close.iloc[0] * 100
         fig.add_trace(go.Scatter(
             x=close.index, y=norm, name=tkr,
-            line=dict(color=_COLORS[i % len(_COLORS)], width=2),
+            line=dict(color=_COLORS[i % len(_COLORS)], width=1.5),
             hovertemplate=f"{tkr}: %{{y:.1f}}<extra></extra>",
         ))
     fig.update_layout(
-        template="plotly_dark", height=450,
-        yaxis_title="Normalised Price (%)",
-        margin=dict(l=10, r=10, t=30, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=420,
+        font=dict(family="Inter, -apple-system, sans-serif", color="#1E1E1E", size=12),
+        yaxis=dict(title="Normalised Price (%)", gridcolor="#F0F0F0", gridwidth=0.5,
+                   zeroline=False, linecolor="#E5E5E5", tickfont=dict(color="#6E6E73", size=11)),
+        xaxis=dict(showgrid=False, zeroline=False, linecolor="#E5E5E5",
+                   tickfont=dict(color="#6E6E73", size=11)),
+        margin=dict(l=10, r=10, t=20, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1,
+                    font=dict(size=11, color="#6E6E73")),
         hovermode="x unified",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, config=_CONFIG)
 
     # ── Metrics table ─────────────────────────────────────────────────────────
-    st.subheader("📊 Side-by-Side Performance Metrics")
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>Performance Metrics</h3>",
+                unsafe_allow_html=True)
     rows = []
-    # Parallel raw-numeric dict for best-performer highlighting
-    raw = []
+    raw  = []
     for tkr_raw in all_tickers:
         tkr_norm = tkr_raw.strip().upper()
         if not tkr_norm.endswith(".JK"):
@@ -101,8 +110,7 @@ def render_comparison_tab(main_ticker: str, period_yf: str) -> None:
     if rows:
         display_df = pd.DataFrame(rows)
 
-        # Determine best value per category (lowest PE/PBV, highest ROE/DY/NPM/Return)
-        _LOWER_IS_BETTER = {"PE", "PBV"}
+        _LOWER_IS_BETTER  = {"PE", "PBV"}
         _HIGHER_IS_BETTER = {"ROE", "DY", "NPM", "Return"}
         best_idx = {}
         for col in _LOWER_IS_BETTER | _HIGHER_IS_BETTER:
@@ -113,7 +121,6 @@ def render_comparison_tab(main_ticker: str, period_yf: str) -> None:
                 else:
                     best_idx[col] = max(vals, key=lambda x: x[1])[0]
 
-        # Map raw col names to display col names
         col_map = {
             "PE": "PE", "PBV": "PBV", "ROE": "ROE",
             "DY": "DY", "NPM": "NPM", "Return": f"Return ({period_yf})",
@@ -124,13 +131,13 @@ def render_comparison_tab(main_ticker: str, period_yf: str) -> None:
             for raw_col, row_idx in best_idx.items():
                 disp_col = col_map.get(raw_col, raw_col)
                 if disp_col in styles.columns:
-                    styles.at[row_idx, disp_col] = "background-color: #26a69a44; font-weight: bold"
+                    styles.at[row_idx, disp_col] = "background-color: rgba(16,185,129,0.10); font-weight: 600"
             return styles
 
         styled = display_df.style.apply(_highlight_best, axis=None)
         st.dataframe(styled, use_container_width=True, hide_index=True)
 
-        # ── Build comparison summary for AI prompt ────────────────────────────
+        # Build comparison summary for AI prompt
         summary_parts = []
         for raw_col, row_idx in best_idx.items():
             tkr_name = rows[row_idx].get("Ticker", "?")

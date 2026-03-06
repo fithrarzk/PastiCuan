@@ -22,7 +22,8 @@ def render_dashboard_tab(
     ratios  = data["ratios"]
 
     # ── Key Statistics ────────────────────────────────────────────────────────
-    st.subheader("📊 Key Statistics")
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>Key Statistics</h3>",
+                unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns(5)
     if not history.empty:
         latest = history["Close"].iloc[-1]
@@ -34,9 +35,9 @@ def render_dashboard_tab(
     mc     = basic.get("marketCap")
     dy     = info.get("dividendYield")
     if high52:
-        c2.metric("52W High", f"Rp {high52:,.0f}")
+        c2.metric("52-Week High", f"Rp {high52:,.0f}")
     if low52:
-        c3.metric("52W Low",  f"Rp {low52:,.0f}")
+        c3.metric("52-Week Low",  f"Rp {low52:,.0f}")
     if mc:
         if mc >= 1e12:
             c4.metric("Market Cap", f"Rp {mc / 1e12:.1f}T")
@@ -52,37 +53,38 @@ def render_dashboard_tab(
     # ── Fundamental & Technical side-by-side ──────────────────────────────────
     col_f, col_t = st.columns(2, gap="large")
     with col_f:
-        st.subheader("🏦 Fundamental Ratios")
+        st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>Fundamental Ratios</h3>",
+                    unsafe_allow_html=True)
         render_ratios_table(ratios, fund)
     with col_t:
-        st.subheader("📡 Technical Indicators")
+        st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>Technical Indicators</h3>",
+                    unsafe_allow_html=True)
         render_technical_panel(tech)
 
     st.divider()
 
     # ── AI Analysis ───────────────────────────────────────────────────────────
-    st.subheader("🤖 AI Analysis Report")
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:4px;'>AI Research Report</h3>",
+                unsafe_allow_html=True)
     if not os.environ.get("GEMINI_API_KEY"):
-        st.info(
-            "Set `GEMINI_API_KEY` in your `.env` file to enable AI analysis.",
-            icon="🔑",
-        )
+        st.info("Set `GEMINI_API_KEY` in your `.env` file to enable AI analysis.")
         return
 
     if st.session_state.get("ai_result"):
-        st.success(
-            "Analysis loaded from cache — click **Regenerate** to refresh.",
-            icon="💾",
+        st.caption("Analysis cached — click Regenerate to refresh.")
+        st.markdown(
+            f"<div style='line-height:1.7;font-size:0.875rem;color:#1E1E1E;'>"
+            f"{st.session_state['ai_result']}</div>",
+            unsafe_allow_html=True,
         )
-        st.markdown(st.session_state["ai_result"])
 
     btn_label = (
-        "🔄 Regenerate Deep AI Analysis"
+        "Regenerate Analysis"
         if st.session_state.get("ai_result")
-        else "🧠 Generate Deep AI Analysis"
+        else "Generate AI Analysis"
     )
     if st.button(btn_label, type="primary", key="ai_btn"):
-        with st.spinner("Contacting Gemini 2.0 Flash — this may take a moment …"):
+        with st.spinner("Generating analysis…"):
             result = generate_ai_analysis(
                 fund, tech, ticker,
                 bands=bands,

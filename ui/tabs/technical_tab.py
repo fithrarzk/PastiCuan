@@ -6,15 +6,17 @@ from ui.charts import render_price_chart
 
 
 def render_technical_tab(tech: dict, ticker: str, history) -> None:
-    st.subheader(f"📉 {ticker} — Technical Chart")
+    st.markdown(f"<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>{ticker} — Technical Chart</h3>",
+                unsafe_allow_html=True)
     render_price_chart(tech, ticker)
 
     # ── Smart Money Flow ────────────────────────────────────────────────────
     st.divider()
-    st.subheader("🧐 Smart Money Flow")
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:4px;'>Smart Money Flow</h3>",
+                unsafe_allow_html=True)
     st.caption(
-        "Combines **Money Flow Index (MFI)** and **On-Balance Volume (OBV)** to detect "
-        "whether price moves are backed by institutional volume — a proxy for \"Market Maker\" activity."
+        "Combines Money Flow Index (MFI) and On-Balance Volume (OBV) to assess "
+        "whether price moves are supported by institutional volume."
     )
 
     mfi_val    = tech.get("mfi")
@@ -38,19 +40,20 @@ def render_technical_tab(tech: dict, ticker: str, history) -> None:
         obv_display = "N/A"
     col2.metric("OBV", obv_display, obv_signal, delta_color="off")
 
-    # Verdict box
+    # Verdict box — strip emoji signals for display text
+    verdict_text = sm_verdict
     if "🟢" in sm_verdict:
-        st.success(f"**Verdict:** {sm_verdict}", icon="🟢")
+        st.success(f"Verdict: {verdict_text}")
     elif "🔴" in sm_verdict:
-        st.error(f"**Verdict:** {sm_verdict}", icon="🔴")
+        st.error(f"Verdict: {verdict_text}")
     elif "🟠" in sm_verdict:
-        st.warning(f"**Verdict:** {sm_verdict}", icon="🟠")
+        st.warning(f"Verdict: {verdict_text}")
     else:
-        st.info(f"**Verdict:** {sm_verdict}", icon="🟡")
+        st.info(f"Verdict: {verdict_text}")
 
     st.divider()
 
-    with st.expander("📋 Raw Historical Data"):
+    with st.expander("Raw Historical Data"):
         fmt = history[["Open", "High", "Low", "Close", "Volume"]].copy()
         fmt.index = fmt.index.strftime("%Y-%m-%d")
         st.dataframe(fmt.sort_index(ascending=False), use_container_width=True)

@@ -131,12 +131,11 @@ def _build_prompt(
 
     # ── Assemble the Super Prompt ─────────────────────────────────────────────
     prompt = f"""\
-Act as a Senior Equity Research Analyst with 20 years of experience on the IDX \
-(Indonesia Stock Exchange). You have access to a comprehensive data package for \
-ticker **{ticker}** in the **{sector}** sector. Today's date is \
-{datetime.now().strftime('%B %d, %Y')}.
+You are a Senior Equity Research Analyst covering the Indonesia Stock Exchange (IDX). \
+Prepare a formal equity research memorandum for {ticker} in the {sector} sector. \
+Today's date is {datetime.now().strftime('%B %d, %Y')}.
 
-Analyze ALL the data below holistically — do not ignore any section.
+Analyze ALL data sections below holistically before writing.
 
 ---
 
@@ -146,7 +145,7 @@ Analyze ALL the data below holistically — do not ignore any section.
 **2. Technical Indicators (RSI, MACD, SMA, Support/Resistance, ATR):**
 {technical_section}
 
-**3. Smart Money Flow (MFI + OBV — proxy for Market Maker activity):**
+**3. Smart Money Flow (MFI + OBV):**
 {smart_money_section}
 
 **4. Historical Valuation Bands (PE & PBV vs ±1 SD / ±2 SD):**
@@ -160,48 +159,40 @@ Analyze ALL the data below holistically — do not ignore any section.
 
 ---
 
-Please produce a structured report using **exactly** the six sections below. \
-Use bold Markdown headers. Be professional, objective, and slightly witty like \
-a seasoned floor trader — concise but not dry.
+Format your response as a Professional Investment Memorandum using exactly the \
+seven sections below. Use bold all-caps headers exactly as shown. No emojis. \
+Write in complete, dense paragraphs.
 
-## 1. 📌 Investment Thesis
-State clearly: is this stock a **BUY**, **HOLD**, or **SELL** right now? \
-Give a one-sentence punchy justification combining valuation + momentum.
+**INVESTMENT THESIS**
+State whether this stock is a BUY, HOLD, or SELL. Provide a concise justification \
+integrating valuation and price momentum.
 
-## 2. 🔍 Valuation Deep Dive
-- Compare current PE and PBV against sector norms AND against the historical \
-SD-band positions. Is the stock cheap/fair/expensive relative to its own history?
-- Is this a genuine discount worth acting on, or could it be a value trap?
+**VALUATION ANALYSIS**
+Compare current PE and PBV against both sector norms and the stock's own historical \
+SD-band positions. Assess whether the current level represents a genuine discount \
+or a potential value trap.
 
-## 3. 📈 Technical Setup
-- Interpret MACD momentum (crossover direction, histogram trend).
-- Assess RSI level and SMA 50/200 trend (Golden Cross or Death Cross).
-- Comment on proximity to Support/Resistance and factor in ATR volatility.
+**TECHNICAL SETUP**
+Interpret MACD momentum, RSI level, and SMA 50/200 trend. Comment on proximity to \
+key Support and Resistance levels and contextualize ATR-based volatility.
 
-## 4. 🧐 Smart Money Flow
-- Interpret the MFI and OBV data as a proxy for institutional / "Market Maker" activity.
-- Is the current price move being **accumulated** (backed by strong volume inflow) \
-or **distributed** (price rising on weak/declining volume)?
-- Flag any divergence between price direction and volume flow.
+**SMART MONEY FLOW**
+Interpret MFI and OBV data to assess whether price moves are supported by \
+institutional volume accumulation or distribution. Note any divergence between \
+price direction and volume flow.
 
-## 5. 📅 Seasonality & Timing
-- Is {current_month_name} historically a good or bad month for this stock?
-- Cite the historical average return and win rate.
-- Provide an explicit timing recommendation: is NOW a good entry window?
+**SEASONALITY & TIMING**
+Assess whether {current_month_name} is historically favorable for this stock. \
+Cite average monthly return and win rate. Provide a clear timing recommendation.
 
-## 6. 🎯 Actionable Plan
-Based on the calculated Support, Resistance, ATR, and valuation bands, provide:
-- **Entry Price** — suggested entry zone with rationale
-- **Take Profit (TP)** — target level
-- **Stop Loss (SL)** — hard cut-loss level
+**ACTIONABLE PLAN**
+Based on Support, Resistance, ATR, and valuation bands, state:
+- Entry Price — suggested entry zone with rationale
+- Take Profit (TP) — target level
+- Stop Loss (SL) — hard cut-loss level
+Format all price levels as "Rp X,XXX". Include a one-line risk/reward summary.
 
-Format all price levels as "Rp X,XXX". End with a one-line risk/reward summary.
-
----
-
-**Conclude your report with:**
-
-> **FINAL VERDICT: [BUY / HOLD / SELL]** — one-sentence justification.
+**FINAL VERDICT: [BUY / HOLD / SELL]** — One sentence.
 """
     return prompt
 
