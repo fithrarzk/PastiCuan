@@ -1,11 +1,13 @@
 """
-Gemini AI-powered stock analysis.
+Gemini AI-powered stock analysis — Super Prompt.
 
-Uses Google's Generative AI (Gemini) to produce a markdown-formatted
-investment summary from fundamental and technical data.
+Uses Google's Generative AI (Gemini 2.0 Flash) to produce a markdown-formatted
+investment summary that combines fundamental, technical, valuation-band,
+seasonality, and competitor data.
 """
 
 import os
+from datetime import datetime
 
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -13,12 +15,25 @@ from google.api_core.exceptions import ResourceExhausted
 
 load_dotenv()
 
+_MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
 
-def _build_prompt(fundamental_data: dict, technical_data: dict, ticker: str) -> str:
-    """Build a structured, senior-analyst-style prompt for the Gemini model."""
+
+def _build_prompt(
+    fundamental_data: dict,
+    technical_data: dict,
+    ticker: str,
+    bands: dict | None = None,
+    seasonality: dict | None = None,
+    comparison_summary: str | None = None,
+) -> str:
+    """Build the Super Prompt combining all cross-tab data."""
 
     sector = fundamental_data.get("sector_matched", "N/A")
 
+    # ── Fundamental section ───────────────────────────────────────────────────
     fundamental_section = (
         f"  Sector: {sector}\n"
         f"  PE Ratio: {fundamental_data.get('pe_value', 'N/A')} — {fundamental_data.get('pe_label', 'N/A')} "
@@ -28,8 +43,18 @@ def _build_prompt(fundamental_data: dict, technical_data: dict, ticker: str) -> 
         f"  Overall Valuation Signal: {fundamental_data.get('overall', 'N/A')}"
     )
 
+    # ── Technical section (now includes MACD) ─────────────────────────────────
+    macd_val = technical_data.get("macd")
+    macd_sig = technical_data.get("macd_signal_val")
+    macd_hist = technical_data.get("macd_hist")
+    macd_signal_text = technical_data.get("macd_signal", "N/A")
+
     technical_section = (
         f"  RSI(14): {technical_data.get('rsi', 'N/A')} — {technical_data.get('rsi_signal', 'N/A')}\n"
+        f"  MACD Line: {f'{macd_val:.2f}' if macd_val is not None else 'N/A'}\n"
+        f"  MACD Signal Line: {f'{macd_sig:.2f}' if macd_sig is not None else 'N/A'}\n"
+        f"  MACD Histogram: {f'{macd_hist:+.2f}' if macd_hist is not None else 'N/A'}\n"
+        f"  MACD Momentum: {macd_signal_text}\n"
         f"  SMA 50: {technical_data.get('sma50', 'N/A')}\n"
         f"  SMA 200: {technical_data.get('sma200', 'N/A')}\n"
         f"  SMA Trend Signal: {technical_data.get('sma_signal', 'N/A')}\n"
@@ -40,49 +65,126 @@ def _build_prompt(fundamental_data: dict, technical_data: dict, ticker: str) -> 
         f"— {technical_data.get('atr_signal', 'N/A')}"
     )
 
+    # ── Valuation Bands section ───────────────────────────────────────────────
+    if bands:
+        pe_band = bands.get("pe")
+        pbv_band = bands.get("pbv")
+        band_lines = []
+        if pe_band:
+            band_lines.append(
+                f"  PE Band — Mean: {pe_band['pe_mean']:.2f}x, "
+                f"Current: {pe_band['current_pe']:.2f}x, "
+                f"SD Position: {pe_band['sd_position']:+.2f} SD  "
+                f"({'Undervalued' if pe_band['sd_position'] < 0 else 'Overvalued'} vs history)"
+            )
+        else:
+            band_lines.append("  PE Band — Insufficient data")
+        if pbv_band:
+            band_lines.append(
+                f"  PBV Band — Mean: {pbv_band['pbv_mean']:.2f}x, "
+                f"Current: {pbv_band['current_pbv']:.2f}x, "
+                f"SD Position: {pbv_band['sd_position']:+.2f} SD  "
+                f"({'Undervalued' if pbv_band['sd_position'] < 0 else 'Overvalued'} vs history)"
+            )
+        else:
+            band_lines.append("  PBV Band — Insufficient data")
+        valuation_band_section = "\n".join(band_lines)
+    else:
+        valuation_band_section = "  No valuation band data available."
+
+    # ── Seasonality section (current month) ───────────────────────────────────
+    current_month = datetime.now().month
+    current_month_name = _MONTH_NAMES[current_month - 1]
+    if seasonality and not seasonality.get("monthly_avg", {}).empty if hasattr(seasonality.get("monthly_avg", {}), "empty") else not seasonality:
+        avg = seasonality["monthly_avg"]
+        pos = seasonality["monthly_pos_pct"]
+        month_avg = avg.get(current_month, None)
+        month_win = pos.get(current_month, None)
+        if month_avg is not None and month_win is not None:
+            bias = "bullish" if month_avg > 0 else "bearish"
+            seasonality_section = (
+                f"  Current Month: {current_month_name}\n"
+                f"  Historical Avg Return for {current_month_name}: {month_avg:+.2f}%\n"
+                f"  Win Rate (positive closes): {month_win:.0f}%\n"
+                f"  Historical Bias: {bias.upper()}"
+            )
+        else:
+            seasonality_section = f"  Current Month: {current_month_name}\n  Insufficient seasonality data."
+    else:
+        seasonality_section = f"  Current Month: {current_month_name}\n  No seasonality data available."
+
+    # ── Competitor section ────────────────────────────────────────────────────
+    comparison_section = (
+        f"  {comparison_summary}"
+        if comparison_summary
+        else "  No comparison data available (user has not run a comparison)."
+    )
+
+    # ── Assemble the Super Prompt ─────────────────────────────────────────────
     prompt = f"""\
 Act as a Senior Equity Research Analyst with 20 years of experience on the IDX \
-(Indonesia Stock Exchange). Analyze the following data for ticker **{ticker}** \
-in the **{sector}** sector.
+(Indonesia Stock Exchange). You have access to a comprehensive data package for \
+ticker **{ticker}** in the **{sector}** sector. Today's date is \
+{datetime.now().strftime('%B %d, %Y')}.
+
+Analyze ALL the data below holistically — do not ignore any section.
 
 ---
 
-**Fundamentals:**
+**1. Fundamentals:**
 {fundamental_section}
 
-**Technicals (RSI, SMA, Support/Resistance):**
+**2. Technical Indicators (RSI, MACD, SMA, Support/Resistance, ATR):**
 {technical_section}
+
+**3. Historical Valuation Bands (PE & PBV vs ±1 SD / ±2 SD):**
+{valuation_band_section}
+
+**4. Monthly Seasonality — 10-Year History:**
+{seasonality_section}
+
+**5. Competitive Standing:**
+{comparison_section}
 
 ---
 
-Please provide a structured report using the four sections below. \
-Use bold Markdown headers for each section. Be professional, objective, \
-and slightly witty like a seasoned floor trader — concise but not dry.
+Please produce a structured report using **exactly** the five sections below. \
+Use bold Markdown headers. Be professional, objective, and slightly witty like \
+a seasoned floor trader — concise but not dry.
 
 ## 1. 📌 Investment Thesis
-A brief, punchy summary: is this stock a **Buy**, **Hold**, or **Sell** right now, \
-and why in one sentence?
+State clearly: is this stock a **BUY**, **HOLD**, or **SELL** right now? \
+Give a one-sentence punchy justification combining valuation + momentum.
 
 ## 2. 🔍 Valuation Deep Dive
-Compare the current PE and PBV against sector norms. Is this a genuine discount \
-worth acting on, or could it be a value trap? Mention what the overall valuation \
-signal implies.
+- Compare current PE and PBV against sector norms AND against the historical \
+SD-band positions. Is the stock cheap/fair/expensive relative to its own history?
+- Is this a genuine discount worth acting on, or could it be a value trap?
 
 ## 3. 📈 Technical Setup
-Interpret price action relative to SMA 50 and SMA 200 (Golden Cross / Death Cross). \
-Comment on RSI momentum and whether the stock is near a key support or resistance \
-level. Factor in ATR volatility when assessing risk.
+- Interpret MACD momentum (crossover direction, histogram trend).
+- Assess RSI level and SMA 50/200 trend (Golden Cross or Death Cross).
+- Comment on proximity to Support/Resistance and factor in ATR volatility.
 
-## 4. 🎯 Actionable Plan
-Based strictly on the calculated Support and Resistance levels, provide:
-- **Entry Price** — suggested entry zone
-- **Take Profit** — target level with rationale
-- **Cut Loss** — hard stop-loss level
+## 4. 📅 Seasonality & Timing
+- Is {current_month_name} historically a good or bad month for this stock?
+- Cite the historical average return and win rate.
+- Provide an explicit timing recommendation: is NOW a good entry window?
 
-Format all price levels clearly (e.g. "Rp 9,500"). \
-End with a one-line risk/reward summary.
+## 5. 🎯 Actionable Plan
+Based on the calculated Support, Resistance, ATR, and valuation bands, provide:
+- **Entry Price** — suggested entry zone with rationale
+- **Take Profit (TP)** — target level
+- **Stop Loss (SL)** — hard cut-loss level
+
+Format all price levels as "Rp X,XXX". End with a one-line risk/reward summary.
+
+---
+
+**Conclude your report with:**
+
+> **FINAL VERDICT: [BUY / HOLD / SELL]** — one-sentence justification.
 """
-
     return prompt
 
 
@@ -90,22 +192,20 @@ def generate_ai_analysis(
     fundamental_data: dict,
     technical_data: dict,
     ticker: str,
+    bands: dict | None = None,
+    seasonality: dict | None = None,
+    comparison_summary: str | None = None,
 ) -> str:
-    """Send fundamental & technical data to Gemini and return a Markdown analysis.
+    """Send all cross-tab data to Gemini and return a Markdown analysis.
 
     Parameters
     ----------
-    fundamental_data : dict
-        Output of ``analyze_fundamental()``.
-    technical_data : dict
-        Output of ``analyze_technical()``.
-    ticker : str
-        Stock ticker symbol (e.g. ``"BBCA.JK"``).
-
-    Returns
-    -------
-    str
-        Markdown-formatted AI analysis, or an error message on failure.
+    fundamental_data : dict from ``analyze_fundamental()``
+    technical_data   : dict from ``analyze_technical()``
+    ticker           : resolved ticker string
+    bands            : dict from ``compute_valuation_bands()`` (optional)
+    seasonality      : dict from ``compute_seasonality()`` (optional)
+    comparison_summary : one-line summary from comparison tab (optional)
     """
 
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -118,7 +218,11 @@ def generate_ai_analysis(
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel("gemini-2.0-flash")
-        prompt = _build_prompt(fundamental_data, technical_data, ticker)
+        prompt = _build_prompt(
+            fundamental_data, technical_data, ticker,
+            bands=bands, seasonality=seasonality,
+            comparison_summary=comparison_summary,
+        )
         response = model.generate_content(prompt)
         return response.text
 
