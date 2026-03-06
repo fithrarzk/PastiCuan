@@ -8,7 +8,13 @@ from analysis.ai import generate_ai_analysis
 from ui.components import render_ratios_table, render_technical_panel
 
 
-def render_dashboard_tab(data: dict, tech: dict, fund: dict) -> None:
+def render_dashboard_tab(
+    data: dict,
+    tech: dict,
+    fund: dict,
+    bands: dict | None = None,
+    seasonality: dict | None = None,
+) -> None:
     basic   = data["basic"]
     info    = data["info"]
     history = data["history"]
@@ -77,6 +83,11 @@ def render_dashboard_tab(data: dict, tech: dict, fund: dict) -> None:
     )
     if st.button(btn_label, type="primary", key="ai_btn"):
         with st.spinner("Contacting Gemini 2.0 Flash — this may take a moment …"):
-            result = generate_ai_analysis(fund, tech, ticker)
+            result = generate_ai_analysis(
+                fund, tech, ticker,
+                bands=bands,
+                seasonality=seasonality,
+                comparison_summary=st.session_state.get("comparison_summary"),
+            )
         st.session_state["ai_result"] = result
         st.rerun()

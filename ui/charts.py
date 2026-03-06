@@ -19,12 +19,21 @@ def render_price_chart(tech: dict, ticker: str) -> None:
     """
     df = tech["df"]
 
+    has_macd = "MACD" in df.columns and not df["MACD"].isna().all()
+
+    if has_macd:
+        row_heights = [0.55, 0.22, 0.23]
+        titles = (f"{ticker} – Price + SMAs", "RSI (14)", "MACD (12, 26, 9)")
+    else:
+        row_heights = [0.72, 0.28]
+        titles = (f"{ticker} – Price + SMAs", "RSI (14)")
+
     fig = make_subplots(
-        rows=2, cols=1,
+        rows=3 if has_macd else 2, cols=1,
         shared_xaxes=True,
-        row_heights=[0.72, 0.28],
+        row_heights=row_heights,
         vertical_spacing=0.03,
-        subplot_titles=(f"{ticker} – 1-Year Price + SMAs", "RSI (14)"),
+        subplot_titles=titles,
     )
 
     # Candlestick
@@ -75,12 +84,40 @@ def render_price_chart(tech: dict, ticker: str) -> None:
     fig.add_hline(y=70, line_dash="dash", line_color="#ef5350", line_width=1, row=2, col=1)
     fig.add_hline(y=30, line_dash="dash", line_color="#26a69a", line_width=1, row=2, col=1)
 
+    # ── MACD subplot (row 3) ──────────────────────────────────────────────
+    if has_macd:
+        # MACD histogram as colored bars
+        hist_colors = [
+            "#26a69a" if v >= 0 else "#ef5350"
+            for v in df["MACD_Hist"].fillna(0)
+        ]
+        fig.add_trace(
+            go.Bar(
+                x=df.index, y=df["MACD_Hist"], name="Histogram",
+                marker_color=hist_colors, showlegend=False,
+            ), row=3, col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=df.index, y=df["MACD"], name="MACD",
+                line=dict(color="#29b6f6", width=1.5),
+            ), row=3, col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=df.index, y=df["MACD_Signal"], name="Signal",
+                line=dict(color="#ff8f00", width=1.5),
+            ), row=3, col=1,
+        )
+        fig.add_hline(y=0, line_dash="solid", line_color="#555", line_width=0.8, row=3, col=1)
+        fig.update_yaxes(title_text="MACD", row=3, col=1)
+
     fig.update_yaxes(title_text="Price (IDR)", row=1, col=1)
     fig.update_yaxes(title_text="RSI", range=[0, 100], row=2, col=1)
     fig.update_layout(
         xaxis_rangeslider_visible=False,
         template="plotly_dark",
-        height=600,
+        height=750 if has_macd else 600,
         margin=dict(l=10, r=10, t=50, b=10),
         legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1),
     )

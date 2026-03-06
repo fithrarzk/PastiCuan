@@ -102,10 +102,39 @@ def analyze_technical(df: pd.DataFrame) -> dict:
     else:
         atr_signal = "🟢 Low Volatility"
 
+    # ── MACD (12, 26, 9) ─────────────────────────────────────────────────────
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    df["MACD"]        = ema12 - ema26
+    df["MACD_Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+    df["MACD_Hist"]   = df["MACD"] - df["MACD_Signal"]
+
+    macd_val    = df["MACD"].iloc[-1]        if not df["MACD"].isna().all()        else None
+    macd_sig_val = df["MACD_Signal"].iloc[-1] if not df["MACD_Signal"].isna().all() else None
+    macd_hist_val = df["MACD_Hist"].iloc[-1]  if not df["MACD_Hist"].isna().all()   else None
+
+    if macd_val is not None and macd_sig_val is not None and len(df) >= 2:
+        prev_macd = df["MACD"].iloc[-2]
+        prev_sig  = df["MACD_Signal"].iloc[-2]
+        if prev_macd <= prev_sig and macd_val > macd_sig_val:
+            macd_signal = "🟢 Bullish Crossover (MACD crossed above Signal)"
+        elif prev_macd >= prev_sig and macd_val < macd_sig_val:
+            macd_signal = "🔴 Bearish Crossover (MACD crossed below Signal)"
+        elif macd_val > macd_sig_val:
+            macd_signal = "🟢 Bullish (MACD above Signal)"
+        elif macd_val < macd_sig_val:
+            macd_signal = "🔴 Bearish (MACD below Signal)"
+        else:
+            macd_signal = "🟡 Neutral"
+    else:
+        macd_signal = "N/A"
+
     return {
         "rsi":        rsi_val,        "rsi_signal":  rsi_signal,
         "sma50":      sma50_val,      "sma200":      sma200_val,        "sma_signal":  sma_signal,
         "support":    support_val,    "resistance":  resistance_val,    "sr_signal":   sr_signal,
         "atr":        atr_val,        "atr_pct":     atr_pct_val,       "atr_signal":  atr_signal,
+        "macd":       macd_val,       "macd_signal_val": macd_sig_val,
+        "macd_hist":  macd_hist_val,  "macd_signal": macd_signal,
         "df":         df,
     }

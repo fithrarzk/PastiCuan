@@ -1,3 +1,4 @@
+import yfinance as yf
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -92,6 +93,14 @@ def main():
         )
         seasonality = compute_seasonality(history)
 
+        # Fetch 10-year history specifically for seasonality analysis
+        try:
+            hist_10y = yf.Ticker(ticker).history(period="10y")
+            if not hist_10y.empty:
+                seasonality = compute_seasonality(hist_10y)
+        except Exception:
+            pass  # fall back to the period-based seasonality computed above
+
         st.session_state["fetched_data"]  = data
         st.session_state["tech"]          = tech
         st.session_state["fund"]          = fund
@@ -144,7 +153,7 @@ def main():
     ])
 
     with tab1:
-        render_dashboard_tab(data, tech, fund)
+        render_dashboard_tab(data, tech, fund, bands=bands, seasonality=seasonality)
 
     with tab2:
         render_valuation_tab(bands, ticker)

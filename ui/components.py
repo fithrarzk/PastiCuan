@@ -66,6 +66,14 @@ def render_technical_panel(tech: dict) -> None:
     c3.metric("SMA 50", sma50_val)
     c4.metric("SMA 200", sma200_val)
 
+    # ── MACD ─────────────────────────────────────────────────────────
+    if tech.get("macd") is not None:
+        macd_display = f"{tech['macd']:.2f}"
+        macd_hist_display = f"{tech['macd_hist']:+.2f}" if tech.get("macd_hist") is not None else "N/A"
+        c5, c6 = st.columns(2)
+        c5.metric("MACD", macd_display, tech.get("macd_signal", "N/A"), delta_color="off")
+        c6.metric("Histogram", macd_hist_display)
+
     # ── Trend signal ─────────────────────────────────────────────────
     st.info(f"**Trend:** {tech['sma_signal']}")
 
