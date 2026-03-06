@@ -65,6 +65,15 @@ def _build_prompt(
         f"— {technical_data.get('atr_signal', 'N/A')}"
     )
 
+    # ── Smart Money Flow section ─────────────────────────────────────────────
+    mfi_v = technical_data.get("mfi")
+    smart_money_section = (
+        f"  MFI(14): {f'{mfi_v:.1f}' if mfi_v is not None else 'N/A'} "
+        f"— {technical_data.get('mfi_signal', 'N/A')}\n"
+        f"  OBV Trend: {technical_data.get('obv_signal', 'N/A')}\n"
+        f"  Smart Money Verdict: {technical_data.get('smart_money', 'N/A')}"
+    )
+
     # ── Valuation Bands section ───────────────────────────────────────────────
     if bands:
         pe_band = bands.get("pe")
@@ -137,18 +146,21 @@ Analyze ALL the data below holistically — do not ignore any section.
 **2. Technical Indicators (RSI, MACD, SMA, Support/Resistance, ATR):**
 {technical_section}
 
-**3. Historical Valuation Bands (PE & PBV vs ±1 SD / ±2 SD):**
+**3. Smart Money Flow (MFI + OBV — proxy for Market Maker activity):**
+{smart_money_section}
+
+**4. Historical Valuation Bands (PE & PBV vs ±1 SD / ±2 SD):**
 {valuation_band_section}
 
-**4. Monthly Seasonality — 10-Year History:**
+**5. Monthly Seasonality — 10-Year History:**
 {seasonality_section}
 
-**5. Competitive Standing:**
+**6. Competitive Standing:**
 {comparison_section}
 
 ---
 
-Please produce a structured report using **exactly** the five sections below. \
+Please produce a structured report using **exactly** the six sections below. \
 Use bold Markdown headers. Be professional, objective, and slightly witty like \
 a seasoned floor trader — concise but not dry.
 
@@ -166,12 +178,18 @@ SD-band positions. Is the stock cheap/fair/expensive relative to its own history
 - Assess RSI level and SMA 50/200 trend (Golden Cross or Death Cross).
 - Comment on proximity to Support/Resistance and factor in ATR volatility.
 
-## 4. 📅 Seasonality & Timing
+## 4. 🧐 Smart Money Flow
+- Interpret the MFI and OBV data as a proxy for institutional / "Market Maker" activity.
+- Is the current price move being **accumulated** (backed by strong volume inflow) \
+or **distributed** (price rising on weak/declining volume)?
+- Flag any divergence between price direction and volume flow.
+
+## 5. 📅 Seasonality & Timing
 - Is {current_month_name} historically a good or bad month for this stock?
 - Cite the historical average return and win rate.
 - Provide an explicit timing recommendation: is NOW a good entry window?
 
-## 5. 🎯 Actionable Plan
+## 6. 🎯 Actionable Plan
 Based on the calculated Support, Resistance, ATR, and valuation bands, provide:
 - **Entry Price** — suggested entry zone with rationale
 - **Take Profit (TP)** — target level

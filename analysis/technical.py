@@ -129,6 +129,67 @@ def analyze_technical(df: pd.DataFrame) -> dict:
     else:
         macd_signal = "N/A"
 
+    # ── MFI (14) — Money Flow Index ────────────────────────────────────────
+    typical_price = (high + low + close) / 3
+    raw_money_flow = typical_price * df["Volume"]
+    tp_delta = typical_price.diff()
+    pos_flow = raw_money_flow.where(tp_delta > 0, 0.0).rolling(14).sum()
+    neg_flow = raw_money_flow.where(tp_delta < 0, 0.0).rolling(14).sum()
+    money_ratio = pos_flow / neg_flow.replace(0, np.nan)
+    df["MFI"] = 100 - (100 / (1 + money_ratio))
+
+    mfi_val = df["MFI"].iloc[-1] if not df["MFI"].isna().all() else None
+    if mfi_val is None:
+        mfi_signal = "N/A"
+    elif mfi_val >= 80:
+        mfi_signal = "🔴 Overbought (MFI ≥ 80) — potential distribution"
+    elif mfi_val <= 20:
+        mfi_signal = "🟢 Oversold (MFI ≤ 20) — potential accumulation"
+    elif mfi_val >= 60:
+        mfi_signal = "🟢 Strong Inflow — accumulation likely"
+    elif mfi_val <= 40:
+        mfi_signal = "🔴 Weak Flow — distribution likely"
+    else:
+        mfi_signal = "🟡 Neutral money flow"
+
+    # ── OBV (On-Balance Volume) ───────────────────────────────────────────
+    obv_sign = np.sign(close.diff()).fillna(0)
+    df["OBV"] = (obv_sign * df["Volume"]).cumsum()
+
+    obv_val = df["OBV"].iloc[-1] if not df["OBV"].isna().all() else None
+    # OBV trend: compare OBV SMA-20 slope over last 5 bars
+    obv_sma = df["OBV"].rolling(20).mean()
+    if len(obv_sma.dropna()) >= 5:
+        obv_slope = obv_sma.iloc[-1] - obv_sma.iloc[-5]
+    else:
+        obv_slope = None
+
+    if obv_slope is not None:
+        if obv_slope > 0:
+            obv_signal = "🟢 Rising OBV — volume supports price trend"
+        elif obv_slope < 0:
+            obv_signal = "🔴 Falling OBV — volume diverging from price"
+        else:
+            obv_signal = "🟡 Flat OBV"
+    else:
+        obv_signal = "N/A"
+
+    # ── Smart Money Flow verdict ───────────────────────────────────────────
+    price_bullish = (rsi_val is not None and rsi_val > 50) if rsi_val else False
+    vol_bullish   = (mfi_val is not None and mfi_val > 50) and (obv_slope is not None and obv_slope > 0)
+    vol_bearish   = (mfi_val is not None and mfi_val < 50) and (obv_slope is not None and obv_slope < 0)
+
+    if price_bullish and vol_bullish:
+        smart_money = "🟢 Accumulation — price rise supported by strong volume inflow (Smart Money buying)"
+    elif price_bullish and vol_bearish:
+        smart_money = "🟠 Distribution Warning — price rising but volume weakening (potential Smart Money exit)"
+    elif not price_bullish and vol_bullish:
+        smart_money = "🟢 Stealth Accumulation — price weak but volume quietly building (Smart Money loading)"
+    elif not price_bullish and vol_bearish:
+        smart_money = "🔴 Distribution — price falling with volume outflow (Smart Money exiting)"
+    else:
+        smart_money = "🟡 Inconclusive — mixed volume signals"
+
     return {
         "rsi":        rsi_val,        "rsi_signal":  rsi_signal,
         "sma50":      sma50_val,      "sma200":      sma200_val,        "sma_signal":  sma_signal,
@@ -136,5 +197,8 @@ def analyze_technical(df: pd.DataFrame) -> dict:
         "atr":        atr_val,        "atr_pct":     atr_pct_val,       "atr_signal":  atr_signal,
         "macd":       macd_val,       "macd_signal_val": macd_sig_val,
         "macd_hist":  macd_hist_val,  "macd_signal": macd_signal,
+        "mfi":        mfi_val,        "mfi_signal":  mfi_signal,
+        "obv":        obv_val,        "obv_signal":  obv_signal,
+        "smart_money": smart_money,
         "df":         df,
     }
