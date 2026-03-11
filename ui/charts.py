@@ -3,19 +3,19 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 _PLOTLY_FONT = dict(family="Inter, -apple-system, BlinkMacSystemFont, sans-serif",
-                    color="#1E1E1E", size=12)
+                    color="#F5F5F7", size=12)
 _PLOTLY_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     font=_PLOTLY_FONT,
     margin=dict(l=10, r=10, t=50, b=10),
     legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1,
-                font=dict(size=11, color="#6E6E73")),
-    xaxis=dict(showgrid=False, zeroline=False, linecolor="#E5E5E5",
-               tickfont=dict(color="#6E6E73", size=11)),
+                font=dict(size=11, color="#8E8E93")),
+    xaxis=dict(showgrid=False, zeroline=False, linecolor="#38383A",
+               tickfont=dict(color="#8E8E93", size=11)),
 )
-_PLOTLY_YAXIS = dict(gridcolor="#F0F0F0", gridwidth=0.5, zeroline=False,
-                     linecolor="#E5E5E5", tickfont=dict(color="#6E6E73", size=11))
+_PLOTLY_YAXIS = dict(gridcolor="#2C2C2E", gridwidth=0.5, zeroline=False,
+                     linecolor="#38383A", tickfont=dict(color="#8E8E93", size=11))
 _CONFIG = {"displayModeBar": False}
 
 
@@ -50,7 +50,7 @@ def render_price_chart(tech: dict, ticker: str) -> None:
 
     # Update subplot title font
     for ann in fig.layout.annotations:
-        ann.font = dict(size=11, color="#6E6E73", family="Inter, sans-serif")
+        ann.font = dict(size=11, color="#8E8E93", family="Inter, sans-serif")
 
     # Candlestick
     fig.add_trace(
@@ -101,7 +101,7 @@ def render_price_chart(tech: dict, ticker: str) -> None:
     # RSI
     fig.add_trace(
         go.Scatter(x=df.index, y=df["RSI"], name="RSI",
-                   line=dict(color="#6E6E73", width=1.2)), row=2, col=1,
+                   line=dict(color="#8E8E93", width=1.2)), row=2, col=1,
     )
     fig.add_hline(y=70, line_dash="dot", line_color="#EF4444", line_width=0.8, row=2, col=1)
     fig.add_hline(y=30, line_dash="dot", line_color="#10B981", line_width=0.8, row=2, col=1)
@@ -121,7 +121,7 @@ def render_price_chart(tech: dict, ticker: str) -> None:
         fig.add_trace(
             go.Scatter(
                 x=df.index, y=df["MACD"], name="MACD",
-                line=dict(color="#1E1E1E", width=1.2),
+                line=dict(color="#F5F5F7", width=1.2),
             ), row=3, col=1,
         )
         fig.add_trace(
@@ -130,17 +130,17 @@ def render_price_chart(tech: dict, ticker: str) -> None:
                 line=dict(color="#64748B", width=1.2),
             ), row=3, col=1,
         )
-        fig.add_hline(y=0, line_dash="solid", line_color="#E5E5E5", line_width=0.8, row=3, col=1)
-        fig.update_yaxes(title_text="MACD", title_font=dict(size=10, color="#6E6E73"),
+        fig.add_hline(y=0, line_dash="solid", line_color="#38383A", line_width=0.8, row=3, col=1)
+        fig.update_yaxes(title_text="MACD", title_font=dict(size=10, color="#8E8E93"),
                          row=3, col=1, **_PLOTLY_YAXIS)
 
-    fig.update_yaxes(title_text="Price (IDR)", title_font=dict(size=10, color="#6E6E73"),
+    fig.update_yaxes(title_text="Price (IDR)", title_font=dict(size=10, color="#8E8E93"),
                      row=1, col=1, **_PLOTLY_YAXIS)
     fig.update_yaxes(title_text="RSI", range=[0, 100],
-                     title_font=dict(size=10, color="#6E6E73"),
+                     title_font=dict(size=10, color="#8E8E93"),
                      row=2, col=1, **_PLOTLY_YAXIS)
-    fig.update_xaxes(showgrid=False, zeroline=False, linecolor="#E5E5E5",
-                     tickfont=dict(color="#6E6E73", size=11))
+    fig.update_xaxes(showgrid=False, zeroline=False, linecolor="#38383A",
+                     tickfont=dict(color="#8E8E93", size=11))
 
     fig.update_layout(
         xaxis_rangeslider_visible=False,
@@ -162,9 +162,9 @@ def render_price_chart(tech: dict, ticker: str) -> None:
         plot_bgcolor="rgba(0,0,0,0)",
         font=_PLOTLY_FONT,
         margin=dict(l=10, r=10, t=20, b=10),
-        yaxis=dict(gridcolor="#F0F0F0", gridwidth=0.5, zeroline=False,
-                   tickfont=dict(color="#6E6E73", size=10)),
-        xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(color="#6E6E73", size=10)),
+        yaxis=dict(gridcolor="#2C2C2E", gridwidth=0.5, zeroline=False,
+                   tickfont=dict(color="#8E8E93", size=10)),
+        xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(color="#8E8E93", size=10)),
     )
     st.caption("Volume")
     st.plotly_chart(vol_fig, use_container_width=True, config=_CONFIG)

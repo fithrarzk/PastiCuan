@@ -38,30 +38,33 @@ def main():
                      'SF Pro Display', sans-serif !important;
         -webkit-font-smoothing: antialiased;
     }
-    .stApp { background-color: #FBFBFD !important; }
-    h1, h2, h3, h4, h5, h6 { color: #1E1E1E !important; font-weight: 600 !important; }
-    p, li { color: #1E1E1E; line-height: 1.6; }
+    .stApp, .stApp > div, [data-testid="stAppViewContainer"] {
+        background-color: #000000 !important;
+    }
+    [data-testid="stHeader"] { background-color: #000000 !important; }
+    h1, h2, h3, h4, h5, h6 { color: #F5F5F7 !important; font-weight: 600 !important; }
+    p, li { color: #F5F5F7 !important; line-height: 1.6; }
 
-    [data-testid="stSidebar"] {
-        background-color: #F5F5F7 !important;
-        border-right: 1px solid #E5E5E5 !important;
+    [data-testid="stSidebar"], [data-testid="stSidebar"] > div {
+        background-color: #111113 !important;
+        border-right: 1px solid #38383A !important;
     }
 
     [data-testid="metric-container"] {
-        background: #FFFFFF !important;
-        border: 1px solid #E5E5E5 !important;
+        background: #1C1C1E !important;
+        border: 1px solid #38383A !important;
         border-radius: 12px !important;
         padding: 16px 20px !important;
     }
     [data-testid="stMetricLabel"] > div {
-        color: #6E6E73 !important;
+        color: #8E8E93 !important;
         font-size: 0.72rem !important;
         font-weight: 600 !important;
         text-transform: uppercase !important;
         letter-spacing: 0.06em !important;
     }
     [data-testid="stMetricValue"] > div {
-        color: #1E1E1E !important;
+        color: #F5F5F7 !important;
         font-size: 1.35rem !important;
         font-weight: 600 !important;
     }
@@ -69,51 +72,52 @@ def main():
         font-size: 0.8rem !important;
         font-weight: 500 !important;
     }
-    [data-testid="stMetricDelta"][data-direction="positive"] > div { color: #10B981 !important; }
-    [data-testid="stMetricDelta"][data-direction="negative"] > div { color: #EF4444 !important; }
-    [data-testid="stMetricDelta"][data-direction="off"] > div { color: #6E6E73 !important; }
+    [data-testid="stMetricDelta"][data-direction="positive"] > div { color: #30D158 !important; }
+    [data-testid="stMetricDelta"][data-direction="negative"] > div { color: #FF453A !important; }
+    [data-testid="stMetricDelta"][data-direction="off"] > div { color: #8E8E93 !important; }
 
     [data-testid="baseButton-primary"] {
-        background-color: #1E1E1E !important;
+        background-color: #F5F5F7 !important;
         border-radius: 12px !important;
         border: none !important;
-        font-weight: 500 !important;
+        font-weight: 600 !important;
         letter-spacing: 0.01em !important;
-        color: #FFFFFF !important;
+        color: #000000 !important;
     }
-    [data-testid="baseButton-primary"]:hover { background-color: #3A3A3C !important; }
+    [data-testid="baseButton-primary"]:hover { background-color: #E5E5EA !important; }
     [data-testid="baseButton-secondary"] {
-        background-color: #FFFFFF !important;
-        border: 1px solid #E5E5E5 !important;
+        background-color: #1C1C1E !important;
+        border: 1px solid #38383A !important;
         border-radius: 12px !important;
-        color: #1E1E1E !important;
+        color: #F5F5F7 !important;
     }
 
     [data-testid="stTextInput"] input {
         border-radius: 12px !important;
-        border-color: #E5E5E5 !important;
-        background: #FFFFFF !important;
-        color: #1E1E1E !important;
+        border-color: #38383A !important;
+        background: #1C1C1E !important;
+        color: #F5F5F7 !important;
     }
     [data-testid="stTextInput"] input:focus {
-        border-color: #1E1E1E !important;
+        border-color: #F5F5F7 !important;
         box-shadow: none !important;
     }
     [data-testid="stSelectbox"] > div > div {
         border-radius: 12px !important;
-        border-color: #E5E5E5 !important;
-        background: #FFFFFF !important;
+        border-color: #38383A !important;
+        background: #1C1C1E !important;
+        color: #F5F5F7 !important;
     }
 
     [data-testid="stTabs"] [role="tablist"] {
-        border-bottom: 1px solid #E5E5E5 !important;
+        border-bottom: 1px solid #38383A !important;
         gap: 0 !important;
         background: transparent !important;
     }
     [data-testid="stTabs"] [role="tab"] {
         font-size: 0.83rem !important;
         font-weight: 500 !important;
-        color: #6E6E73 !important;
+        color: #8E8E93 !important;
         border: none !important;
         border-bottom: 2px solid transparent !important;
         border-radius: 0 !important;
@@ -121,40 +125,40 @@ def main():
         background: transparent !important;
     }
     [data-testid="stTabs"] [role="tab"][aria-selected="true"] {
-        color: #1E1E1E !important;
-        border-bottom: 2px solid #1E1E1E !important;
+        color: #F5F5F7 !important;
+        border-bottom: 2px solid #F5F5F7 !important;
         font-weight: 600 !important;
     }
     [data-testid="stTabs"] [role="tab"]:hover {
-        color: #1E1E1E !important;
+        color: #F5F5F7 !important;
         background: transparent !important;
     }
 
     [data-testid="stExpander"] {
-        border: 1px solid #E5E5E5 !important;
+        border: 1px solid #38383A !important;
         border-radius: 12px !important;
-        background: #FFFFFF !important;
+        background: #1C1C1E !important;
     }
     [data-testid="stExpander"] summary {
         border-radius: 12px !important;
         font-weight: 500 !important;
-        color: #1E1E1E !important;
+        color: #F5F5F7 !important;
     }
 
     [data-testid="stDataFrame"] {
-        border: 1px solid #E5E5E5 !important;
+        border: 1px solid #38383A !important;
         border-radius: 12px !important;
         overflow: hidden !important;
     }
     [data-testid="stAlert"] { border-radius: 12px !important; }
-    hr { border-color: #E5E5E5 !important; margin: 1.5rem 0 !important; }
+    hr { border-color: #38383A !important; margin: 1.5rem 0 !important; }
     .stCaption, [data-testid="stCaptionContainer"] p, small {
-        color: #6E6E73 !important;
+        color: #8E8E93 !important;
         font-size: 0.8rem !important;
     }
     ::-webkit-scrollbar { width: 5px; height: 5px; }
-    ::-webkit-scrollbar-track { background: #F5F5F7; }
-    ::-webkit-scrollbar-thumb { background: #C7C7CC; border-radius: 3px; }
+    ::-webkit-scrollbar-track { background: #1C1C1E; }
+    ::-webkit-scrollbar-thumb { background: #48484A; border-radius: 3px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -188,10 +192,10 @@ def main():
     if not ticker_input:
         st.markdown("""
         <div style="text-align:center;padding:80px 40px;">
-            <p style="font-size:0.72rem;font-weight:600;color:#6E6E73;text-transform:uppercase;
+            <p style="font-size:0.72rem;font-weight:600;color:#8E8E93;text-transform:uppercase;
                       letter-spacing:0.12em;margin-bottom:16px;">IDX Equity Research</p>
-            <h1 style="font-size:2.6rem;font-weight:700;color:#1E1E1E;margin-bottom:12px;">PastiCuan</h1>
-            <p style="font-size:1rem;color:#6E6E73;max-width:420px;margin:0 auto;">
+            <h1 style="font-size:2.6rem;font-weight:700;color:#F5F5F7;margin-bottom:12px;">PastiCuan</h1>
+            <p style="font-size:1rem;color:#8E8E93;max-width:420px;margin:0 auto;">
                 Enter a ticker symbol in the sidebar and click <strong>Analyze</strong> to begin.
             </p>
         </div>
@@ -245,10 +249,10 @@ def main():
     elif not st.session_state.get("fetched_data"):
         st.markdown("""
         <div style="text-align:center;padding:80px 40px;">
-            <p style="font-size:0.72rem;font-weight:600;color:#6E6E73;text-transform:uppercase;
+            <p style="font-size:0.72rem;font-weight:600;color:#8E8E93;text-transform:uppercase;
                       letter-spacing:0.12em;margin-bottom:16px;">IDX Equity Research</p>
-            <h1 style="font-size:2.6rem;font-weight:700;color:#1E1E1E;margin-bottom:12px;">PastiCuan</h1>
-            <p style="font-size:1rem;color:#6E6E73;max-width:420px;margin:0 auto;">
+            <h1 style="font-size:2.6rem;font-weight:700;color:#F5F5F7;margin-bottom:12px;">PastiCuan</h1>
+            <p style="font-size:1rem;color:#8E8E93;max-width:420px;margin:0 auto;">
                 Click <strong>Analyze</strong> in the sidebar to load data.
             </p>
         </div>
@@ -268,22 +272,22 @@ def main():
     latest_close = history["Close"].iloc[-1] if not history.empty else 0
     prev_close   = history["Close"].iloc[-2] if len(history) > 1 else latest_close
     pct_change   = (latest_close - prev_close) / prev_close * 100 if prev_close else 0
-    chg_color    = "#10B981" if pct_change >= 0 else "#EF4444"
+    chg_color    = "#30D158" if pct_change >= 0 else "#FF453A"
     chg_sign     = "+" if pct_change >= 0 else ""
     st.markdown(f"""
-    <div style="padding:28px 0 20px 0;border-bottom:1px solid #E5E5E5;margin-bottom:24px;">
+    <div style="padding:28px 0 20px 0;border-bottom:1px solid #38383A;margin-bottom:24px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;">
             <div>
-                <div style="font-size:0.72rem;font-weight:600;color:#6E6E73;
+                <div style="font-size:0.72rem;font-weight:600;color:#8E8E93;
                             text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">
                     {ticker}&nbsp;&nbsp;&middot;&nbsp;&nbsp;{basic.get('sector','N/A')}&nbsp;&nbsp;&middot;&nbsp;&nbsp;{period_label}
                 </div>
-                <h1 style="font-size:1.9rem;font-weight:700;color:#1E1E1E;margin:0;line-height:1.2;">
+                <h1 style="font-size:1.9rem;font-weight:700;color:#F5F5F7;margin:0;line-height:1.2;">
                     {basic.get('longName','')}
                 </h1>
             </div>
             <div style="text-align:right;">
-                <div style="font-size:1.9rem;font-weight:700;color:#1E1E1E;line-height:1.2;">
+                <div style="font-size:1.9rem;font-weight:700;color:#F5F5F7;line-height:1.2;">
                     Rp {latest_close:,.0f}
                 </div>
                 <div style="font-size:0.95rem;font-weight:500;color:{chg_color};margin-top:4px;">

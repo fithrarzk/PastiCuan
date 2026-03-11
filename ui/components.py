@@ -62,8 +62,8 @@ def render_technical_panel(tech: dict) -> None:
 
     # Trend signal
     st.markdown(
-        f"<div style='font-size:0.82rem;color:#6E6E73;padding:8px 0;line-height:1.5;'>"
-        f"<strong style='color:#1E1E1E;'>Trend</strong>&nbsp; {tech['sma_signal']}</div>",
+        f"<div style='font-size:0.82rem;color:#8E8E93;padding:8px 0;line-height:1.5;'>"
+        f"<strong style='color:#F5F5F7;'>Trend</strong>&nbsp; {tech['sma_signal']}</div>",
         unsafe_allow_html=True,
     )
 
@@ -73,8 +73,8 @@ def render_technical_panel(tech: dict) -> None:
         sc1.metric("Support",    f"Rp {tech['support']:,.0f}")
         sc2.metric("Resistance", f"Rp {tech['resistance']:,.0f}")
         st.markdown(
-            f"<div style='font-size:0.82rem;color:#6E6E73;padding:8px 0;line-height:1.5;'>"
-            f"<strong style='color:#1E1E1E;'>Position</strong>&nbsp; {tech['sr_signal']}</div>",
+            f"<div style='font-size:0.82rem;color:#8E8E93;padding:8px 0;line-height:1.5;'>"
+            f"<strong style='color:#F5F5F7;'>Position</strong>&nbsp; {tech['sr_signal']}</div>",
             unsafe_allow_html=True,
         )
     else:

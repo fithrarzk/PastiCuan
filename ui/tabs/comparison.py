@@ -7,7 +7,7 @@ import yfinance as yf
 
 from data.extended import get_comparison_data
 
-_COLORS = ["#1E1E1E", "#10B981", "#EF4444", "#64748B", "#A78BFA", "#F59E0B", "#6E6E73"]
+_COLORS = ["#F5F5F7", "#30D158", "#FF453A", "#64748B", "#A78BFA", "#FF9F0A", "#8E8E93"]
 _CONFIG = {"displayModeBar": False}
 
 
@@ -37,7 +37,7 @@ def render_comparison_tab(main_ticker: str, period_yf: str) -> None:
         return
 
     # ── Normalised performance chart ──────────────────────────────────────────
-    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>Normalised Price Performance (Base = 100)</h3>",
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:16px;'>Normalised Price Performance (Base = 100)</h3>",
                 unsafe_allow_html=True)
     fig = go.Figure()
     for i, (tkr, hist) in enumerate(hist_map.items()):
@@ -52,20 +52,20 @@ def render_comparison_tab(main_ticker: str, period_yf: str) -> None:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         height=420,
-        font=dict(family="Inter, -apple-system, sans-serif", color="#1E1E1E", size=12),
-        yaxis=dict(title="Normalised Price (%)", gridcolor="#F0F0F0", gridwidth=0.5,
-                   zeroline=False, linecolor="#E5E5E5", tickfont=dict(color="#6E6E73", size=11)),
-        xaxis=dict(showgrid=False, zeroline=False, linecolor="#E5E5E5",
-                   tickfont=dict(color="#6E6E73", size=11)),
+        font=dict(family="Inter, -apple-system, sans-serif", color="#F5F5F7", size=12),
+        yaxis=dict(title="Normalised Price (%)", gridcolor="#2C2C2E", gridwidth=0.5,
+                   zeroline=False, linecolor="#38383A", tickfont=dict(color="#8E8E93", size=11)),
+        xaxis=dict(showgrid=False, zeroline=False, linecolor="#38383A",
+                   tickfont=dict(color="#8E8E93", size=11)),
         margin=dict(l=10, r=10, t=20, b=10),
         legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1,
-                    font=dict(size=11, color="#6E6E73")),
+                    font=dict(size=11, color="#8E8E93")),
         hovermode="x unified",
     )
     st.plotly_chart(fig, use_container_width=True, config=_CONFIG)
 
     # ── Metrics table ─────────────────────────────────────────────────────────
-    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>Performance Metrics</h3>",
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:16px;'>Performance Metrics</h3>",
                 unsafe_allow_html=True)
     rows = []
     raw  = []
@@ -131,7 +131,7 @@ def render_comparison_tab(main_ticker: str, period_yf: str) -> None:
             for raw_col, row_idx in best_idx.items():
                 disp_col = col_map.get(raw_col, raw_col)
                 if disp_col in styles.columns:
-                    styles.at[row_idx, disp_col] = "background-color: rgba(16,185,129,0.10); font-weight: 600"
+                    styles.at[row_idx, disp_col] = "background-color: rgba(48,209,88,0.15); font-weight: 600"
             return styles
 
         styled = display_df.style.apply(_highlight_best, axis=None)

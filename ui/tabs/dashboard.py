@@ -22,7 +22,7 @@ def render_dashboard_tab(
     ratios  = data["ratios"]
 
     # ── Key Statistics ────────────────────────────────────────────────────────
-    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>Key Statistics</h3>",
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:16px;'>Key Statistics</h3>",
                 unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns(5)
     if not history.empty:
@@ -53,18 +53,18 @@ def render_dashboard_tab(
     # ── Fundamental & Technical side-by-side ──────────────────────────────────
     col_f, col_t = st.columns(2, gap="large")
     with col_f:
-        st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>Fundamental Ratios</h3>",
+        st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:16px;'>Fundamental Ratios</h3>",
                     unsafe_allow_html=True)
         render_ratios_table(ratios, fund)
     with col_t:
-        st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>Technical Indicators</h3>",
+        st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:16px;'>Technical Indicators</h3>",
                     unsafe_allow_html=True)
         render_technical_panel(tech)
 
     st.divider()
 
     # ── AI Analysis ───────────────────────────────────────────────────────────
-    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:4px;'>AI Research Report</h3>",
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:4px;'>AI Research Report</h3>",
                 unsafe_allow_html=True)
     if not os.environ.get("GEMINI_API_KEY"):
         st.info("Set `GEMINI_API_KEY` in your `.env` file to enable AI analysis.")
@@ -73,7 +73,7 @@ def render_dashboard_tab(
     if st.session_state.get("ai_result"):
         st.caption("Analysis cached — click Regenerate to refresh.")
         st.markdown(
-            f"<div style='line-height:1.7;font-size:0.875rem;color:#1E1E1E;'>"
+            f"<div style='line-height:1.7;font-size:0.875rem;color:#F5F5F7;'>"
             f"{st.session_state['ai_result']}</div>",
             unsafe_allow_html=True,
         )

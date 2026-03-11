@@ -6,13 +6,13 @@ from ui.charts import render_price_chart
 
 
 def render_technical_tab(tech: dict, ticker: str, history) -> None:
-    st.markdown(f"<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>{ticker} — Technical Chart</h3>",
+    st.markdown(f"<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:16px;'>{ticker} — Technical Chart</h3>",
                 unsafe_allow_html=True)
     render_price_chart(tech, ticker)
 
     # ── Smart Money Flow ────────────────────────────────────────────────────
     st.divider()
-    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:4px;'>Smart Money Flow</h3>",
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:4px;'>Smart Money Flow</h3>",
                 unsafe_allow_html=True)
     st.caption(
         "Combines Money Flow Index (MFI) and On-Balance Volume (OBV) to assess "

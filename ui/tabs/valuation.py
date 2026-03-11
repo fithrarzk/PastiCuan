@@ -4,11 +4,11 @@ import streamlit as st
 import plotly.graph_objects as go
 
 _BAND_COLORS = {
-    "band_m2":   "rgba(239,68,68,0.7)",
-    "band_m1":   "rgba(245,158,11,0.7)",
-    "band_mean": "rgba(30,30,30,0.8)",
-    "band_p1":   "rgba(245,158,11,0.7)",
-    "band_p2":   "rgba(239,68,68,0.7)",
+    "band_m2":   "rgba(255,69,58,0.8)",
+    "band_m1":   "rgba(255,159,10,0.8)",
+    "band_mean": "rgba(245,245,247,0.9)",
+    "band_p1":   "rgba(255,159,10,0.8)",
+    "band_p2":   "rgba(255,69,58,0.8)",
 }
 _BAND_LABELS = {
     "band_m2":   "−2 SD",
@@ -38,7 +38,7 @@ def _band_chart(band_data: dict, ratio_name: str, ticker: str):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=band_data["dates"], y=band_data["close"],
-        name="Price", line=dict(color="#1E1E1E", width=1.5),
+        name="Price", line=dict(color="#F5F5F7", width=1.5),
         hovertemplate="Rp %{y:,.0f}<extra></extra>",
     ))
     for key in ["band_m2", "band_m1", "band_mean", "band_p1", "band_p2"]:
@@ -50,19 +50,19 @@ def _band_chart(band_data: dict, ratio_name: str, ticker: str):
         ))
     fig.update_layout(
         title=dict(text=f"{ticker} — Historical {ratio_name} Valuation Bands",
-                   font=dict(size=13, color="#1E1E1E", family="Inter, sans-serif")),
+                   font=dict(size=13, color="#F5F5F7", family="Inter, sans-serif")),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         height=500,
-        font=dict(family="Inter, -apple-system, sans-serif", color="#1E1E1E", size=12),
-        yaxis=dict(title="Price (IDR)", gridcolor="#F0F0F0", gridwidth=0.5,
-                   zeroline=False, linecolor="#E5E5E5",
-                   tickfont=dict(color="#6E6E73", size=11)),
-        xaxis=dict(title="", showgrid=False, zeroline=False, linecolor="#E5E5E5",
-                   tickfont=dict(color="#6E6E73", size=11)),
+        font=dict(family="Inter, -apple-system, sans-serif", color="#F5F5F7", size=12),
+        yaxis=dict(title="Price (IDR)", gridcolor="#2C2C2E", gridwidth=0.5,
+                   zeroline=False, linecolor="#38383A",
+                   tickfont=dict(color="#8E8E93", size=11)),
+        xaxis=dict(title="", showgrid=False, zeroline=False, linecolor="#38383A",
+                   tickfont=dict(color="#8E8E93", size=11)),
         margin=dict(l=10, r=10, t=50, b=10),
         legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1,
-                    font=dict(size=11, color="#6E6E73")),
+                    font=dict(size=11, color="#8E8E93")),
         hovermode="x unified",
     )
     return fig
@@ -75,7 +75,7 @@ def render_valuation_tab(bands: dict, ticker: str) -> None:
     )
 
     # ── PE Bands ──────────────────────────────────────────────────────────────
-    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>PE Valuation Bands</h3>",
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:16px;'>PE Valuation Bands</h3>",
                 unsafe_allow_html=True)
     pe = bands.get("pe")
     if pe:
@@ -102,7 +102,7 @@ def render_valuation_tab(bands: dict, ticker: str) -> None:
     st.divider()
 
     # ── PBV Bands ─────────────────────────────────────────────────────────────
-    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>PBV Valuation Bands</h3>",
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:16px;'>PBV Valuation Bands</h3>",
                 unsafe_allow_html=True)
     pbv = bands.get("pbv")
     if pbv:

@@ -4,17 +4,17 @@ import streamlit as st
 import plotly.graph_objects as go
 
 _CONFIG = {"displayModeBar": False}
-_FONT   = dict(family="Inter, -apple-system, sans-serif", color="#1E1E1E", size=12)
+_FONT   = dict(family="Inter, -apple-system, sans-serif", color="#F5F5F7", size=12)
 _LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     font=_FONT,
     margin=dict(l=10, r=10, t=50, b=10),
     showlegend=False,
-    xaxis=dict(showgrid=False, zeroline=False, linecolor="#E5E5E5",
-               tickfont=dict(color="#6E6E73", size=11)),
-    yaxis=dict(gridcolor="#F0F0F0", gridwidth=0.5, zeroline=False,
-               linecolor="#E5E5E5", tickfont=dict(color="#6E6E73", size=11)),
+    xaxis=dict(showgrid=False, zeroline=False, linecolor="#38383A",
+               tickfont=dict(color="#8E8E93", size=11)),
+    yaxis=dict(gridcolor="#2C2C2E", gridwidth=0.5, zeroline=False,
+               linecolor="#38383A", tickfont=dict(color="#8E8E93", size=11)),
 )
 
 
@@ -51,12 +51,12 @@ def render_seasonality_tab(seasonality: dict, ticker: str) -> None:
         marker_color=bar_colors, opacity=0.85,
         text=[f"{v:+.2f}%" for v in avg_vals],
         textposition="outside",
-        textfont=dict(size=10, color="#6E6E73"),
+        textfont=dict(size=10, color="#8E8E93"),
         hovertemplate="%{x}: %{y:.2f}%<extra></extra>",
     ))
     fig.update_layout(
         title=dict(text=f"{ticker} — Average Monthly Return",
-                   font=dict(size=13, color="#1E1E1E", family="Inter, sans-serif")),
+                   font=dict(size=13, color="#F5F5F7", family="Inter, sans-serif")),
         height=400,
         yaxis_title="Avg Return (%)",
         **_LAYOUT,
@@ -64,20 +64,20 @@ def render_seasonality_tab(seasonality: dict, ticker: str) -> None:
     st.plotly_chart(fig, use_container_width=True, config=_CONFIG)
 
     # ── Win-rate bar chart ────────────────────────────────────────────────────
-    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>Monthly Win Rate</h3>",
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:16px;'>Monthly Win Rate</h3>",
                 unsafe_allow_html=True)
     fig2 = go.Figure(go.Bar(
         x=names, y=pos_vals,
         marker_color="#64748B", opacity=0.75,
         text=[f"{v:.0f}%" for v in pos_vals],
         textposition="outside",
-        textfont=dict(size=10, color="#6E6E73"),
+        textfont=dict(size=10, color="#8E8E93"),
         hovertemplate="%{x}: %{y:.1f}% positive years<extra></extra>",
     ))
     fig2.add_hline(
-        y=50, line_dash="dot", line_color="#C7C7CC", line_width=1,
+        y=50, line_dash="dot", line_color="#48484A", line_width=1,
         annotation_text="50%", annotation_position="bottom right",
-        annotation_font=dict(size=10, color="#6E6E73"),
+        annotation_font=dict(size=10, color="#8E8E93"),
     )
     fig2.update_layout(
         height=340,
@@ -88,7 +88,7 @@ def render_seasonality_tab(seasonality: dict, ticker: str) -> None:
     st.plotly_chart(fig2, use_container_width=True, config=_CONFIG)
 
     # ── Year × Month heatmap ──────────────────────────────────────────────────
-    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#1E1E1E;margin-bottom:16px;'>Year × Month Return Heatmap</h3>",
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:16px;'>Year × Month Return Heatmap</h3>",
                 unsafe_allow_html=True)
     monthly_ret = seasonality["monthly_returns"]
     if not monthly_ret.empty:
@@ -107,8 +107,8 @@ def render_seasonality_tab(seasonality: dict, ticker: str) -> None:
             texttemplate="%{text}",
             textfont=dict(size=9),
             hovertemplate="Year %{y} %{x}: %{z:.2f}%<extra></extra>",
-            colorbar=dict(title=dict(text="Return %", font=dict(size=11, color="#6E6E73")),
-                          tickfont=dict(size=10, color="#6E6E73")),
+            colorbar=dict(title=dict(text="Return %", font=dict(size=11, color="#8E8E93")),
+                          tickfont=dict(size=10, color="#8E8E93")),
         ))
         fig3.update_layout(
             paper_bgcolor="rgba(0,0,0,0)",
@@ -117,8 +117,8 @@ def render_seasonality_tab(seasonality: dict, ticker: str) -> None:
             height=max(300, 28 * len(pivot)),
             margin=dict(l=10, r=10, t=20, b=10),
             xaxis=dict(title="Month", showgrid=False, zeroline=False,
-                       tickfont=dict(color="#6E6E73", size=11)),
+                       tickfont=dict(color="#8E8E93", size=11)),
             yaxis=dict(title="Year", showgrid=False, zeroline=False,
-                       tickfont=dict(color="#6E6E73", size=11)),
+                       tickfont=dict(color="#8E8E93", size=11)),
         )
         st.plotly_chart(fig3, use_container_width=True, config=_CONFIG)
