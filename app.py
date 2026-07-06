@@ -13,6 +13,7 @@ from ui.tabs import (
     render_comparison_tab,
     render_seasonality_tab,
     render_technical_tab,
+    render_learning_page,
 )
 
 load_dotenv()
@@ -168,25 +169,42 @@ def main():
         st.caption("IDX Equity Research · Indonesia")
         st.divider()
 
-        ticker_input = st.text_input(
-            "Ticker Symbol",
-            value="BBCA",
-            placeholder="e.g. BBCA",
-            help="Enter the IDX stock ticker. The .JK suffix is added automatically.",
+        page_mode = st.radio(
+            "Menu",
+            options=["Analyze", "Learn"],
+            horizontal=True,
         )
 
-        period_label = st.selectbox(
-            "Analysis Period",
-            options=list(PERIOD_MAP.keys()),
-            index=0,
-        )
-        period_yf = PERIOD_MAP[period_label]
+        if page_mode == "Analyze":
+            st.divider()
 
-        analyze_btn = st.button("Analyze", use_container_width=True, type="primary")
+            ticker_input = st.text_input(
+                "Ticker Symbol",
+                value="BBCA",
+                placeholder="e.g. BBCA",
+                help="Enter the IDX stock ticker. The .JK suffix is added automatically.",
+            )
+
+            period_label = st.selectbox(
+                "Analysis Period",
+                options=list(PERIOD_MAP.keys()),
+                index=0,
+            )
+            period_yf = PERIOD_MAP[period_label]
+
+            analyze_btn = st.button("Analyze", use_container_width=True, type="primary")
 
         st.divider()
-        st.caption("Data · Yahoo Finance")
-        st.caption("Prices in Indonesian Rupiah (IDR)")
+        if page_mode == "Analyze":
+            st.caption("Data · Yahoo Finance")
+            st.caption("Prices in Indonesian Rupiah (IDR)")
+        else:
+            st.caption("Learning · Technical Analysis")
+            st.caption("Educational content, not investment advice")
+
+    if page_mode == "Learn":
+        render_learning_page()
+        st.stop()
 
     # ── Welcome screen ────────────────────────────────────────────────
     if not ticker_input:
