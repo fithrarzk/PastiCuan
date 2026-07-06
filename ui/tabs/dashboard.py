@@ -1,10 +1,8 @@
 """Tab 1: Dashboard & AI Analyst."""
 
-import os
-
 import streamlit as st
 
-from analysis.ai import generate_ai_analysis
+from analysis.ai import generate_ai_analysis, get_ai_provider_status
 from ui.components import render_ratios_table, render_technical_panel
 
 
@@ -66,9 +64,14 @@ def render_dashboard_tab(
     # ── AI Analysis ───────────────────────────────────────────────────────────
     st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:4px;'>AI Research Report</h3>",
                 unsafe_allow_html=True)
-    if not os.environ.get("GEMINI_API_KEY"):
-        st.info("Set `GEMINI_API_KEY` in your `.env` file to enable AI analysis.")
-        return
+    provider_status = get_ai_provider_status()
+    if provider_status["ready"]:
+        st.caption(f"{provider_status['label']} — {provider_status['message']}")
+    else:
+        st.warning(
+            f"{provider_status['label']} — {provider_status['message']} "
+            "Click Generate to use the deterministic local fallback."
+        )
 
     if st.session_state.get("ai_result"):
         st.caption("Analysis cached — click Regenerate to refresh.")

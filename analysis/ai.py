@@ -1,24 +1,113 @@
-"""
-Gemini AI-powered stock analysis — Super Prompt.
+"""AI-powered stock analysis with local-first provider support."""
 
-Uses Google's Generative AI (Gemini 2.0 Flash) to produce a markdown-formatted
-investment summary that combines fundamental, technical, valuation-band,
-seasonality, and competitor data.
-"""
-
+import json
 import os
 from datetime import datetime
+from urllib.error import URLError, HTTPError
+from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
-import google.generativeai as genai
-from google.api_core.exceptions import ResourceExhausted
 
 load_dotenv()
+
+DEFAULT_OLLAMA_URL = "http://localhost:11434"
+DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
+DEFAULT_AI_PROVIDER = "ollama"
 
 _MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
 ]
+
+
+def _env_provider() -> str:
+    return os.environ.get("AI_PROVIDER", DEFAULT_AI_PROVIDER).strip().lower()
+
+
+def _ollama_base_url() -> str:
+    return os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_URL).rstrip("/")
+
+
+def _ollama_model() -> str:
+    return os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL).strip()
+
+
+def _http_json(method: str, url: str, payload: dict | None = None, timeout: int = 10) -> dict:
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = Request(
+        url,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    with urlopen(req, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def get_ai_provider_status() -> dict:
+    """Return the configured AI provider and whether it is ready."""
+    provider = _env_provider()
+    if provider == "off":
+        return {
+            "provider": "off",
+            "ready": True,
+            "label": "AI disabled",
+            "message": "AI report generation is disabled.",
+        }
+
+    if provider in {"ollama", "auto"}:
+        base_url = _ollama_base_url()
+        model = _ollama_model()
+        try:
+            data = _http_json("GET", f"{base_url}/api/tags", timeout=2)
+            models = [item.get("name") for item in data.get("models", [])]
+            model_ready = any(name == model or name.startswith(f"{model}:") for name in models if name)
+            if model_ready:
+                return {
+                    "provider": "ollama",
+                    "ready": True,
+                    "label": f"Ollama · {model}",
+                    "message": "Local model is ready.",
+                }
+            return {
+                "provider": "ollama",
+                "ready": False,
+                "label": f"Ollama · {model}",
+                "message": f"Ollama is running, but model `{model}` is not installed.",
+            }
+        except (HTTPError, URLError, TimeoutError, OSError):
+            if provider == "auto" and os.environ.get("GEMINI_API_KEY"):
+                return {
+                    "provider": "gemini",
+                    "ready": True,
+                    "label": "Gemini fallback",
+                    "message": "Ollama is unavailable; Gemini fallback is configured.",
+                }
+            return {
+                "provider": "ollama",
+                "ready": False,
+                "label": f"Ollama · {model}",
+                "message": "Ollama is not reachable on the configured local URL.",
+            }
+
+    if provider == "gemini":
+        return {
+            "provider": "gemini",
+            "ready": bool(os.environ.get("GEMINI_API_KEY")),
+            "label": "Gemini",
+            "message": (
+                "Gemini API key is configured."
+                if os.environ.get("GEMINI_API_KEY")
+                else "Set GEMINI_API_KEY to use Gemini."
+            ),
+        }
+
+    return {
+        "provider": provider,
+        "ready": False,
+        "label": provider,
+        "message": "Unknown AI provider. Use `ollama`, `gemini`, `auto`, or `off`.",
+    }
 
 
 def _build_prompt(
@@ -124,7 +213,12 @@ def _build_prompt(
     # ── Seasonality section (current month) ───────────────────────────────────
     current_month = datetime.now().month
     current_month_name = _MONTH_NAMES[current_month - 1]
-    if seasonality and not seasonality.get("monthly_avg", {}).empty if hasattr(seasonality.get("monthly_avg", {}), "empty") else not seasonality:
+    has_seasonality = (
+        bool(seasonality)
+        and hasattr(seasonality.get("monthly_avg", {}), "empty")
+        and not seasonality.get("monthly_avg", {}).empty
+    )
+    if has_seasonality:
         avg = seasonality["monthly_avg"]
         pos = seasonality["monthly_pos_pct"]
         month_avg = avg.get(current_month, None)
@@ -221,6 +315,118 @@ one-line risk/reward summary.
     return prompt
 
 
+def _fmt_price(value) -> str:
+    return "N/A" if value is None else f"Rp {value:,.0f}"
+
+
+def _build_deterministic_report(
+    fundamental_data: dict,
+    technical_data: dict,
+    ticker: str,
+    seasonality: dict | None = None,
+) -> str:
+    """Build a useful report without an LLM so the app remains fully local."""
+    score = technical_data.get("technical_score")
+    score_text = f"{score:.0f}/100" if score is not None else "N/A"
+    confidence = technical_data.get("confidence")
+    confidence_text = f"{confidence:.0f}%" if confidence is not None else "N/A"
+    entry_zone = technical_data.get("entry_zone", ("N/A", "N/A"))
+    rr = technical_data.get("risk_reward")
+
+    final_verdict = "HOLD"
+    if score is not None:
+        if score >= 65 and "Overvalued" not in fundamental_data.get("overall", ""):
+            final_verdict = "BUY"
+        elif score < 40 or "Overvalued" in fundamental_data.get("overall", ""):
+            final_verdict = "SELL"
+
+    current_month = datetime.now().month
+    month_name = _MONTH_NAMES[current_month - 1]
+    seasonality_line = "Seasonality data is unavailable."
+    if seasonality and hasattr(seasonality.get("monthly_avg", {}), "get"):
+        avg = seasonality.get("monthly_avg")
+        pos = seasonality.get("monthly_pos_pct")
+        month_avg = avg.get(current_month, None)
+        month_win = pos.get(current_month, None)
+        if month_avg is not None and month_win is not None:
+            seasonality_line = (
+                f"{month_name} historical average return is {month_avg:+.2f}% "
+                f"with {month_win:.0f}% positive-close frequency."
+            )
+
+    return f"""\
+> Local deterministic report. No LLM was used.
+
+**INVESTMENT THESIS**
+{ticker} currently screens as **{final_verdict}** from a local rules-based blend of valuation and technical setup. Technical score is **{score_text}** with **{confidence_text}** confidence, using the **{technical_data.get('profile_label', 'N/A')}** profile and **{technical_data.get('horizon', 'N/A')}** horizon.
+
+**VALUATION ANALYSIS**
+PE is **{fundamental_data.get('pe_value', 'N/A')}** ({fundamental_data.get('pe_label', 'N/A')}) and PBV is **{fundamental_data.get('pbv_value', 'N/A')}** ({fundamental_data.get('pbv_label', 'N/A')}). Overall valuation signal: **{fundamental_data.get('overall', 'N/A')}**.
+
+**TECHNICAL SETUP**
+Trend: {technical_data.get('sma_signal', 'N/A')}. Momentum: RSI {technical_data.get('rsi', 'N/A')} and {technical_data.get('macd_signal', 'N/A')}. Volatility: ATR {technical_data.get('atr_pct', 'N/A')}% ({technical_data.get('atr_signal', 'N/A')}).
+
+**SMART MONEY FLOW**
+{technical_data.get('smart_money', 'N/A')} MFI signal: {technical_data.get('mfi_signal', 'N/A')}. OBV signal: {technical_data.get('obv_signal', 'N/A')}.
+
+**SEASONALITY & TIMING**
+{seasonality_line}
+
+**ACTIONABLE PLAN**
+- Entry Price — {entry_zone[0]} - {entry_zone[1]}
+- Take Profit (TP) — {_fmt_price(technical_data.get('take_profit'))}
+- Stop Loss (SL) — {_fmt_price(technical_data.get('stop_loss'))}
+Risk/reward: {f'{rr:.2f}R' if rr is not None else 'N/A'}.
+
+**FINAL VERDICT: {final_verdict}** — Local analysis favors {final_verdict} until price, valuation, or volume evidence changes.
+"""
+
+
+def _generate_with_ollama(prompt: str) -> str:
+    timeout = int(os.environ.get("OLLAMA_TIMEOUT", "180"))
+    payload = {
+        "model": _ollama_model(),
+        "stream": False,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a careful IDX equity research analyst. "
+                    "Use only the supplied data. Do not invent prices, ratios, or news."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "options": {
+            "temperature": float(os.environ.get("OLLAMA_TEMPERATURE", "0.2")),
+            "top_p": 0.9,
+            "num_ctx": int(os.environ.get("OLLAMA_NUM_CTX", "8192")),
+        },
+    }
+    data = _http_json("POST", f"{_ollama_base_url()}/api/chat", payload=payload, timeout=timeout)
+    return data.get("message", {}).get("content", "").strip() or "Ollama returned an empty response."
+
+
+def _generate_with_gemini(prompt: str) -> str:
+    from google.api_core.exceptions import ResourceExhausted
+    import google.generativeai as genai
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return "> Gemini API key is not configured."
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"))
+        response = model.generate_content(prompt)
+        return response.text
+    except ResourceExhausted:
+        return (
+            "> Gemini quota limit reached. The app can still use the local "
+            "deterministic report or Ollama if configured."
+        )
+
+
 def generate_ai_analysis(
     fundamental_data: dict,
     technical_data: dict,
@@ -229,7 +435,7 @@ def generate_ai_analysis(
     seasonality: dict | None = None,
     comparison_summary: str | None = None,
 ) -> str:
-    """Send all cross-tab data to Gemini and return a Markdown analysis.
+    """Generate a Markdown analysis using Ollama locally by default.
 
     Parameters
     ----------
@@ -240,37 +446,39 @@ def generate_ai_analysis(
     seasonality      : dict from ``compute_seasonality()`` (optional)
     comparison_summary : one-line summary from comparison tab (optional)
     """
-
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return (
-            "> ⚠️ **Gemini API key not configured.**\n>\n"
-            "> Set `GEMINI_API_KEY` in your `.env` file to enable AI-powered analysis."
-        )
-
+    prompt = _build_prompt(
+        fundamental_data, technical_data, ticker,
+        bands=bands, seasonality=seasonality,
+        comparison_summary=comparison_summary,
+    )
+    fallback = _build_deterministic_report(
+        fundamental_data,
+        technical_data,
+        ticker,
+        seasonality=seasonality,
+    )
+    provider = _env_provider()
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        prompt = _build_prompt(
-            fundamental_data, technical_data, ticker,
-            bands=bands, seasonality=seasonality,
-            comparison_summary=comparison_summary,
-        )
-        response = model.generate_content(prompt)
-        return response.text
-
-    except ResourceExhausted:
+        if provider == "off":
+            return fallback
+        if provider == "ollama":
+            return _generate_with_ollama(prompt)
+        if provider == "gemini":
+            return _generate_with_gemini(prompt)
+        if provider == "auto":
+            try:
+                return _generate_with_ollama(prompt)
+            except Exception:
+                if os.environ.get("GEMINI_API_KEY"):
+                    return _generate_with_gemini(prompt)
+                raise
         return (
-            "> ⚠️ **Quota limit reached (429 – Resource Exhausted).**\n>\n"
-            "> Gemini's free-tier rate limit has been hit. "
-            "> Please **wait 60 seconds** and try again.\n>\n"
-            "> If this keeps happening, consider spacing out requests "
-            "or upgrading your Gemini API plan."
+            f"> Unknown AI provider `{provider}`. Use `ollama`, `gemini`, `auto`, or `off`.\n\n"
+            f"{fallback}"
         )
-
     except Exception as exc:  # noqa: BLE001
         return (
-            f"> ⚠️ **AI analysis failed.**\n>\n"
-            f"> `{type(exc).__name__}: {exc}`\n>\n"
-            f"> Please check your API key and network connection."
+            f"> Local AI provider unavailable: `{type(exc).__name__}: {exc}`\n>\n"
+            f"> Showing a deterministic local report instead.\n\n"
+            f"{fallback}"
         )
