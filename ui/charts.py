@@ -32,13 +32,17 @@ def render_price_chart(tech: dict, ticker: str) -> None:
     df = tech["df"]
 
     has_macd = "MACD" in df.columns and not df["MACD"].isna().all()
+    rsi_period = tech.get("rsi_period", 14)
+    fast_period = tech.get("fast_ma_period", 50)
+    slow_period = tech.get("slow_ma_period", 200)
+    macd_params = tech.get("macd_params", (12, 26, 9))
 
     if has_macd:
         row_heights = [0.55, 0.22, 0.23]
-        titles = (f"{ticker} — Price", "RSI (14)", "MACD (12, 26, 9)")
+        titles = (f"{ticker} — Price", f"RSI ({rsi_period})", f"MACD {macd_params}")
     else:
         row_heights = [0.72, 0.28]
-        titles = (f"{ticker} — Price", "RSI (14)")
+        titles = (f"{ticker} — Price", f"RSI ({rsi_period})")
 
     fig = make_subplots(
         rows=3 if has_macd else 2, cols=1,
@@ -66,15 +70,15 @@ def render_price_chart(tech: dict, ticker: str) -> None:
         ), row=1, col=1,
     )
 
-    # SMA 50
+    # Adaptive fast moving average
     fig.add_trace(
-        go.Scatter(x=df.index, y=df["SMA50"], name="SMA 50",
+        go.Scatter(x=df.index, y=df["MA_Fast"], name=f"MA {fast_period}",
                    line=dict(color="#64748B", width=1.2)), row=1, col=1,
     )
 
-    # SMA 200
+    # Adaptive slow moving average
     fig.add_trace(
-        go.Scatter(x=df.index, y=df["SMA200"], name="SMA 200",
+        go.Scatter(x=df.index, y=df["MA_Slow"], name=f"MA {slow_period}",
                    line=dict(color="#A78BFA", width=1.2)), row=1, col=1,
     )
 
