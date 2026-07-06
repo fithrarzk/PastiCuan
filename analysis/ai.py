@@ -43,26 +43,46 @@ def _build_prompt(
         f"  Overall Valuation Signal: {fundamental_data.get('overall', 'N/A')}"
     )
 
-    # ── Technical section (now includes MACD) ─────────────────────────────────
+    # ── Technical section ─────────────────────────────────────────────────────
     macd_val = technical_data.get("macd")
     macd_sig = technical_data.get("macd_signal_val")
     macd_hist = technical_data.get("macd_hist")
     macd_signal_text = technical_data.get("macd_signal", "N/A")
+    macd_params = technical_data.get("macd_params", (12, 26, 9))
+    score = technical_data.get("technical_score")
+    confidence = technical_data.get("confidence")
+    entry_zone = technical_data.get("entry_zone", ("N/A", "N/A"))
+    stop_loss = technical_data.get("stop_loss")
+    take_profit = technical_data.get("take_profit")
+    rr = technical_data.get("risk_reward")
 
     technical_section = (
-        f"  RSI(14): {technical_data.get('rsi', 'N/A')} — {technical_data.get('rsi_signal', 'N/A')}\n"
+        f"  Adaptive Profile: {technical_data.get('profile_label', 'N/A')}\n"
+        f"  Profile Reason: {technical_data.get('profile_reason', 'N/A')}\n"
+        f"  Preferred Technical Horizon: {technical_data.get('horizon', 'N/A')}\n"
+        f"  Technical Score: {f'{score:.0f}/100' if score is not None else 'N/A'} — "
+        f"{technical_data.get('recommendation', 'N/A')} "
+        f"(Confidence: {f'{confidence:.0f}%' if confidence is not None else 'N/A'})\n"
+        f"  Score Components: {technical_data.get('score_components', 'N/A')}\n"
+        f"  RSI({technical_data.get('rsi_period', 14)}): {technical_data.get('rsi', 'N/A')} — "
+        f"{technical_data.get('rsi_signal', 'N/A')}\n"
         f"  MACD Line: {f'{macd_val:.2f}' if macd_val is not None else 'N/A'}\n"
         f"  MACD Signal Line: {f'{macd_sig:.2f}' if macd_sig is not None else 'N/A'}\n"
         f"  MACD Histogram: {f'{macd_hist:+.2f}' if macd_hist is not None else 'N/A'}\n"
-        f"  MACD Momentum: {macd_signal_text}\n"
-        f"  SMA 50: {technical_data.get('sma50', 'N/A')}\n"
-        f"  SMA 200: {technical_data.get('sma200', 'N/A')}\n"
+        f"  MACD Momentum {macd_params}: {macd_signal_text}\n"
+        f"  Fast MA({technical_data.get('fast_ma_period', 'N/A')}): {technical_data.get('fast_ma', 'N/A')}\n"
+        f"  Slow MA({technical_data.get('slow_ma_period', 'N/A')}): {technical_data.get('slow_ma', 'N/A')}\n"
         f"  SMA Trend Signal: {technical_data.get('sma_signal', 'N/A')}\n"
-        f"  3-Month Support: {technical_data.get('support', 'N/A')}\n"
-        f"  3-Month Resistance: {technical_data.get('resistance', 'N/A')}\n"
+        f"  Adaptive Support ({technical_data.get('sr_lookback_days', 'N/A')} bars): {technical_data.get('support', 'N/A')}\n"
+        f"  Adaptive Resistance ({technical_data.get('sr_lookback_days', 'N/A')} bars): {technical_data.get('resistance', 'N/A')}\n"
         f"  Price Position Signal: {technical_data.get('sr_signal', 'N/A')}\n"
         f"  ATR(14): {technical_data.get('atr', 'N/A')} ({technical_data.get('atr_pct', 'N/A')}%) "
-        f"— {technical_data.get('atr_signal', 'N/A')}"
+        f"— {technical_data.get('atr_signal', 'N/A')}\n"
+        f"  Realized Volatility: {technical_data.get('realized_volatility', 'N/A')}%\n"
+        f"  Suggested Entry Zone: {entry_zone[0]} - {entry_zone[1]}\n"
+        f"  Suggested Stop Loss: {f'Rp {stop_loss:,.0f}' if stop_loss is not None else 'N/A'}\n"
+        f"  Suggested Take Profit: {f'Rp {take_profit:,.0f}' if take_profit is not None else 'N/A'}\n"
+        f"  Risk/Reward: {f'{rr:.2f}R' if rr is not None else 'N/A'}"
     )
 
     # ── Smart Money Flow section ─────────────────────────────────────────────
@@ -142,7 +162,7 @@ Analyze ALL data sections below holistically before writing.
 **1. Fundamentals:**
 {fundamental_section}
 
-**2. Technical Indicators (RSI, MACD, SMA, Support/Resistance, ATR):**
+**2. Technical Indicators (Adaptive horizon, RSI, MACD, MA, Support/Resistance, ATR):**
 {technical_section}
 
 **3. Smart Money Flow (MFI + OBV):**
@@ -173,8 +193,10 @@ SD-band positions. Assess whether the current level represents a genuine discoun
 or a potential value trap.
 
 **TECHNICAL SETUP**
-Interpret MACD momentum, RSI level, and SMA 50/200 trend. Comment on proximity to \
-key Support and Resistance levels and contextualize ATR-based volatility.
+First state whether the adaptive profile and preferred horizon fit the stock's \
+sector/volatility character. Interpret technical score, confidence, MACD momentum, \
+RSI level, and adaptive MA trend. Comment on proximity to key Support and \
+Resistance levels and contextualize ATR-based volatility.
 
 **SMART MONEY FLOW**
 Interpret MFI and OBV data to assess whether price moves are supported by \
@@ -190,7 +212,9 @@ Based on Support, Resistance, ATR, and valuation bands, state:
 - Entry Price — suggested entry zone with rationale
 - Take Profit (TP) — target level
 - Stop Loss (SL) — hard cut-loss level
-Format all price levels as "Rp X,XXX". Include a one-line risk/reward summary.
+Use the suggested technical plan when it is consistent with the setup; otherwise \
+explain why you override it. Format all price levels as "Rp X,XXX". Include a \
+one-line risk/reward summary.
 
 **FINAL VERDICT: [BUY / HOLD / SELL]** — One sentence.
 """

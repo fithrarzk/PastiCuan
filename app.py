@@ -222,7 +222,7 @@ def main():
         info    = data["info"]
         sector  = data["basic"].get("sector", "N/A")
 
-        tech  = analyze_technical(history)
+        tech  = analyze_technical(history, sector=sector, info=info)
         fund  = analyze_fundamental(info, sector)
         bands = compute_valuation_bands(
             history,

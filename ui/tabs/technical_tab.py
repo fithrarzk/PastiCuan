@@ -8,7 +8,36 @@ from ui.charts import render_price_chart
 def render_technical_tab(tech: dict, ticker: str, history) -> None:
     st.markdown(f"<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:16px;'>{ticker} — Technical Chart</h3>",
                 unsafe_allow_html=True)
+    score = tech.get("technical_score")
+    confidence = tech.get("confidence")
+    score_text = f"{score:.0f}/100" if score is not None else "N/A"
+    confidence_text = f"{confidence:.0f}%" if confidence is not None else "N/A"
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Technical Score", score_text, tech.get("recommendation", "N/A"), delta_color="off")
+    c2.metric("Horizon", tech.get("horizon", "N/A"), tech.get("profile_label", "N/A"), delta_color="off")
+    c3.metric("Confidence", confidence_text, tech.get("profile_reason", "N/A"), delta_color="off")
+
     render_price_chart(tech, ticker)
+
+    st.divider()
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:8px;'>Adaptive Signal Breakdown</h3>",
+                unsafe_allow_html=True)
+    components = tech.get("score_components", {})
+    if components:
+        rows = [
+            {"Component": name.title(), "Score": f"{value:.0f}/100"}
+            for name, value in components.items()
+        ]
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    entry_zone = tech.get("entry_zone")
+    plan1, plan2, plan3, plan4 = st.columns(4)
+    if entry_zone:
+        plan1.metric("Entry Zone", f"{entry_zone[0]} - {entry_zone[1]}")
+    plan2.metric("Stop Loss", f"Rp {tech['stop_loss']:,.0f}" if tech.get("stop_loss") is not None else "N/A")
+    plan3.metric("Take Profit", f"Rp {tech['take_profit']:,.0f}" if tech.get("take_profit") is not None else "N/A")
+    rr = tech.get("risk_reward")
+    plan4.metric("Risk / Reward", f"{rr:.2f}R" if rr is not None else "N/A")
 
     # ── Smart Money Flow ────────────────────────────────────────────────────
     st.divider()
