@@ -7,6 +7,8 @@ from analysis.technical import analyze_technical
 from analysis.fundamental import analyze_fundamental
 from analysis.valuation_bands import compute_valuation_bands
 from analysis.seasonality import compute_seasonality
+from analysis.backtest import backtest_technical_strategy
+from analysis.decision import build_decision_report
 from ui.tabs import (
     render_dashboard_tab,
     render_valuation_tab,
@@ -14,11 +16,27 @@ from ui.tabs import (
     render_seasonality_tab,
     render_technical_tab,
     render_learning_page,
+    render_backtest_tab,
+    render_decision_tab,
+    render_scanner_tab,
 )
 
 load_dotenv()
 
 PERIOD_MAP = {"3 Years": "3y", "5 Years": "5y", "Max": "max"}
+
+
+def _compute_liquidity(history):
+    if history is None or history.empty:
+        return {"avg_volume": None, "avg_value": None}
+    window = history.tail(min(len(history), 60))
+    avg_volume = float(window["Volume"].fillna(0).mean()) if "Volume" in window else None
+    avg_value = (
+        float((window["Close"] * window["Volume"].fillna(0)).mean())
+        if {"Close", "Volume"}.issubset(window.columns)
+        else None
+    )
+    return {"avg_volume": avg_volume, "avg_value": avg_value}
 
 
 def main():
@@ -241,7 +259,12 @@ def main():
         sector  = data["basic"].get("sector", "N/A")
 
         tech  = analyze_technical(history, sector=sector, info=info)
-        fund  = analyze_fundamental(info, sector)
+        fund  = analyze_fundamental(
+            info,
+            sector,
+            quarterly_income=data["quarterly_income"],
+            quarterly_balance=data["quarterly_balance"],
+        )
         bands = compute_valuation_bands(
             history,
             data["quarterly_income"],
@@ -249,12 +272,35 @@ def main():
             info,
         )
         seasonality = compute_seasonality(history)
+        backtest = backtest_technical_strategy(history, sector=sector, info=info)
+        if backtest.get("setup_confidence") is not None:
+            base_confidence = tech.get("confidence") or 50
+            tech["data_confidence"] = base_confidence
+            tech["historical_confidence"] = backtest["setup_confidence"]
+            tech["confidence"] = min(95, base_confidence * 0.55 + backtest["setup_confidence"] * 0.45)
+        liquidity = _compute_liquidity(history)
+        decision = build_decision_report(
+            tech,
+            fund,
+            bands=bands,
+            seasonality=seasonality,
+            backtest=backtest,
+            liquidity=liquidity,
+        )
 
         # Fetch 10-year history specifically for seasonality analysis
         try:
             hist_10y = yf.Ticker(ticker).history(period="10y")
             if not hist_10y.empty:
                 seasonality = compute_seasonality(hist_10y)
+                decision = build_decision_report(
+                    tech,
+                    fund,
+                    bands=bands,
+                    seasonality=seasonality,
+                    backtest=backtest,
+                    liquidity=liquidity,
+                )
         except Exception:
             pass  # fall back to the period-based seasonality computed above
 
@@ -263,6 +309,9 @@ def main():
         st.session_state["fund"]          = fund
         st.session_state["bands"]         = bands
         st.session_state["seasonality"]   = seasonality
+        st.session_state["backtest"]      = backtest
+        st.session_state["liquidity"]     = liquidity
+        st.session_state["decision"]      = decision
 
     elif not st.session_state.get("fetched_data"):
         st.markdown("""
@@ -282,6 +331,8 @@ def main():
     fund        = st.session_state["fund"]
     bands       = st.session_state["bands"]
     seasonality = st.session_state["seasonality"]
+    backtest    = st.session_state.get("backtest")
+    decision    = st.session_state.get("decision")
     ticker      = data["ticker"]
     basic       = data["basic"]
 
@@ -317,8 +368,11 @@ def main():
     """, unsafe_allow_html=True)
 
     # ── Tabs ──────────────────────────────────────────────────────────
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "Dashboard",
+        "Decision",
+        "Backtest",
+        "Scanner",
         "Valuation Bands",
         "Comparison",
         "Seasonality",
@@ -329,15 +383,24 @@ def main():
         render_dashboard_tab(data, tech, fund, bands=bands, seasonality=seasonality)
 
     with tab2:
-        render_valuation_tab(bands, ticker)
+        render_decision_tab(decision, tech, fund, ticker)
 
     with tab3:
-        render_comparison_tab(ticker, period_yf)
+        render_backtest_tab(backtest, ticker)
 
     with tab4:
-        render_seasonality_tab(seasonality, ticker)
+        render_scanner_tab(period_yf)
 
     with tab5:
+        render_valuation_tab(bands, ticker)
+
+    with tab6:
+        render_comparison_tab(ticker, period_yf)
+
+    with tab7:
+        render_seasonality_tab(seasonality, ticker)
+
+    with tab8:
         render_technical_tab(tech, ticker, history)
 
 

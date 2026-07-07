@@ -15,6 +15,11 @@ def render_ratios_table(ratios: dict, fund: dict) -> None:
     rows.append({"Metric": "PE Valuation", "Value": f"{pe_display}  {fund['pe_label']}"})
     rows.append({"Metric": "PBV Valuation", "Value": f"{pbv_display}  {fund['pbv_label']}"})
     rows.append({"Metric": "Overall Verdict", "Value": fund["overall"]})
+    if fund.get("fundamental_score") is not None:
+        rows.append({
+            "Metric": "Fundamental Score",
+            "Value": f"{fund['fundamental_score']:.0f}/100  {fund.get('fundamental_verdict', '')}",
+        })
 
     df = pd.DataFrame(rows)
     st.dataframe(
@@ -123,9 +128,28 @@ def render_fundamental_analysis(fund: dict) -> None:
     )
     c3.metric("Overall Verdict", "", fund["overall"], delta_color="off")
 
+    if fund.get("fundamental_score") is not None:
+        st.metric(
+            "Fundamental Score",
+            f"{fund['fundamental_score']:.0f}/100",
+            fund.get("fundamental_verdict", "N/A"),
+            delta_color="off",
+        )
+
     with st.expander("Sector Benchmarks"):
         st.markdown(
             f"| Ratio | Range |\n|---|---|\n"
             f"| **PE** | {fund['pe_range']} |\n"
             f"| **PBV** | {fund['pbv_range']} |"
+        )
+
+    components = fund.get("fundamental_components", {})
+    if components:
+        st.dataframe(
+            [
+                {"Component": key.replace("_", " ").title(), "Score": f"{value:.0f}/100"}
+                for key, value in components.items()
+            ],
+            use_container_width=True,
+            hide_index=True,
         )
