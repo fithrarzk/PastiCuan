@@ -1,0 +1,18 @@
+services:
+  - type: worker
+    name: pasticuan-telegram-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+
+  - type: web
+    name: pasticuan-streamlit-app
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
