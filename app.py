@@ -1,14 +1,8 @@
-import yfinance as yf
 import streamlit as st
 from dotenv import load_dotenv
 
 from data.extended import get_extended_data
-from analysis.technical import analyze_technical
-from analysis.fundamental import analyze_fundamental
-from analysis.valuation_bands import compute_valuation_bands
-from analysis.seasonality import compute_seasonality
-from analysis.backtest import backtest_technical_strategy
-from analysis.decision import build_decision_report
+from analysis.engine import run_analysis_bundle
 from ui.tabs import (
     render_dashboard_tab,
     render_valuation_tab,
@@ -260,51 +254,14 @@ def main():
         info    = data["info"]
         sector  = data["basic"].get("sector", "N/A")
 
-        tech  = analyze_technical(history, sector=sector, info=info)
-        fund  = analyze_fundamental(
-            info,
-            sector,
-            quarterly_income=data["quarterly_income"],
-            quarterly_balance=data["quarterly_balance"],
-        )
-        bands = compute_valuation_bands(
-            history,
-            data["quarterly_income"],
-            data["quarterly_balance"],
-            info,
-        )
-        seasonality = compute_seasonality(history)
-        backtest = backtest_technical_strategy(history, sector=sector, info=info)
-        if backtest.get("setup_confidence") is not None:
-            base_confidence = tech.get("confidence") or 50
-            tech["data_confidence"] = base_confidence
-            tech["historical_confidence"] = backtest["setup_confidence"]
-            tech["confidence"] = min(95, base_confidence * 0.55 + backtest["setup_confidence"] * 0.45)
-        liquidity = _compute_liquidity(history)
-        decision = build_decision_report(
-            tech,
-            fund,
-            bands=bands,
-            seasonality=seasonality,
-            backtest=backtest,
-            liquidity=liquidity,
-        )
-
-        # Fetch 10-year history specifically for seasonality analysis
-        try:
-            hist_10y = yf.Ticker(ticker).history(period="10y")
-            if not hist_10y.empty:
-                seasonality = compute_seasonality(hist_10y)
-                decision = build_decision_report(
-                    tech,
-                    fund,
-                    bands=bands,
-                    seasonality=seasonality,
-                    backtest=backtest,
-                    liquidity=liquidity,
-                )
-        except Exception:
-            pass  # fall back to the period-based seasonality computed above
+        analysis = run_analysis_bundle(data)
+        tech = analysis["tech"]
+        fund = analysis["fund"]
+        bands = analysis["bands"]
+        seasonality = analysis["seasonality"]
+        backtest = analysis["backtest"]
+        liquidity = analysis["liquidity"]
+        decision = analysis["decision"]
 
         st.session_state["fetched_data"]  = data
         st.session_state["tech"]          = tech
@@ -314,6 +271,7 @@ def main():
         st.session_state["backtest"]      = backtest
         st.session_state["liquidity"]     = liquidity
         st.session_state["decision"]      = decision
+        st.session_state["analysis_bundle"] = analysis["bundle"].to_dict()
 
     elif not st.session_state.get("fetched_data"):
         st.markdown("""
@@ -386,7 +344,10 @@ def main():
         render_dashboard_tab(data, tech, fund, bands=bands, seasonality=seasonality)
 
     with tab2:
-        render_decision_tab(decision, tech, fund, ticker)
+        render_decision_tab(
+            decision, tech, fund, ticker,
+            bundle=st.session_state.get("analysis_bundle"),
+        )
 
     with tab3:
         render_quant_tab(data, tech, fund, ticker)

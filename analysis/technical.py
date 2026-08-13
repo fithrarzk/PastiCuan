@@ -175,14 +175,35 @@ def _pick_profile(sector: str | None, atr_pct: float | None, realized_vol: float
 
 
 def _rsi(close: pd.Series, period: int) -> pd.Series:
+    """Wilder RSI with an arithmetic seed and explicit flat-market handling."""
     delta = close.diff()
-    gain = delta.clip(lower=0).ewm(alpha=1 / period, adjust=False).mean()
-    loss = (-delta.clip(upper=0)).ewm(alpha=1 / period, adjust=False).mean()
-    rs = gain / loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
+    gains = delta.clip(lower=0).to_numpy(dtype=float)
+    losses = (-delta.clip(upper=0)).to_numpy(dtype=float)
+    result = np.full(len(close), np.nan, dtype=float)
+    if len(close) <= period:
+        return pd.Series(result, index=close.index)
+    avg_gain = float(np.nanmean(gains[1 : period + 1]))
+    avg_loss = float(np.nanmean(losses[1 : period + 1]))
+
+    def value(gain: float, loss: float) -> float:
+        if loss == 0 and gain == 0:
+            return 50.0
+        if loss == 0:
+            return 100.0
+        if gain == 0:
+            return 0.0
+        return 100.0 - 100.0 / (1.0 + gain / loss)
+
+    result[period] = value(avg_gain, avg_loss)
+    for i in range(period + 1, len(close)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        result[i] = value(avg_gain, avg_loss)
+    return pd.Series(result, index=close.index)
 
 
 def _atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Wilder ATR seeded by the first arithmetic mean of true range."""
     prev_close = close.shift(1)
     tr = pd.concat(
         [
@@ -192,7 +213,14 @@ def _atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) ->
         ],
         axis=1,
     ).max(axis=1)
-    return tr.rolling(period).mean()
+    result = pd.Series(np.nan, index=tr.index, dtype=float)
+    if len(tr) < period:
+        return result
+    # TR[0] is high-low because previous close is unavailable.
+    result.iloc[period - 1] = tr.iloc[:period].mean()
+    for i in range(period, len(tr)):
+        result.iloc[i] = (result.iloc[i - 1] * (period - 1) + tr.iloc[i]) / period
+    return result
 
 
 def _support_resistance(df: pd.DataFrame, lookback_days: int) -> tuple[float | None, float | None]:
@@ -208,6 +236,28 @@ def _distance_pct(price: float, level: float | None) -> float | None:
     if level is None or level == 0:
         return None
     return (price - level) / level * 100
+
+
+def _horizon_states(close: pd.Series) -> dict:
+    definitions = {
+        "short": {"sessions": 20, "label": "5–20 sessions"},
+        "medium": {"sessions": 126, "label": "1–6 months"},
+        "long": {"sessions": 504, "label": "6–24 months"},
+    }
+    result = {}
+    for name, definition in definitions.items():
+        sessions = definition["sessions"]
+        if len(close) <= sessions:
+            result[name] = {**definition, "status": "INSUFFICIENT_DATA", "return_pct": None}
+            continue
+        ret = (close.iloc[-1] / close.iloc[-sessions - 1] - 1) * 100
+        ma = close.rolling(sessions).mean().iloc[-1]
+        result[name] = {
+            **definition, "status": "AVAILABLE", "return_pct": float(ret),
+            "trend": "UP" if close.iloc[-1] > ma else "DOWN",
+            "formula_version": "horizon-state-v2",
+        }
+    return result
 
 
 def analyze_technical(df: pd.DataFrame, sector: str | None = None, info: dict | None = None) -> dict:
@@ -271,7 +321,7 @@ def analyze_technical(df: pd.DataFrame, sector: str | None = None, info: dict | 
     elif rsi_val >= rsi_high:
         rsi_signal = f"🔴 Overbought (RSI ≥ {rsi_high})"
     elif rsi_val <= rsi_low:
-        rsi_signal = f"🟢 Oversold (RSI ≤ {rsi_low})"
+        rsi_signal = f"🟡 Oversold (RSI ≤ {rsi_low}); trend confirmation required"
     elif rsi_val >= 55:
         rsi_signal = "🟢 Positive momentum"
     elif rsi_val <= 45:
@@ -356,6 +406,10 @@ def analyze_technical(df: pd.DataFrame, sector: str | None = None, info: dict | 
     neg_flow = raw_money_flow.where(tp_delta < 0, 0.0).rolling(14).sum()
     money_ratio = pos_flow / neg_flow.replace(0, np.nan)
     df["MFI"] = 100 - (100 / (1 + money_ratio))
+    both_zero = (pos_flow == 0) & (neg_flow == 0)
+    df.loc[both_zero, "MFI"] = 50.0
+    df.loc[(neg_flow == 0) & (pos_flow > 0), "MFI"] = 100.0
+    df.loc[(pos_flow == 0) & (neg_flow > 0), "MFI"] = 0.0
 
     mfi_val = _last_valid(df["MFI"])
     if mfi_val is None:
@@ -405,7 +459,14 @@ def analyze_technical(df: pd.DataFrame, sector: str | None = None, info: dict | 
     momentum_score = 50.0
     if rsi_val is not None:
         if rsi_val < rsi_low:
-            momentum_score += 8
+            # Oversold alone is not bullish. Reward it only after price confirms
+            # above the fast trend and MACD histogram is improving.
+            confirmed = (
+                fast_ma_val is not None and current_price > fast_ma_val
+                and macd_hist_prev is not None and macd_hist_val is not None
+                and macd_hist_val > macd_hist_prev
+            )
+            momentum_score += 8 if confirmed else -2
         elif rsi_val > rsi_high:
             momentum_score -= 10
         else:
@@ -463,6 +524,24 @@ def analyze_technical(df: pd.DataFrame, sector: str | None = None, info: dict | 
     )
     confidence = min(95, max(35, available_components / 5 * 80 + min(len(df), 252) / 252 * 15))
     recommendation = _score_to_signal(technical_score)
+
+    indicator_values = {
+        "rsi": (rsi_val, f"{rsi_period} sessions", "wilder-rsi-v2"),
+        "atr": (atr_val, "14 sessions", "wilder-atr-v2"),
+        "macd": (macd_val, f"{macd_fast}/{macd_slow}/{macd_signal_period}", "ema-macd-v2"),
+        "mfi": (mfi_val, "14 sessions", "mfi-v2"),
+        "obv": (obv_val, "full window", "obv-v2"),
+        "realized_volatility": (realized_vol, "up to 252 sessions", "close-return-vol-v2"),
+    }
+    indicators = {
+        name: {
+            "value": None if value is None or pd.isna(value) else float(value),
+            "status": "AVAILABLE" if value is not None and not pd.isna(value) else "INSUFFICIENT_DATA",
+            "window": window,
+            "formula_version": formula,
+        }
+        for name, (value, window, formula) in indicator_values.items()
+    }
 
     entry_low = support_val
     if support_val is not None and atr_val is not None:
@@ -557,5 +636,9 @@ def analyze_technical(df: pd.DataFrame, sector: str | None = None, info: dict | 
         "obv": obv_val,
         "obv_signal": obv_signal,
         "smart_money": smart_money,
+        "indicators": indicators,
+        "coverage_pct": available_components / 5 * 100,
+        "formula_version": "idx-eod-v2",
+        "horizon_states": _horizon_states(close),
         "df": df,
     }

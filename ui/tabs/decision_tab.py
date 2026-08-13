@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from analysis.risk import calculate_position_size
+from analysis.presentation import decision_view, display_number
 
 
 def _fmt_money(value) -> str:
@@ -21,7 +22,7 @@ def _append_journal_row(row: dict) -> str:
     return path
 
 
-def render_decision_tab(decision: dict, tech: dict, fund: dict, ticker: str) -> None:
+def render_decision_tab(decision: dict, tech: dict, fund: dict, ticker: str, bundle: dict | None = None) -> None:
     st.markdown(
         f"<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:16px;'>{ticker} — Decision Engine</h3>",
         unsafe_allow_html=True,
@@ -30,18 +31,27 @@ def render_decision_tab(decision: dict, tech: dict, fund: dict, ticker: str) -> 
         st.warning("Decision report is unavailable.")
         return
 
-    score = decision.get("final_score")
+    bundle = bundle or {}
+    quality = bundle.get("data_quality", {})
+    st.caption(
+        f"As of: {bundle.get('as_of', 'N/A')} · Price: {quality.get('price_timestamp', 'N/A')} · "
+        f"Fundamentals: {fund.get('source', 'N/A')} (published {fund.get('publication_timestamp') or 'unknown'}) · "
+        f"Coverage: {decision.get('coverage_pct', 0):.0f}% · Model: {bundle.get('analysis_version', 'legacy')}"
+    )
+
+    view = decision_view(decision)
+    score = view["score"]
     c1, c2, c3 = st.columns(3)
-    c1.metric("Final Score", f"{score:.0f}/100" if score is not None else "N/A", decision.get("final_verdict", "N/A"), delta_color="off")
-    c2.metric("Technical", f"{tech.get('technical_score', 0):.0f}/100", tech.get("recommendation", "N/A"), delta_color="off")
-    c3.metric("Fundamental", f"{fund.get('fundamental_score', 0):.0f}/100", fund.get("fundamental_verdict", "N/A"), delta_color="off")
+    c1.metric("Evidence Score", display_number(score, decimals=0), view["label"], delta_color="off")
+    c2.metric("Technical", display_number(tech.get("technical_score"), decimals=0), tech.get("recommendation", "N/A"), delta_color="off")
+    c3.metric("Fundamental", display_number(fund.get("fundamental_score"), decimals=0), fund.get("fundamental_verdict", "N/A"), delta_color="off")
 
     st.info(decision.get("primary_reason", "No primary reason available."))
 
     components = decision.get("decision_components", {})
     if components:
         rows = [
-            {"Component": key.replace("_", " ").title(), "Score": f"{value:.0f}/100"}
+            {"Component": key.replace("_", " ").title(), "Score": display_number(value, decimals=0)}
             for key, value in components.items()
         ]
         st.dataframe(rows, use_container_width=True, hide_index=True)
@@ -52,9 +62,22 @@ def render_decision_tab(decision: dict, tech: dict, fund: dict, ticker: str) -> 
     else:
         st.success("No major decision warnings from the current rule engine.")
 
+    with st.expander("Data provenance, formulas, and gates"):
+        gate_rows = decision.get("gates", [])
+        if gate_rows:
+            st.dataframe(gate_rows, use_container_width=True, hide_index=True)
+        indicators = tech.get("indicators", {})
+        if indicators:
+            st.dataframe(
+                [{"Metric": name, **details} for name, details in indicators.items()],
+                use_container_width=True,
+                hide_index=True,
+            )
+
     st.divider()
+    section_title = "Action Plan" if decision.get("action") else "Research Risk Levels (not an action)"
     st.markdown(
-        "<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:8px;'>Action Plan</h3>",
+        f"<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:8px;'>{section_title}</h3>",
         unsafe_allow_html=True,
     )
     action = decision.get("action_plan", {})

@@ -26,7 +26,7 @@ def render_quant_tab(data: dict, tech: dict, fund: dict, ticker: str) -> None:
         quarterly_balance=data.get("quarterly_balance"),
     )
 
-    comp_score = quant.get("composite_score", 0)
+    comp_score = quant.get("composite_score")
     grade = quant.get("grade", "N/A")
     factors = quant.get("factors", {})
 
@@ -39,7 +39,7 @@ def render_quant_tab(data: dict, tech: dict, fund: dict, ticker: str) -> None:
                 Composite Multi-Factor Quant Rating
             </div>
             <div style="font-size:2.8rem;font-weight:700;color:#F5F5F7;margin:8px 0;">
-                {comp_score:.1f} <span style="font-size:1.4rem;color:#30D158;">/ 100</span>
+                {f'{comp_score:.1f}' if comp_score is not None else 'N/A'} <span style="font-size:1.4rem;color:#30D158;">/ 100</span>
             </div>
             <div style="font-size:1.1rem;font-weight:600;color:#30D158;">
                 Factor Grade: <span style="background:#30D158;color:#000;padding:2px 10px;border-radius:8px;">{grade}</span>
@@ -49,22 +49,22 @@ def render_quant_tab(data: dict, tech: dict, fund: dict, ticker: str) -> None:
         st.write("")
 
         # 4 Factor summary metrics
-        v_s = factors.get("value", {}).get("score", 0)
-        q_s = factors.get("quality", {}).get("score", 0)
-        m_s = factors.get("momentum", {}).get("score", 0)
-        l_s = factors.get("low_volatility", {}).get("score", 0)
+        v_s = factors.get("value", {}).get("score")
+        q_s = factors.get("quality", {}).get("score")
+        m_s = factors.get("momentum", {}).get("score")
+        l_s = factors.get("low_volatility", {}).get("score")
 
         m1, m2 = st.columns(2)
-        m1.metric("Value Factor", f"{v_s:.1f} / 100", help="Earnings Yield, Book Yield, Div Yield")
-        m2.metric("Quality Factor", f"{q_s:.1f} / 100", help="ROE, ROA, Net Margin, Debt Safety")
+        m1.metric("Value Factor", f"{v_s:.1f} / 100" if v_s is not None else "N/A", help="Earnings Yield, Book Yield, Div Yield")
+        m2.metric("Quality Factor", f"{q_s:.1f} / 100" if q_s is not None else "N/A", help="ROE, ROA, Net Margin, Debt Safety")
 
         m3, m4 = st.columns(2)
-        m3.metric("Momentum Factor", f"{m_s:.1f} / 100", help="1M, 3M, 6M Risk-Adjusted Momentum")
-        m4.metric("Low Volatility Factor", f"{l_s:.1f} / 100", help="Realized Volatility, Downside Vol, Beta")
+        m3.metric("Momentum Factor", f"{m_s:.1f} / 100" if m_s is not None else "N/A", help="1M, 3M, 6M Risk-Adjusted Momentum")
+        m4.metric("Low Volatility Factor", f"{l_s:.1f} / 100" if l_s is not None else "N/A", help="Realized Volatility, Downside Vol, Beta")
 
     with col_radar:
         categories = ["Value", "Quality", "Momentum", "Low Volatility"]
-        scores = [v_s, q_s, m_s, l_s]
+        scores = [v_s or 0, q_s or 0, m_s or 0, l_s or 0]
 
         fig_radar = go.Figure()
         fig_radar.add_trace(go.Scatterpolar(
@@ -117,17 +117,17 @@ def render_quant_tab(data: dict, tech: dict, fund: dict, ticker: str) -> None:
             st.success("✅ Portfolio Optimization Complete!")
 
             c1, c2, c3 = st.columns(3)
-            c1.metric("Max Sharpe Expected Return", f"{max_s['expected_return']:.2f}%")
-            c2.metric("Max Sharpe Annual Volatility", f"{max_s['volatility']:.2f}%")
-            c3.metric("Max Sharpe Ratio", f"{max_s['sharpe_ratio']:.2f}")
+            c1.metric("Min-Vol Expected Return", f"{min_v['expected_return']:.2f}%")
+            c2.metric("Min-Vol Annual Volatility", f"{min_v['volatility']:.2f}%")
+            c3.metric("Sharpe Ratio", f"{min_v['sharpe_ratio']:.2f}" if min_v['sharpe_ratio'] is not None else "N/A — policy rate required")
 
             p_col1, p_col2 = st.columns(2)
 
             with p_col1:
-                st.markdown("#### 🎯 Max Sharpe Optimal Weights")
+                st.markdown("#### 🛡️ Default Risk-Aware Weights")
                 w_df = pd.DataFrame({
-                    "Ticker": list(max_s["weights"].keys()),
-                    "Optimal Weight (%)": list(max_s["weights"].values())
+                    "Ticker": list(min_v["weights"].keys()),
+                    "Optimal Weight (%)": list(min_v["weights"].values())
                 })
                 fig_pie = px.pie(
                     w_df, values="Optimal Weight (%)", names="Ticker",
@@ -149,12 +149,13 @@ def render_quant_tab(data: dict, tech: dict, fund: dict, ticker: str) -> None:
                 if ef_data:
                     ef_df = pd.DataFrame(ef_data)
                     fig_ef = px.line(ef_df, x="volatility", y="return", labels={"volatility": "Volatility (%)", "return": "Expected Return (%)"})
-                    fig_ef.add_trace(go.Scatter(
-                        x=[max_s["volatility"]], y=[max_s["expected_return"]],
-                        mode="markers+text", name="Max Sharpe",
-                        text=["⭐ Max Sharpe"], textposition="top center",
-                        marker=dict(size=14, color="#30D158")
-                    ))
+                    if max_s["sharpe_ratio"] is not None:
+                        fig_ef.add_trace(go.Scatter(
+                            x=[max_s["volatility"]], y=[max_s["expected_return"]],
+                            mode="markers+text", name="Experimental Max Sharpe",
+                            text=["Experimental Max Sharpe"], textposition="top center",
+                            marker=dict(size=14, color="#30D158")
+                        ))
                     fig_ef.add_trace(go.Scatter(
                         x=[min_v["volatility"]], y=[min_v["expected_return"]],
                         mode="markers+text", name="Min Volatility",

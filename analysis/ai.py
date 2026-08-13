@@ -46,6 +46,13 @@ def _http_json(method: str, url: str, payload: dict | None = None, timeout: int 
 
 def get_ai_provider_status() -> dict:
     """Return the configured AI provider and whether it is ready."""
+    if os.environ.get("MODEL_VALIDATED", "false").lower() != "true":
+        return {
+            "provider": "deterministic",
+            "ready": True,
+            "label": "Structured shadow report",
+            "message": "Generative narratives are locked until model validation; canonical values only.",
+        }
     provider = _env_provider()
     if provider == "off":
         return {
@@ -333,12 +340,9 @@ def _build_deterministic_report(
     entry_zone = technical_data.get("entry_zone", ("N/A", "N/A"))
     rr = technical_data.get("risk_reward")
 
-    final_verdict = "HOLD"
-    if score is not None:
-        if score >= 65 and "Overvalued" not in fundamental_data.get("overall", ""):
-            final_verdict = "BUY"
-        elif score < 40 or "Overvalued" in fundamental_data.get("overall", ""):
-            final_verdict = "SELL"
+    # Narratives never derive an action. The gated decision engine is the only
+    # authority for policy labels, and the Yahoo compatibility path is shadow.
+    final_verdict = fundamental_data.get("decision_label", "RESEARCH_ONLY")
 
     current_month = datetime.now().month
     month_name = _MONTH_NAMES[current_month - 1]
@@ -358,7 +362,7 @@ def _build_deterministic_report(
 > Local deterministic report. No LLM was used.
 
 **INVESTMENT THESIS**
-{ticker} currently screens as **{final_verdict}** from a local rules-based blend of valuation and technical setup. Technical score is **{score_text}** with **{confidence_text}** confidence, using the **{technical_data.get('profile_label', 'N/A')}** profile and **{technical_data.get('horizon', 'N/A')}** horizon.
+{ticker} is **{final_verdict}**. The sections below describe evidence and do not alter that gated label. Technical score is **{score_text}** with **{confidence_text}** data confidence, using the **{technical_data.get('profile_label', 'N/A')}** profile and **{technical_data.get('horizon', 'N/A')}** horizon.
 
 **VALUATION ANALYSIS**
 PE is **{fundamental_data.get('pe_value', 'N/A')}** ({fundamental_data.get('pe_label', 'N/A')}) and PBV is **{fundamental_data.get('pbv_value', 'N/A')}** ({fundamental_data.get('pbv_label', 'N/A')}). Overall valuation signal: **{fundamental_data.get('overall', 'N/A')}**.
@@ -372,13 +376,13 @@ Trend: {technical_data.get('sma_signal', 'N/A')}. Momentum: RSI {technical_data.
 **SEASONALITY & TIMING**
 {seasonality_line}
 
-**ACTIONABLE PLAN**
-- Entry Price — {entry_zone[0]} - {entry_zone[1]}
-- Take Profit (TP) — {_fmt_price(technical_data.get('take_profit'))}
-- Stop Loss (SL) — {_fmt_price(technical_data.get('stop_loss'))}
+**RESEARCH RISK LEVELS**
+- Observed entry zone — {entry_zone[0]} - {entry_zone[1]}
+- Technical upside reference — {_fmt_price(technical_data.get('take_profit'))}
+- Technical invalidation reference — {_fmt_price(technical_data.get('stop_loss'))}
 Risk/reward: {f'{rr:.2f}R' if rr is not None else 'N/A'}.
 
-**FINAL VERDICT: {final_verdict}** — Local analysis favors {final_verdict} until price, valuation, or volume evidence changes.
+**POLICY LABEL: {final_verdict}** — Only the structured gate engine may change this label.
 """
 
 
@@ -446,39 +450,14 @@ def generate_ai_analysis(
     seasonality      : dict from ``compute_seasonality()`` (optional)
     comparison_summary : one-line summary from comparison tab (optional)
     """
-    prompt = _build_prompt(
-        fundamental_data, technical_data, ticker,
-        bands=bands, seasonality=seasonality,
-        comparison_summary=comparison_summary,
-    )
+    # During the reliability rollout only a deterministic rendering is allowed.
+    # This makes it impossible for an LLM to mutate numbers, action labels or
+    # warnings. Provider code remains available for a future validated,
+    # schema-constrained narrative endpoint.
     fallback = _build_deterministic_report(
         fundamental_data,
         technical_data,
         ticker,
         seasonality=seasonality,
     )
-    provider = _env_provider()
-    try:
-        if provider == "off":
-            return fallback
-        if provider == "ollama":
-            return _generate_with_ollama(prompt)
-        if provider == "gemini":
-            return _generate_with_gemini(prompt)
-        if provider == "auto":
-            try:
-                return _generate_with_ollama(prompt)
-            except Exception:
-                if os.environ.get("GEMINI_API_KEY"):
-                    return _generate_with_gemini(prompt)
-                raise
-        return (
-            f"> Unknown AI provider `{provider}`. Use `ollama`, `gemini`, `auto`, or `off`.\n\n"
-            f"{fallback}"
-        )
-    except Exception as exc:  # noqa: BLE001
-        return (
-            f"> Local AI provider unavailable: `{type(exc).__name__}: {exc}`\n>\n"
-            f"> Showing a deterministic local report instead.\n\n"
-            f"{fallback}"
-        )
+    return fallback

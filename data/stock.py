@@ -46,7 +46,7 @@ def get_stock_data(ticker: str) -> dict:
             and info.get("currentPrice") is None
             and info.get("previousClose") is None
         ):
-            hist_check = stock.history(period="5d")
+            hist_check = stock.history(period="5d", auto_adjust=False, actions=True)
             if hist_check.empty:
                 result["error"] = f"Ticker **{ticker}** not found or has no trading data."
                 return result
@@ -72,7 +72,7 @@ def get_stock_data(ticker: str) -> dict:
             "Net Profit Margin":      fmt_pct(info.get("profitMargins")),
         }
 
-        history = stock.history(period="1y")
+        history = stock.history(period="1y", auto_adjust=False, actions=True)
         if history.empty:
             result["error"] = f"No historical price data available for **{ticker}**."
         else:

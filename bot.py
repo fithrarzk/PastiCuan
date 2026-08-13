@@ -10,23 +10,15 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-if not TELEGRAM_BOT_TOKEN:
-    print("❌ ERROR: TELEGRAM_BOT_TOKEN is not set in environment or .env file.")
-    sys.exit(1)
-
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram.constants import ParseMode
 
 from data.extended import get_extended_data
-from analysis.technical import analyze_technical
-from analysis.fundamental import analyze_fundamental
-from analysis.valuation_bands import compute_valuation_bands
-from analysis.seasonality import compute_seasonality
-from analysis.backtest import backtest_technical_strategy
-from analysis.decision import build_decision_report
+from analysis.engine import run_analysis_bundle
 from analysis.quant import compute_quant_factors
 from analysis.portfolio import optimize_portfolio
+from analysis.presentation import decision_view, display_number
 from telegram_utils.chart_generator import generate_telegram_chart
 
 
@@ -66,51 +58,18 @@ def _run_full_analysis(ticker_raw: str, period: str = "3y"):
     if data.get("error"):
         return None, data["error"]
 
-    history = data["history"]
-    info = data["info"]
-    sector = data["basic"].get("sector", "N/A")
-
-    tech = analyze_technical(history, sector=sector, info=info)
-    fund = analyze_fundamental(
-        info,
-        sector,
-        quarterly_income=data["quarterly_income"],
-        quarterly_balance=data["quarterly_balance"],
-    )
-    bands = compute_valuation_bands(
-        history,
-        data["quarterly_income"],
-        data["quarterly_balance"],
-        info,
-    )
-    seasonality = compute_seasonality(history)
-    backtest = backtest_technical_strategy(history, sector=sector, info=info)
-    
-    if backtest.get("setup_confidence") is not None:
-        base_confidence = tech.get("confidence") or 50
-        tech["data_confidence"] = base_confidence
-        tech["historical_confidence"] = backtest["setup_confidence"]
-        tech["confidence"] = min(95, base_confidence * 0.55 + backtest["setup_confidence"] * 0.45)
-
-    liquidity = _compute_liquidity(history)
-    decision = build_decision_report(
-        tech,
-        fund,
-        bands=bands,
-        seasonality=seasonality,
-        backtest=backtest,
-        liquidity=liquidity,
-    )
+    analysis = run_analysis_bundle(data)
 
     return {
         "data": data,
-        "tech": tech,
-        "fund": fund,
-        "bands": bands,
-        "seasonality": seasonality,
-        "backtest": backtest,
-        "liquidity": liquidity,
-        "decision": decision,
+        "tech": analysis["tech"],
+        "fund": analysis["fund"],
+        "bands": analysis["bands"],
+        "seasonality": analysis["seasonality"],
+        "backtest": analysis["backtest"],
+        "liquidity": analysis["liquidity"],
+        "decision": analysis["decision"],
+        "bundle": analysis["bundle"].to_dict(),
     }, None
 
 
@@ -215,38 +174,29 @@ async def decision_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     decision = results["decision"]
+    bundle = results["bundle"]
     data = results["data"]
     history = data["history"]
     valid_close = history["Close"].dropna() if not history.empty else pd.Series()
     latest_close = float(valid_close.iloc[-1]) if not valid_close.empty else 0
 
 
-    comp_score = decision.get("composite_score", 0)
-    verdict = decision.get("action_verdict", "HOLD")
-    pill = decision.get("verdict_pill", "🟡 HOLD")
-    conf = decision.get("confidence", 0)
-
-    cat_scores = decision.get("category_scores", {})
-    tech_s = cat_scores.get("technical", {}).get("score", 0)
-    fund_s = cat_scores.get("fundamental", {}).get("score", 0)
-    val_s = cat_scores.get("valuation", {}).get("score", 0)
-    seas_s = cat_scores.get("seasonality", {}).get("score", 0)
-
-    summary_bullets = decision.get("executive_bullets", [])
-    bullet_text = "\n".join([f"• {b}" for b in summary_bullets[:4]]) if summary_bullets else "• Multi-factor data evaluated cleanly."
+    view = decision_view(decision)
+    bullet_text = "\n".join(f"• {w}" for w in view["warnings"][:4]) or f"• {view['reason']}"
 
     msg = (
         f"🏛️ *Decision Matrix:* *{data['ticker']}*\n"
         f"💰 *Current Price:* Rp {latest_close:,.0f}\n"
+        f"🕒 *As of:* {bundle.get('as_of', 'N/A')} · Model `{bundle.get('analysis_version', 'N/A')}`\n"
         f"───────────────\n"
-        f"⚡ *Composite Score:* `{comp_score:.1f} / 100` (Conf: `{conf:.0f}%`)\n"
-        f"🎯 *Action Verdict:* {pill}\n\n"
+        f"⚡ *Evidence Score:* `{display_number(view['score'])}` (Coverage: `{view['coverage_pct']:.0f}%`)\n"
+        f"🎯 *Policy Label:* {view['label']}\n\n"
         f"📐 *Pillar Breakdown:*\n"
-        f"• *Technical:* `{tech_s:.1f}/100`\n"
-        f"• *Fundamental:* `{fund_s:.1f}/100`\n"
-        f"• *Valuation:* `{val_s:.1f}/100`\n"
-        f"• *Seasonality:* `{seas_s:.1f}/100`\n\n"
-        f"📋 *Executive Key Points:*\n"
+        f"• *Technical:* `{display_number(view['technical'])}`\n"
+        f"• *Fundamental:* `{display_number(view['fundamental'])}`\n"
+        f"• *Backtest:* `{display_number(view['backtest'])}`\n"
+        f"• *Liquidity:* `{display_number(view['liquidity'])}`\n\n"
+        f"📋 *Gates & Warnings:*\n"
         f"{bullet_text}"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
@@ -294,7 +244,7 @@ async def fund_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏛️ *{data['ticker']} — Fundamental Report*\n"
         f"Sector: *{data['basic'].get('sector', 'N/A')}*\n"
         f"───────────────\n"
-        f"📊 *Fundamental Score:* `{fund.get('fundamental_score', 0):.1f} / 100`\n"
+        f"📊 *Fundamental Score:* `{display_number(fund.get('fundamental_score'))}`\n"
         f"🚦 *Verdict:* {fund.get('fundamental_verdict', 'N/A')}\n"
         f"🏷️ *Valuation:* {fund.get('overall', 'N/A')}\n\n"
         f"📈 *Key Financial Ratios:*\n"
@@ -409,13 +359,13 @@ async def quant_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔬 *{data['ticker']} — Level 2 Multi-Factor Quant Report*\n"
         f"Sector: *{data['basic'].get('sector', 'N/A')}*\n"
         f"───────────────\n"
-        f"📊 *Composite Quant Score:* `{quant.get('composite_score', 0):.1f} / 100`\n"
+        f"📊 *Composite Quant Score:* `{display_number(quant.get('composite_score'))}`\n"
         f"🎯 *Factor Grade:* `{quant.get('grade', 'N/A')}`\n\n"
         f"📐 *Sub-Factor Breakdown:*\n"
-        f"• *Value Factor:* `{val_f.get('score', 0):.1f}/100` (Grade `{val_f.get('grade', 'C')}`)\n"
-        f"• *Quality Factor:* `{qual_f.get('score', 0):.1f}/100` (Grade `{qual_f.get('grade', 'C')}`)\n"
-        f"• *Momentum Factor:* `{mom_f.get('score', 0):.1f}/100` (Grade `{mom_f.get('grade', 'C')}`)\n"
-        f"• *Low Volatility Factor:* `{vol_f.get('score', 0):.1f}/100` (Grade `{vol_f.get('grade', 'C')}`)\n\n"
+        f"• *Value Factor:* `{display_number(val_f.get('score'))}` (Grade `{val_f.get('grade', 'N/A')}`)\n"
+        f"• *Quality Factor:* `{display_number(qual_f.get('score'))}` (Grade `{qual_f.get('grade', 'N/A')}`)\n"
+        f"• *Momentum Factor:* `{display_number(mom_f.get('score'))}` (Grade `{mom_f.get('grade', 'N/A')}`)\n"
+        f"• *Low Volatility Factor:* `{display_number(vol_f.get('score'))}` (Grade `{vol_f.get('grade', 'N/A')}`)\n\n"
         f"💡 _Try `/portfolio {ticker_symbol} TLKM BMRI ICBP` to optimize capital allocation!_"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
@@ -439,12 +389,12 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ *Portfolio Optimization Error:*\n{res['error']}", parse_mode=ParseMode.MARKDOWN)
         return
 
-    max_s = res["max_sharpe"]
-    weights = max_s["weights"]
+    allocation = res["min_volatility"]
+    weights = allocation["weights"]
 
     lines = [
-        "🧮 *Markowitz Mean-Variance Portfolio Optimization*\n",
-        "🎯 *Optimal Capital Allocation (Max Sharpe Ratio):*"
+        "🧮 *Shrinkage Portfolio Research*\n",
+        "🛡️ *Default Risk-Aware Allocation (Minimum Volatility):*"
     ]
 
     for tk, w in weights.items():
@@ -455,9 +405,9 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines.append(
         f"\n📊 *Expected Performance metrics:*\n"
-        f"• *Expected Annual Return:* `+{max_s['expected_return']:.2f}%`\n"
-        f"• *Annualized Volatility:* `{max_s['volatility']:.2f}%`\n"
-        f"• *Sharpe Ratio:* `{max_s['sharpe_ratio']:.2f}`"
+        f"• *Expected Annual Return:* `{allocation['expected_return']:+.2f}%`\n"
+        f"• *Annualized Volatility:* `{allocation['volatility']:.2f}%`\n"
+        f"• *Sharpe Ratio:* `N/A — dated BI rate required`"
     )
 
     msg = "\n".join(lines)
@@ -466,6 +416,9 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    if not TELEGRAM_BOT_TOKEN:
+        logger.error("TELEGRAM_BOT_TOKEN is not set in environment or .env file.")
+        return 1
     logger.info("Starting PastiCuan Telegram Bot...")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -482,7 +435,8 @@ def main():
 
     print("🚀 PastiCuan Telegram Bot is running! Press Ctrl+C to stop.")
     app.run_polling()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -10,26 +10,19 @@ def _normalize_ticker(ticker: str) -> str:
 
 
 def _normalize_info_currency(info: dict) -> dict:
+    """Do not guess FX or rewrite provider fundamentals.
+
+    The authoritative pipeline converts each statement fact with the correct
+    point-in-time rate. This Yahoo compatibility adapter only flags mismatches.
+    """
     if not info:
         return info
     info = info.copy()
     fin_curr = info.get("financialCurrency")
     curr = info.get("currency", "IDR")
-    
-    if fin_curr == "USD" and curr == "IDR":
-        try:
-            usdidr_hist = yf.Ticker("USDIDR=X").history(period="5d")
-            rate = float(usdidr_hist["Close"].dropna().iloc[-1]) if not usdidr_hist.empty else 16300.0
-        except Exception:
-            rate = 16300.0
-
-        price = info.get("currentPrice") or info.get("previousClose") or info.get("regularMarketPrice")
-        bv = info.get("bookValue")
-        if bv and price and price > 0:
-            bv_idr = bv * rate
-            info["bookValue"] = bv_idr
-            info["priceToBook"] = price / bv_idr
-            
+    info["_currency_alignment_status"] = (
+        "AVAILABLE" if not fin_curr or fin_curr == curr else "INSUFFICIENT_DATA"
+    )
     return info
 
 
@@ -54,7 +47,7 @@ def get_extended_data(ticker: str, period: str = "3y") -> dict:
             and info.get("currentPrice") is None
             and info.get("previousClose") is None
         ):
-            hist_check = stock.history(period="5d")
+            hist_check = stock.history(period="5d", auto_adjust=False, actions=True)
             if hist_check.empty:
                 result["error"] = f"Ticker **{ticker}** not found or has no trading data."
                 return result
@@ -80,7 +73,7 @@ def get_extended_data(ticker: str, period: str = "3y") -> dict:
             "Debt-to-Equity":         fmt_num(info.get("debtToEquity")),
             "Net Profit Margin":      fmt_pct(info.get("profitMargins")),
         }
-        history = stock.history(period=period)
+        history = stock.history(period=period, auto_adjust=False, actions=True)
         if history.empty:
             result["error"] = f"No historical price data available for **{ticker}**."
             return result
@@ -110,7 +103,7 @@ def get_comparison_data(tickers: list, period: str = "3y") -> dict:
         t = _normalize_ticker(t)
         try:
             stock = yf.Ticker(t)
-            hist = stock.history(period=period)
+            hist = stock.history(period=period, auto_adjust=False, actions=True)
             if not hist.empty:
                 result[t] = hist
         except Exception:

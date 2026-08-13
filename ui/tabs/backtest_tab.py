@@ -25,6 +25,8 @@ def render_backtest_tab(backtest: dict, ticker: str) -> None:
         return
 
     summary = backtest.get("summary", {})
+    if backtest.get("research_only"):
+        st.warning("Gross research result only — broker costs are not configured and this evidence cannot pass the action gate.")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Trades", f"{summary.get('total_trades', 0)}")
     c2.metric("Win Rate", _fmt_pct(summary.get("win_rate")))
@@ -43,7 +45,7 @@ def render_backtest_tab(backtest: dict, ticker: str) -> None:
     if confidence is not None:
         st.info(f"Historical setup confidence: {confidence:.0f}%")
     else:
-        st.info("Historical setup confidence needs at least 3 completed trades.")
+        st.info("Validated evidence needs at least five market years and 30 completed trades.")
 
     equity_curve = backtest.get("equity_curve")
     if equity_curve is not None and not equity_curve.empty:

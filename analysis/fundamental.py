@@ -108,14 +108,16 @@ def _growth_from_statement(statement, candidates: list[str]) -> float | None:
     return float((recent / abs(previous) - 1) * 100)
 
 
-def _component_average(values: list[float | None], fallback: float = 50.0) -> float:
+def _component_average(values: list[float | None]) -> float | None:
     valid = [v for v in values if v is not None]
     if not valid:
-        return fallback
+        return None
     return float(sum(valid) / len(valid))
 
 
-def _fundamental_verdict(score: float, risk_flags: list[str]) -> str:
+def _fundamental_verdict(score: float | None, risk_flags: list[str]) -> str:
+    if score is None:
+        return "⚪ INSUFFICIENT_DATA"
     if score >= 75 and not risk_flags:
         return "🟢 High Quality / Attractive"
     if score >= 65:
@@ -132,6 +134,7 @@ def analyze_fundamental(
     sector: str,
     quarterly_income=None,
     quarterly_balance=None,
+    peer_metrics: list[dict] | None = None,
 ) -> dict:
     """
     Evaluates valuation and fundamental quality against sector-specific IDX
@@ -147,8 +150,18 @@ def analyze_fundamental(
     dict with pe/pbv labels, benchmark ranges, and an overall verdict string.
     """
     info = info or {}
-    pe_val = info.get("trailingPE")
-    pbv_val = info.get("priceToBook")
+    pe_raw = _safe_float(info.get("trailingPE"))
+    pbv_raw = _safe_float(info.get("priceToBook"))
+    # Negative earnings/equity multiples are mathematically defined but have
+    # no useful "cheap/expensive" valuation interpretation.
+    pe_status = "AVAILABLE" if pe_raw is not None and pe_raw > 0 else (
+        "NOT_MEANINGFUL" if pe_raw is not None else "INSUFFICIENT_DATA"
+    )
+    pbv_status = "AVAILABLE" if pbv_raw is not None and pbv_raw > 0 else (
+        "NOT_MEANINGFUL" if pbv_raw is not None else "INSUFFICIENT_DATA"
+    )
+    pe_val = pe_raw if pe_status == "AVAILABLE" else None
+    pbv_val = pbv_raw if pbv_status == "AVAILABLE" else None
     dividend_yield = info.get("dividendYield")
     roe = info.get("returnOnEquity")
     roa = info.get("returnOnAssets")
@@ -166,35 +179,49 @@ def analyze_fundamental(
         ["Net Income", "Net Income Common Stockholders", "NetIncome"],
     )
 
-    bench, matched_sector = _get_sector_benchmark(sector)
-    pe_low,  pe_high  = bench["pe"]
-    pbv_low, pbv_high = bench["pbv"]
+    # Point-in-time peer comparisons replace undocumented fixed ranges.  The
+    # legacy benchmark table remains above solely for old imports; it is not
+    # used by this analysis path.
+    peers = peer_metrics or []
+    min_peers = 5
 
-    pe_label  = _classify(pe_val,  pe_low,  pe_high)
-    pbv_label = _classify(pbv_val, pbv_low, pbv_high)
+    def peer_percentile(key: str, value: float | None) -> float | None:
+        values = sorted(
+            float(p[key]) for p in peers
+            if p.get(key) is not None and float(p[key]) > 0
+        )
+        if value is None or len(values) < min_peers:
+            return None
+        return sum(v <= value for v in values) / len(values) * 100
 
-    labels = {pe_label, pbv_label} - {"N/A"}
-    if not labels:
-        overall = "⚪ Insufficient data for valuation verdict"
-    elif labels == {"🟢 Low"}:
-        overall = "🟢 Potentially Undervalued"
-    elif labels == {"🔴 High"}:
-        overall = "🔴 Potentially Overvalued"
-    elif labels <= {"🟡 Fair", "🟢 Low"}:
-        overall = "🟡 Fairly Valued"
-    elif "🔴 High" in labels and "🟢 Low" in labels:
-        overall = "🟡 Mixed Signals — one ratio cheap, one expensive"
-    elif "🔴 High" in labels:
-        overall = "🔴 Leaning Overvalued"
+    pe_pct = peer_percentile("pe", pe_val)
+    pbv_pct = peer_percentile("pbv", pbv_val)
+    pe_label = "N/A" if pe_status == "INSUFFICIENT_DATA" else (
+        "NOT_MEANINGFUL" if pe_status == "NOT_MEANINGFUL" else
+        ("Unavailable — peer sample < 5" if pe_pct is None else f"Sector percentile {pe_pct:.0f}")
+    )
+    pbv_label = "N/A" if pbv_status == "INSUFFICIENT_DATA" else (
+        "NOT_MEANINGFUL" if pbv_status == "NOT_MEANINGFUL" else
+        ("Unavailable — peer sample < 5" if pbv_pct is None else f"Sector percentile {pbv_pct:.0f}")
+    )
+
+    pct_values = [p for p in (pe_pct, pbv_pct) if p is not None]
+    if not pct_values:
+        overall = "⚪ Peer valuation unavailable"
+    elif sum(pct_values) / len(pct_values) <= 30:
+        overall = "🟢 Low relative valuation percentile"
+    elif sum(pct_values) / len(pct_values) >= 70:
+        overall = "🔴 High relative valuation percentile"
     else:
-        overall = "🟢 Leaning Undervalued"
+        overall = "🟡 Mid-range relative valuation percentile"
 
     style = _sector_style(sector)
 
+    # A percentile is relative rank, not an absolute investment-quality score.
     valuation_score = _component_average(
         [
-            _score_lower_better(pe_val, pe_low, pe_high * 1.35),
-            _score_lower_better(pbv_val, pbv_low, pbv_high * 1.35),
+            100 - pe_pct if pe_pct is not None else None,
+            100 - pbv_pct if pbv_pct is not None else None,
             _score_higher_better(dividend_yield, 0.0, 0.05),
         ]
     )
@@ -216,9 +243,12 @@ def analyze_fundamental(
         ]
     )
 
-    leverage_good = 250 if style == "bank" else 60
-    leverage_bad = 800 if style == "bank" else 180
-    balance_sheet_score = _component_average(
+    leverage_good = 60
+    leverage_bad = 180
+    # Ordinary debt/equity is not a bank solvency measure. Bank-specific facts
+    # (CAR/NPL/LDR/NIM) remain unavailable unless disclosed by an authoritative
+    # provider rather than being approximated from Yahoo fields.
+    balance_sheet_score = None if style == "bank" else _component_average(
         [_score_lower_better(debt_to_equity, leverage_good, leverage_bad)]
     )
 
@@ -281,7 +311,13 @@ def analyze_fundamental(
         "balance_sheet": balance_sheet_score,
         "quality": quality_score,
     }
-    fundamental_score = sum(components[key] * weights[key] for key in components)
+    available_components = {key: value for key, value in components.items() if value is not None}
+    available_weight = sum(weights[key] for key in available_components)
+    fundamental_score = (
+        sum(available_components[key] * weights[key] for key in available_components) / available_weight
+        if available_components and available_weight else None
+    )
+    coverage_pct = sum(weights[key] for key in available_components) * 100
 
     quality_flags = []
     risk_flags = []
@@ -293,23 +329,27 @@ def analyze_fundamental(
         quality_flags.append("Trailing four-quarter revenue is growing.")
     if statement_income_growth is not None and statement_income_growth > 0:
         quality_flags.append("Trailing four-quarter net income is growing.")
-    if debt_to_equity is not None and debt_to_equity > leverage_bad:
+    if style != "bank" and debt_to_equity is not None and debt_to_equity > leverage_bad:
         risk_flags.append("Debt-to-equity is elevated for this sector profile.")
     if margin is not None and margin < 0:
         risk_flags.append("Net margin is negative.")
     if earnings_growth is not None and earnings_growth < -0.10:
         risk_flags.append("Earnings growth is contracting.")
-    if pe_val is not None and pe_val > pe_high * 1.5 and growth_score < 60:
-        risk_flags.append("Valuation is high without enough visible growth support.")
+    if pe_pct is not None and pe_pct >= 85 and growth_score is not None and growth_score < 60:
+        risk_flags.append("PE is in the highest peer quintile without enough visible growth support.")
+    if style == "bank":
+        risk_flags.append("Bank solvency metrics (CAR/NPL/LDR/NIM) require an official filing source.")
 
     fundamental_verdict = _fundamental_verdict(fundamental_score, risk_flags)
 
     return {
-        "sector_matched": matched_sector,
-        "pe_value":  pe_val,   "pe_label":  pe_label,
-        "pe_range":  f"Low < {pe_low}  |  Fair {pe_low}–{pe_high}  |  High > {pe_high}",
-        "pbv_value": pbv_val,  "pbv_label": pbv_label,
-        "pbv_range": f"Low < {pbv_low}  |  Fair {pbv_low}–{pbv_high}  |  High > {pbv_high}",
+        "sector_matched": sector or "N/A",
+        "pe_value": pe_raw, "pe_label": pe_label, "pe_status": pe_status,
+        "pe_range": "Point-in-time sector percentile; minimum 5 peers",
+        "pe_percentile": pe_pct,
+        "pbv_value": pbv_raw, "pbv_label": pbv_label, "pbv_status": pbv_status,
+        "pbv_range": "Point-in-time sector percentile; minimum 5 peers",
+        "pbv_percentile": pbv_pct,
         "overall":   overall,
         "sector_style": style,
         "dividend_yield": dividend_yield,
@@ -321,7 +361,9 @@ def analyze_fundamental(
         "earnings_growth": earnings_growth,
         "statement_revenue_growth": statement_revenue_growth,
         "statement_income_growth": statement_income_growth,
-        "fundamental_score": _clip(fundamental_score),
+        "fundamental_score": _clip(fundamental_score) if fundamental_score is not None else None,
+        "coverage_pct": coverage_pct,
+        "formula_version": "fundamental-pit-v2",
         "fundamental_components": components,
         "quality_flags": quality_flags,
         "risk_flags": risk_flags,

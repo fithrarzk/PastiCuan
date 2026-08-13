@@ -6,6 +6,8 @@ from .seasonality import compute_seasonality
 from .backtest import backtest_technical_strategy
 from .decision import build_decision_report
 from .risk import calculate_position_size
+from .engine import run_analysis_bundle
+from .contracts import AnalysisBundle, DataQualityReport
 
 __all__ = [
     "analyze_technical",
@@ -16,4 +18,7 @@ __all__ = [
     "backtest_technical_strategy",
     "build_decision_report",
     "calculate_position_size",
+    "run_analysis_bundle",
+    "AnalysisBundle",
+    "DataQualityReport",
 ]
