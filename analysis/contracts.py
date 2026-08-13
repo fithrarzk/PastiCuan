@@ -93,6 +93,7 @@ class AnalysisBundle:
     technical: dict[str, Any]
     quant: dict[str, Any]
     backtest: dict[str, Any]
+    buy_range: dict[str, Any]
     decision: dict[str, Any]
     gates: list[GateResult]
     warnings: list[str] = field(default_factory=list)
@@ -126,4 +127,3 @@ def _json_safe(value: Any) -> Any:
     if value.__class__.__name__ in {"DataFrame", "Series"}:
         return None
     return str(value)
-

@@ -85,6 +85,7 @@ def _run_full_analysis(ticker_raw: str, period: str = "3y", *, include_backtest:
         "backtest": analysis["backtest"],
         "liquidity": analysis["liquidity"],
         "decision": analysis["decision"],
+        "buy_range": analysis["buy_range"],
         "bundle": analysis["bundle"].to_dict(),
     }, None
 
@@ -100,6 +101,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/quant <ticker>` — Level 2 Multi-Factor Quant Model (e.g. `/quant BBCA`)\n"
         "• `/portfolio <t1> <t2> ...` — Markowitz Portfolio Optimizer (e.g. `/portfolio BBCA TLKM BMRI ICBP`)\n"
         "• `/decision <ticker>` — Multi-factor Decision Matrix (e.g. `/decision BMRI`)\n"
+        "• `/range <ticker>` — Technical + valuation buy-range research (e.g. `/range BBCA`)\n"
         "• `/chart <ticker>` — Technical Candlestick & Indicator Chart (e.g. `/chart ASII`)\n"
         "• `/scan` — Scan LQ45 / top IDX stocks for accumulation signals\n"
         "• `/help` — Display this command menu\n\n"
@@ -215,6 +217,65 @@ async def decision_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• *Liquidity:* `{display_number(view['liquidity'])}`\n\n"
         f"📋 *Gates & Warnings:*\n"
         f"{bullet_text}"
+    )
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+
+def _format_range(value: dict | None) -> str:
+    if not value:
+        return "N/A"
+    return f"Rp {value['low']:,.0f} – Rp {value['high']:,.0f}"
+
+
+def _format_price(value) -> str:
+    return f"Rp {value:,.0f}" if isinstance(value, (int, float)) else "N/A"
+
+
+async def range_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show the auditable overlap of technical and valuation references."""
+    if not context.args:
+        await update.message.reply_text(
+            "ℹ️ Please specify a ticker symbol. Example: `/range BBCA`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    ticker_symbol = _clean_ticker(context.args[0])
+    await update.message.reply_text(
+        f"⏳ Calculating price ranges for *{ticker_symbol}.JK*...",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    results, error = _run_full_analysis(ticker_symbol)
+    if error:
+        await update.message.reply_text(
+            f"❌ *Error evaluating {ticker_symbol}:*\n{error}",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    report = results["buy_range"]
+    bundle = results["bundle"]
+    stop = report.get("stop_loss")
+    target = report.get("technical_target")
+    rr = report.get("risk_reward")
+    confirmation = "Present" if report.get("technical_confirmation") else "Not present / incomplete"
+    warning_text = "\n".join(f"• {item}" for item in report.get("warnings", [])[:4])
+    msg = (
+        f"🎯 *{results['data']['ticker']} — Price Range Research*\n"
+        f"💰 *Current:* {_format_price(report.get('current_price'))}\n"
+        f"🕒 *As of:* {bundle.get('as_of', 'N/A')}\n"
+        f"───────────────\n"
+        f"📉 *Technical accumulation zone:* `{_format_range(report.get('technical_range'))}`\n"
+        f"🏛️ *Valuation reference:* `{_format_range(report.get('valuation_reference_range'))}`\n"
+        f"⭐ *Preferred overlap:* `{_format_range(report.get('preferred_range'))}`\n\n"
+        f"🛑 *Technical invalidation:* `{_format_price(stop)}`\n"
+        f"🎯 *Technical target:* `{_format_price(target)}`\n"
+        f"⚖️ *Risk/reward:* `{f'{rr:.2f}R' if rr is not None else 'N/A'}`\n"
+        f"✅ *Trend confirmation:* `{confirmation}`\n\n"
+        f"📋 *Status:* `{report.get('status')}` · Policy `{report.get('policy_label')}`\n"
+        f"📚 *Fundamental source:* {report.get('source')}\n"
+        f"🧮 *Formula:* `{report.get('formula_version')}`\n\n"
+        f"⚠️ *Important:*\n{warning_text}"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
@@ -449,6 +510,7 @@ def build_application():
     app.add_handler(CommandHandler(["quant"], quant_command))
     app.add_handler(CommandHandler(["portfolio"], portfolio_command))
     app.add_handler(CommandHandler(["decision"], decision_command))
+    app.add_handler(CommandHandler(["range", "buyrange"], range_command))
     app.add_handler(CommandHandler(["chart"], chart_command))
     app.add_handler(CommandHandler(["scan"], scan_command))
     return app

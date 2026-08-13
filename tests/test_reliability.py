@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from analysis.backtest import BrokerCostProfile, backtest_technical_strategy
+from analysis.buy_range import build_buy_range
 from analysis.ai import generate_ai_analysis
 from analysis.contracts import DataQualityReport
 from analysis.decision import build_decision_report
@@ -81,6 +82,41 @@ class QualityAndFundamentalTests(unittest.TestCase):
 
 
 class CausalityAndGateTests(unittest.TestCase):
+    def test_buy_range_is_only_the_overlap_and_remains_research(self):
+        index = pd.bdate_range("2025-01-01", periods=2)
+        bands = {
+            "pe": {"band_m1": pd.Series([80, 90], index=index),
+                   "band_mean": pd.Series([120, 130], index=index)},
+            "pbv": {"band_m1": pd.Series([100, 110], index=index),
+                    "band_mean": pd.Series([140, 150], index=index)},
+        }
+        result = build_buy_range(
+            {"current_price": 130, "support": 100, "atr": 25,
+             "stop_loss": 90, "take_profit": 150, "risk_reward": 2,
+             "technical_score": 70, "rsi": 55},
+            {"pe_status": "AVAILABLE", "pbv_status": "AVAILABLE",
+             "source": "Yahoo fallback", "authoritative_source": False},
+            bands, data_usable=True,
+        )
+        self.assertEqual(result["technical_range"], {"low": 100.0, "high": 120.0})
+        self.assertEqual(result["valuation_reference_range"], {"low": 100.0, "high": 140.0})
+        self.assertEqual(result["preferred_range"], {"low": 100.0, "high": 120.0})
+        self.assertEqual(result["policy_label"], "RESEARCH_ONLY")
+        self.assertFalse(result["authoritative_fundamentals"])
+
+    def test_buy_range_does_not_invent_non_overlapping_range(self):
+        index = pd.bdate_range("2025-01-01", periods=1)
+        result = build_buy_range(
+            {"current_price": 120, "support": 100, "atr": 10},
+            {"pe_status": "AVAILABLE", "pbv_status": "INSUFFICIENT_DATA",
+             "authoritative_source": True},
+            {"pe": {"band_m1": pd.Series([150], index=index),
+                    "band_mean": pd.Series([180], index=index)}},
+            data_usable=True,
+        )
+        self.assertEqual(result["status"], "NO_OVERLAP")
+        self.assertIsNone(result["preferred_range"])
+
     def test_signal_executes_after_signal_date(self):
         df = history()
         costs = BrokerCostProfile("test", .001, .002, .001, .0005, 2)

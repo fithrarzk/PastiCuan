@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from analysis.backtest import BrokerCostProfile, backtest_technical_strategy
+from analysis.buy_range import build_buy_range
 from analysis.contracts import AnalysisBundle, GateResult
 from analysis.decision import build_decision_report
 from analysis.fundamental import analyze_fundamental
@@ -100,6 +101,7 @@ def run_analysis_bundle(
         liquidity=liquidity, data_quality=quality, model_validated=validated,
         shadow_sessions=shadow_sessions,
     )
+    buy_range = build_buy_range(tech, fund, bands, data_usable=quality.usable)
     fund["decision_label"] = decision["final_verdict"]
     gates = [GateResult(**gate) for gate in decision["gates"]]
     as_of = quality.price_timestamp or pd.Timestamp.now(tz="Asia/Jakarta").isoformat()
@@ -108,10 +110,11 @@ def run_analysis_bundle(
         data_quality=quality, fundamental=fund,
         technical={k: v for k, v in tech.items() if k != "df"},
         quant=quant, backtest={k: v for k, v in backtest.items() if k not in {"trades", "equity_curve"}},
+        buy_range=buy_range,
         decision=decision, gates=gates, warnings=decision["warnings"], action=decision["action"],
     )
     return {
         "bundle": bundle, "tech": tech, "fund": fund, "quant": quant,
         "bands": bands, "seasonality": seasonality, "backtest": backtest,
-        "liquidity": liquidity, "decision": decision,
+        "liquidity": liquidity, "decision": decision, "buy_range": buy_range,
     }
