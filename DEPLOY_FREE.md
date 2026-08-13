@@ -2,12 +2,17 @@
 
 This repository is split into two independently deployable services:
 
-- `bot_webhook.py` + `Dockerfile`: Telegram webhook on Google Cloud Run.
+- `render.yaml` + `bot_webhook.py` + `Dockerfile`: Telegram webhook on a
+  Render Free web service.
 - `app.py` + `requirements.txt`: app on Streamlit Community Cloud.
 
-This can cost USD 0 while usage remains inside each provider's free allowance.
-Google Cloud requires a billing account and free quotas are not a hard spending
-cap. Keep the limits below and configure billing alerts before sharing the bot.
+Render's Free web service is the primary bot path because it has an explicitly
+free compute instance and does not require an always-running paid worker. It
+sleeps after inactivity, so the first Telegram response after sleep can take
+roughly a minute. This is not an eternal price guarantee: free-plan terms can
+change, and Render documents possible supplementary bandwidth charges if the
+workspace allowance is exhausted. Monitor the usage page and do not attach paid
+resources.
 
 ## 1. Prepare GitHub and Telegram
 
@@ -24,7 +29,59 @@ cap. Keep the limits below and configure billing alerts before sharing the bot.
    Retain the output privately. Telegram webhook secrets may contain letters,
    digits, underscores, and hyphens.
 
-## 2. Deploy the bot first on Cloud Run
+## 2. Deploy the bot first on Render Free
+
+1. Sign in at <https://dashboard.render.com> using GitHub.
+2. Choose **New > Blueprint**.
+3. Connect this repository and select the branch containing `render.yaml`.
+4. Render detects the `pasticuan-bot` Docker web service. Confirm that the
+   instance type is **Free** before applying the Blueprint.
+5. Enter the two secret environment variables when Render requests them:
+
+   - `TELEGRAM_BOT_TOKEN`: the newly rotated BotFather token.
+   - `TELEGRAM_WEBHOOK_SECRET`: the random secret generated in step 1.
+
+6. Apply the Blueprint and wait for the deployment to become Live.
+7. Copy the public URL shown by Render, for example
+   `https://pasticuan-bot.onrender.com`.
+8. Verify the health endpoint:
+
+   ```bash
+   curl -fsS https://YOUR_RENDER_URL/
+   ```
+
+   It should return `{"status":"ok","service":"pasticuan-telegram-webhook"}`.
+
+9. Register the webhook from your own terminal:
+
+   ```bash
+   BOT_TOKEN="YOUR_NEW_BOTFATHER_TOKEN"
+   WEBHOOK_SECRET="YOUR_GENERATED_WEBHOOK_SECRET"
+   BOT_URL="https://YOUR_RENDER_URL"
+
+   curl -fsS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
+     --data-urlencode "url=${BOT_URL}/telegram/webhook" \
+     --data-urlencode "secret_token=${WEBHOOK_SECRET}" \
+     --data-urlencode "max_connections=1" \
+     --data-urlencode 'allowed_updates=["message"]'
+
+   curl -fsS "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo"
+   unset BOT_TOKEN WEBHOOK_SECRET BOT_URL
+   ```
+
+10. Send `/start`, `/ta BBCA`, and `/decision BBCA` to the bot. A sleeping free
+    service may need a cold start on the first command. Telegram retries webhook
+    deliveries that do not receive a successful response.
+
+Do not create a Render **Background Worker** for this repository; that service
+type has no free instance. Do not add a persistent disk or paid PostgreSQL
+instance merely to launch the bot.
+
+### Optional alternative: Google Cloud Run
+
+Cloud Run generally starts faster and scales more smoothly, but it requires a
+billing account and its free allowance is not a hard spending cap. Use this only
+if that trade-off is acceptable.
 
 Install the Google Cloud CLI, create a project with billing enabled, and then:
 
@@ -133,10 +190,14 @@ The current free limits are suitable for an initial LQ45 research dataset, but
 the official filing ingestor still needs to be implemented before these stores
 become authoritative inputs.
 
-## 5. Keep the bill at zero
+## 5. Keep the deployment free
 
-- Keep Cloud Run minimum instances at `0`, maximum at `1`, and request-based
-  billing. Never configure an always-on instance.
+- On Render, confirm the instance remains **Free** after every configuration
+  change. Never convert it to a Background Worker or attach paid resources.
+- Check Render's bandwidth and build-minute usage periodically; the free compute
+  selection alone does not guarantee that unusually high outbound usage is free.
+- If using Cloud Run instead, keep minimum instances at `0`, maximum at `1`, and
+  request-based billing. Never configure an always-on instance.
 - Leave `BOT_ENABLE_BACKTEST=false` for interactive bot requests and keep
   `BOT_SCAN_LIMIT` small.
 - Create a Google Cloud budget alert. A budget alert warns; it does not stop
@@ -147,4 +208,3 @@ become authoritative inputs.
   and Artifact Registry storage in Billing reports.
 - Streamlit and Cloud Run filesystems are ephemeral. Never use local CSV or
   SQLite files as durable production storage.
-

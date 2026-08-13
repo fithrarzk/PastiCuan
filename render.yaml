@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: pasticuan-bot
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: BOT_ENABLE_BACKTEST
+        value: "false"
+      - key: BOT_SCAN_LIMIT
+        value: "5"
+      - key: MODEL_VALIDATED
+        value: "false"
+      - key: SHADOW_COMPLETED_SESSIONS
+        value: "0"
+

@@ -10,12 +10,13 @@ guarantee profit.
 
 The deployment is optimized for a bot-first, scale-to-zero free-tier setup:
 
-- Telegram bot: Cloud Run webhook using `Dockerfile` and `requirements-bot.txt`.
+- Telegram bot: Render Free webhook using `render.yaml`, `Dockerfile`, and
+  `requirements-bot.txt`. Cloud Run remains an optional metered alternative.
 - App: Streamlit Community Cloud using `app.py` and `requirements.txt`.
 
 Follow [DEPLOY_FREE.md](DEPLOY_FREE.md) from start to finish. The former Render
-background-worker configuration was removed because Render background workers
-do not have a free instance type.
+background-worker configuration was replaced with a free web-service webhook
+because Render background workers do not have a free instance type.
 
 How to run
 `streamlit run app.py`

@@ -3,7 +3,6 @@ import sys
 import logging
 from dotenv import load_dotenv
 import pandas as pd
-import yfinance as yf
 
 # Load environment variables
 load_dotenv()
@@ -17,7 +16,6 @@ from telegram.constants import ParseMode
 from data.extended import get_extended_data
 from analysis.engine import run_analysis_bundle
 from analysis.quant import compute_quant_factors
-from analysis.portfolio import optimize_portfolio
 from analysis.presentation import decision_view, display_number
 
 
@@ -405,6 +403,9 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tickers_list = [_clean_ticker(t) for t in context.args]
     tickers_str = ", ".join(tickers_list)
     await update.message.reply_text(f"⏳ Running Markowitz Portfolio Optimization for: *{tickers_str}*...", parse_mode=ParseMode.MARKDOWN)
+
+    # SciPy is intentionally lazy-loaded to keep webhook cold-start memory low.
+    from analysis.portfolio import optimize_portfolio
 
     res = optimize_portfolio(tickers_list, period="1y")
     if res.get("error"):
