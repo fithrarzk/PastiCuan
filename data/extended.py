@@ -59,7 +59,9 @@ def get_extended_data(ticker: str, period: str = "3y") -> dict:
         if history.empty:
             result["error"] = f"No historical price data available for **{ticker}**."
             return result
+        history = history.dropna(subset=["Close"])
         result["history"] = history
+
         try:
             qi = stock.quarterly_income_stmt
             if qi is not None and not qi.empty:
