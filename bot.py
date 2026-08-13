@@ -118,10 +118,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Welcome! Get instant technical analysis, decision scores, charts, and stock scans for Indonesian equities directly in Telegram.\n\n"
         "*Available Commands:*\n"
         "• `/ta <ticker>` — Adaptive Technical Analysis (e.g. `/ta BBCA`)\n"
-        "• `/decision <ticker>` — Multi-factor Decision Matrix (e.g. `/decision TLKM`)\n"
-        "• `/chart <ticker>` — Technical Candlestick & Indicator Chart (e.g. `/chart BMRI`)\n"
+        "• `/fund <ticker>` — Detailed Fundamental & Valuation Report (e.g. `/fund TLKM`)\n"
+        "• `/decision <ticker>` — Multi-factor Decision Matrix (e.g. `/decision BMRI`)\n"
+        "• `/chart <ticker>` — Technical Candlestick & Indicator Chart (e.g. `/chart ASII`)\n"
         "• `/scan` — Scan LQ45 / top IDX stocks for accumulation signals\n"
         "• `/help` — Display this command menu\n\n"
+
         "_Tip: Ticker symbols automatically default to IDX (.JK suffix)._"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
@@ -244,6 +246,67 @@ async def decision_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
 
+async def fund_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Executes Fundamental Analysis for a given ticker."""
+    if not context.args:
+        await update.message.reply_text("ℹ️ Please specify a ticker symbol. Example: `/fund BBCA`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    ticker_symbol = _clean_ticker(context.args[0])
+    await update.message.reply_text(f"⏳ Evaluating fundamentals for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
+
+    results, error = _run_full_analysis(ticker_symbol)
+    if error:
+        await update.message.reply_text(f"❌ *Error analyzing fundamentals for {ticker_symbol}:*\n{error}", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    fund = results["fund"]
+    data = results["data"]
+    ratios = data.get("ratios", {})
+
+    pe_val = fund.get("pe_value")
+    pbv_val = fund.get("pbv_value")
+    pe_str = f"{pe_val:.2f}" if isinstance(pe_val, (int, float)) else "N/A"
+    pbv_str = f"{pbv_val:.2f}" if isinstance(pbv_val, (int, float)) else "N/A"
+
+    div = fund.get("dividend_yield")
+    div_str = f"{div * 100:.2f}%" if isinstance(div, (int, float)) else "N/A"
+
+    roe = fund.get("roe")
+    roe_str = f"{roe * 100:.2f}%" if isinstance(roe, (int, float)) else "N/A"
+
+    margin = fund.get("net_margin")
+    margin_str = f"{margin * 100:.2f}%" if isinstance(margin, (int, float)) else "N/A"
+
+    q_flags = fund.get("quality_flags", [])
+    r_flags = fund.get("risk_flags", [])
+
+    q_text = "\n".join([f"• ✅ {flag}" for flag in q_flags]) if q_flags else "• No major quality flags."
+    r_text = "\n".join([f"• ⚠️ {flag}" for flag in r_flags]) if r_flags else "• No major risk flags detected."
+
+    msg = (
+        f"🏛️ *{data['ticker']} — Fundamental Report*\n"
+        f"Sector: *{data['basic'].get('sector', 'N/A')}*\n"
+        f"───────────────\n"
+        f"📊 *Fundamental Score:* `{fund.get('fundamental_score', 0):.1f} / 100`\n"
+        f"🚦 *Verdict:* {fund.get('fundamental_verdict', 'N/A')}\n"
+        f"🏷️ *Valuation:* {fund.get('overall', 'N/A')}\n\n"
+        f"📈 *Key Financial Ratios:*\n"
+        f"• *P/E Ratio:* `{pe_str}` ({fund.get('pe_label', 'N/A')})\n"
+        f"• *P/B Ratio:* `{pbv_str}` ({fund.get('pbv_label', 'N/A')})\n"
+        f"• *ROE:* `{roe_str}`\n"
+        f"• *Net Profit Margin:* `{margin_str}`\n"
+        f"• *Dividend Yield:* `{div_str}`\n"
+        f"• *Debt-to-Equity:* `{ratios.get('Debt-to-Equity', 'N/A')}`\n\n"
+        f"✨ *Quality Drivers:*\n"
+        f"{q_text}\n\n"
+        f"⚠️ *Risk Alerts:*\n"
+        f"{r_text}"
+    )
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+
+
 async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Renders and sends technical chart image."""
     if not context.args:
@@ -313,9 +376,11 @@ def main():
 
     app.add_handler(CommandHandler(["start", "help"], start_command))
     app.add_handler(CommandHandler(["ta", "analyze"], ta_command))
+    app.add_handler(CommandHandler(["fund", "fundamental"], fund_command))
     app.add_handler(CommandHandler(["decision"], decision_command))
     app.add_handler(CommandHandler(["chart"], chart_command))
     app.add_handler(CommandHandler(["scan"], scan_command))
+
 
     print("🚀 PastiCuan Telegram Bot is running! Press Ctrl+C to stop.")
     app.run_polling()
