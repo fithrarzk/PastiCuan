@@ -9,6 +9,30 @@ def _normalize_ticker(ticker: str) -> str:
     return ticker if ticker.endswith(".JK") else ticker + ".JK"
 
 
+def _normalize_info_currency(info: dict) -> dict:
+    if not info:
+        return info
+    info = info.copy()
+    fin_curr = info.get("financialCurrency")
+    curr = info.get("currency", "IDR")
+    
+    if fin_curr == "USD" and curr == "IDR":
+        try:
+            usdidr_hist = yf.Ticker("USDIDR=X").history(period="5d")
+            rate = float(usdidr_hist["Close"].dropna().iloc[-1]) if not usdidr_hist.empty else 16300.0
+        except Exception:
+            rate = 16300.0
+
+        price = info.get("currentPrice") or info.get("previousClose") or info.get("regularMarketPrice")
+        bv = info.get("bookValue")
+        if bv and price and price > 0:
+            bv_idr = bv * rate
+            info["bookValue"] = bv_idr
+            info["priceToBook"] = price / bv_idr
+            
+    return info
+
+
 def get_extended_data(ticker: str, period: str = "3y") -> dict:
     ticker = _normalize_ticker(ticker)
     result = {
@@ -23,7 +47,8 @@ def get_extended_data(ticker: str, period: str = "3y") -> dict:
     }
     try:
         stock = yf.Ticker(ticker)
-        info = stock.info
+        info = _normalize_info_currency(stock.info)
+
         if not info or (
             info.get("regularMarketPrice") is None
             and info.get("currentPrice") is None
