@@ -2,17 +2,17 @@
 
 This repository is split into two independently deployable services:
 
-- `render.yaml` + `bot_webhook.py` + `Dockerfile`: Telegram webhook on a
-  Render Free web service.
+- `railway.json` + `bot_webhook.py` + `Dockerfile`: Telegram webhook on
+  Railway Free.
 - `app.py` + `requirements.txt`: app on Streamlit Community Cloud.
 
-Render's Free web service is the primary bot path because it has an explicitly
-free compute instance and does not require an always-running paid worker. It
-sleeps after inactivity, so the first Telegram response after sleep can take
-roughly a minute. This is not an eternal price guarantee: free-plan terms can
-change, and Render documents possible supplementary bandwidth charges if the
-workspace allowance is exhausted. Monitor the usage page and do not attach paid
-resources.
+Railway is the primary bot path when Render cannot accept your card. Railway's
+current Free plan costs $0 and includes $1 of resource credit each month. New
+accounts first receive a one-time $5 trial credit for up to 30 days, then revert
+to the Free plan. A payment card is not needed to select Free, but Railway may
+restrict outbound networking when it cannot verify a new account through
+GitHub. The recurring $1 is a small allowance, not unlimited hosting, and plan
+terms can change in the future.
 
 ## 1. Prepare GitHub and Telegram
 
@@ -29,35 +29,45 @@ resources.
    Retain the output privately. Telegram webhook secrets may contain letters,
    digits, underscores, and hyphens.
 
-## 2. Deploy the bot first on Render Free
+## 2. Deploy the bot first on Railway Free
 
-1. Sign in at <https://dashboard.render.com> using GitHub.
-2. Choose **New > Blueprint**.
-3. Connect this repository and select the branch containing `render.yaml`.
-4. Render detects the `pasticuan-bot` Docker web service. Confirm that the
-   instance type is **Free** before applying the Blueprint.
-5. Enter the two secret environment variables when Render requests them:
+1. Sign in at <https://railway.com> using the GitHub account that owns the
+   repository. Do not choose Hobby or add a payment method; keep the account on
+   **Free**.
+2. Choose **New Project > Deploy from GitHub repo**, authorize the repository,
+   and select PastiCuan.
+3. Railway detects the root `Dockerfile` and `railway.json`. Wait for the first
+   build. It may initially fail because the required secrets have not been set.
+4. Open the bot service, select **Variables**, and add:
 
    - `TELEGRAM_BOT_TOKEN`: the newly rotated BotFather token.
    - `TELEGRAM_WEBHOOK_SECRET`: the random secret generated in step 1.
+   - `BOT_ENABLE_BACKTEST`: `false`
+   - `BOT_SCAN_LIMIT`: `5`
+   - `MODEL_VALIDATED`: `false`
+   - `SHADOW_COMPLETED_SESSIONS`: `0`
+   - `AI_PROVIDER`: `off`
 
-6. Apply the Blueprint and wait for the deployment to become Live.
-7. Copy the public URL shown by Render, for example
-   `https://pasticuan-bot.onrender.com`.
-8. Verify the health endpoint:
+   Do not add `PORT`; Railway supplies it automatically. Do not add a database,
+   volume, or object-storage service for the initial bot.
+5. Redeploy if Railway does not do so automatically, then check **Deployments >
+   View Logs** for startup errors.
+6. Open **Settings > Networking > Public Networking** and click **Generate
+   Domain**. Copy the resulting `https://...up.railway.app` URL.
+7. Verify the health endpoint from your own terminal:
 
    ```bash
-   curl -fsS https://YOUR_RENDER_URL/
+   curl -fsS https://YOUR_RAILWAY_DOMAIN/
    ```
 
    It should return `{"status":"ok","service":"pasticuan-telegram-webhook"}`.
 
-9. Register the webhook from your own terminal:
+8. Register the webhook from your own terminal:
 
    ```bash
    BOT_TOKEN="YOUR_NEW_BOTFATHER_TOKEN"
    WEBHOOK_SECRET="YOUR_GENERATED_WEBHOOK_SECRET"
-   BOT_URL="https://YOUR_RENDER_URL"
+   BOT_URL="https://YOUR_RAILWAY_DOMAIN"
 
    curl -fsS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
      --data-urlencode "url=${BOT_URL}/telegram/webhook" \
@@ -69,13 +79,15 @@ resources.
    unset BOT_TOKEN WEBHOOK_SECRET BOT_URL
    ```
 
-10. Send `/start`, `/ta BBCA`, and `/decision BBCA` to the bot. A sleeping free
-    service may need a cold start on the first command. Telegram retries webhook
-    deliveries that do not receive a successful response.
+9. Confirm that `getWebhookInfo` returns `"ok":true`, the Railway URL, and no
+   `last_error_message`. Then send `/start`, `/ta BBCA`, and `/decision BBCA` to
+   the bot.
 
-Do not create a Render **Background Worker** for this repository; that service
-type has no free instance. Do not add a persistent disk or paid PostgreSQL
-instance merely to launch the bot.
+If Railway gives the account a **Limited Trial**, outbound calls to Telegram or
+market-data providers may be blocked. Railway verification is automatic; the
+practical no-card fallback in that case is to run `bot.py` on a computer you can
+leave online, because most other managed hosts either require a card or offer
+only time-limited compute.
 
 ### Optional alternative: Google Cloud Run
 
@@ -192,10 +204,10 @@ become authoritative inputs.
 
 ## 5. Keep the deployment free
 
-- On Render, confirm the instance remains **Free** after every configuration
-  change. Never convert it to a Background Worker or attach paid resources.
-- Check Render's bandwidth and build-minute usage periodically; the free compute
-  selection alone does not guarantee that unusually high outbound usage is free.
+- On Railway, keep the subscription on **Free** and check monthly resource usage.
+  The recurring credit is $1 and does not roll over.
+- Keep only the bot service in the Railway project. A Railway PostgreSQL service
+  would consume the same small monthly credit continuously.
 - If using Cloud Run instead, keep minimum instances at `0`, maximum at `1`, and
   request-based billing. Never configure an always-on instance.
 - Leave `BOT_ENABLE_BACKTEST=false` for interactive bot requests and keep
