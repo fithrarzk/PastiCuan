@@ -19,7 +19,6 @@ from analysis.engine import run_analysis_bundle
 from analysis.quant import compute_quant_factors
 from analysis.portfolio import optimize_portfolio
 from analysis.presentation import decision_view, display_number
-from telegram_utils.chart_generator import generate_telegram_chart
 
 
 # Configure Logging
@@ -27,6 +26,25 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
+
+
+class _SecretRedactionFilter(logging.Filter):
+    """Prevent bot/webhook credentials from appearing in provider logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        rendered = record.getMessage()
+        for value in (TELEGRAM_BOT_TOKEN, os.getenv("TELEGRAM_WEBHOOK_SECRET")):
+            if value:
+                rendered = rendered.replace(value, "<redacted>")
+        record.msg = rendered
+        record.args = ()
+        return True
+
+
+for _handler in logging.getLogger().handlers:
+    _handler.addFilter(_SecretRedactionFilter())
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 POPULAR_TICKERS = ["BBCA", "BBRI", "BMRI", "BBNI", "TLKM", "ASII", "UNTR", "ICBP", "AMRT", "ADRO"]
@@ -53,12 +71,12 @@ def _compute_liquidity(history):
     return {"avg_volume": avg_volume, "avg_value": avg_value}
 
 
-def _run_full_analysis(ticker_raw: str, period: str = "3y"):
+def _run_full_analysis(ticker_raw: str, period: str = "3y", *, include_backtest: bool = False):
     data = get_extended_data(ticker_raw, period=period)
     if data.get("error"):
         return None, data["error"]
 
-    analysis = run_analysis_bundle(data)
+    analysis = run_analysis_bundle(data, include_backtest=include_backtest)
 
     return {
         "data": data,
@@ -168,7 +186,8 @@ async def decision_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ticker_symbol = _clean_ticker(context.args[0])
     await update.message.reply_text(f"⏳ Generating Decision Report for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
 
-    results, error = _run_full_analysis(ticker_symbol)
+    include_backtest = os.getenv("BOT_ENABLE_BACKTEST", "false").lower() == "true"
+    results, error = _run_full_analysis(ticker_symbol, include_backtest=include_backtest)
     if error:
         await update.message.reply_text(f"❌ *Error evaluating {ticker_symbol}:*\n{error}", parse_mode=ParseMode.MARKDOWN)
         return
@@ -277,6 +296,8 @@ async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ *Error rendering chart for {ticker_symbol}:*\n{error}", parse_mode=ParseMode.MARKDOWN)
         return
 
+    from telegram_utils.chart_generator import generate_telegram_chart
+
     buf = generate_telegram_chart(results["tech"], results["data"]["ticker"])
     if buf is None:
         await update.message.reply_text("❌ Could not generate chart image due to missing data.", parse_mode=ParseMode.MARKDOWN)
@@ -294,7 +315,8 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔎 Scanning top IDX stocks (LQ45 shortlist)... Please wait 10-15 seconds.", parse_mode=ParseMode.MARKDOWN)
 
     scanned = []
-    for symbol in POPULAR_TICKERS:
+    scan_limit = max(1, min(len(POPULAR_TICKERS), int(os.getenv("BOT_SCAN_LIMIT", "5"))))
+    for symbol in POPULAR_TICKERS[:scan_limit]:
         try:
             results, err = _run_full_analysis(symbol, period="1y")
             if not err and results:
@@ -415,13 +437,11 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
-def main():
+def build_application():
+    """Build the shared Telegram application for polling or webhook delivery."""
     if not TELEGRAM_BOT_TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN is not set in environment or .env file.")
-        return 1
-    logger.info("Starting PastiCuan Telegram Bot...")
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is not set.")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-
     app.add_handler(CommandHandler(["start", "help"], start_command))
     app.add_handler(CommandHandler(["ta", "analyze"], ta_command))
     app.add_handler(CommandHandler(["fund", "fundamental"], fund_command))
@@ -430,9 +450,16 @@ def main():
     app.add_handler(CommandHandler(["decision"], decision_command))
     app.add_handler(CommandHandler(["chart"], chart_command))
     app.add_handler(CommandHandler(["scan"], scan_command))
+    return app
 
 
-
+def main():
+    """Local entry point. The free cloud deployment uses bot_webhook.py."""
+    try:
+        app = build_application()
+    except RuntimeError as exc:
+        logger.error(str(exc))
+        return 1
     print("🚀 PastiCuan Telegram Bot is running! Press Ctrl+C to stop.")
     app.run_polling()
     return 0

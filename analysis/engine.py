@@ -46,7 +46,12 @@ def broker_costs_from_env() -> BrokerCostProfile | None:
     )
 
 
-def run_analysis_bundle(data: dict[str, Any], *, broker_costs: BrokerCostProfile | None = None) -> dict[str, Any]:
+def run_analysis_bundle(
+    data: dict[str, Any],
+    *,
+    broker_costs: BrokerCostProfile | None = None,
+    include_backtest: bool = True,
+) -> dict[str, Any]:
     """Build one immutable-output contract and compatibility section objects."""
     raw_history = data.get("history")
     history = completed_eod_history(raw_history)
@@ -77,7 +82,16 @@ def run_analysis_bundle(data: dict[str, Any], *, broker_costs: BrokerCostProfile
     )
     seasonality = compute_seasonality(history)
     costs = broker_costs if broker_costs is not None else broker_costs_from_env()
-    backtest = backtest_technical_strategy(history, sector=sector, info=info, broker_costs=costs)
+    backtest = (
+        backtest_technical_strategy(history, sector=sector, info=info, broker_costs=costs)
+        if include_backtest else {
+            "error": "Backtest skipped for the low-latency request path.",
+            "summary": {}, "signal_stats": {}, "setup_confidence": None,
+            "costs_configured": costs is not None, "research_only": True,
+            "formula_version": "causal-backtest-v2", "trades": pd.DataFrame(),
+            "equity_curve": pd.DataFrame(),
+        }
+    )
     liquidity = _liquidity(history)
     validated = os.getenv("MODEL_VALIDATED", "false").lower() == "true"
     shadow_sessions = int(os.getenv("SHADOW_COMPLETED_SESSIONS", "0"))

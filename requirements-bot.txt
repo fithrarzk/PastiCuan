@@ -1,0 +1,11 @@
+# Cloud Run dependencies (bot_webhook.py)
+fastapi==0.116.1
+uvicorn==0.35.0
+python-telegram-bot==22.8
+yfinance==1.2.0
+pandas==2.3.3
+numpy==2.5.2
+python-dotenv==1.2.2
+matplotlib==3.11.1
+scipy==1.18.0
+

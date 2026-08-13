@@ -6,6 +6,17 @@ label is eligible until the source, freshness, liquidity, broker-cost,
 walk-forward validation, and 60-completed-session gates all pass. No model can
 guarantee profit.
 
+## Free deployment
+
+The deployment is optimized for a bot-first, scale-to-zero free-tier setup:
+
+- Telegram bot: Cloud Run webhook using `Dockerfile` and `requirements-bot.txt`.
+- App: Streamlit Community Cloud using `app.py` and `requirements.txt`.
+
+Follow [DEPLOY_FREE.md](DEPLOY_FREE.md) from start to finish. The former Render
+background-worker configuration was removed because Render background workers
+do not have a free instance type.
+
 How to run
 `streamlit run app.py`
 

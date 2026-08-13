@@ -1,4 +1,5 @@
 import unittest
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -116,6 +117,20 @@ class CausalityAndGateTests(unittest.TestCase):
         )
         self.assertIn("POLICY LABEL: RESEARCH_ONLY", text)
         self.assertNotIn("FINAL VERDICT: BUY", text)
+
+    def test_telegram_credentials_are_redacted_from_logs(self):
+        import bot
+        original_token = bot.TELEGRAM_BOT_TOKEN
+        try:
+            bot.TELEGRAM_BOT_TOKEN = "secret-token-for-test"
+            record = logging.LogRecord("httpx", logging.INFO, __file__, 1,
+                                       "POST https://api.telegram.org/bot%s/getMe",
+                                       (bot.TELEGRAM_BOT_TOKEN,), None)
+            bot._SecretRedactionFilter().filter(record)
+            self.assertNotIn("secret-token-for-test", record.getMessage())
+            self.assertIn("<redacted>", record.getMessage())
+        finally:
+            bot.TELEGRAM_BOT_TOKEN = original_token
 
 
 class CrossSectionTests(unittest.TestCase):
