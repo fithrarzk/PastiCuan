@@ -25,7 +25,10 @@ from analysis.valuation_bands import compute_valuation_bands
 from analysis.seasonality import compute_seasonality
 from analysis.backtest import backtest_technical_strategy
 from analysis.decision import build_decision_report
+from analysis.quant import compute_quant_factors
+from analysis.portfolio import optimize_portfolio
 from telegram_utils.chart_generator import generate_telegram_chart
+
 
 # Configure Logging
 logging.basicConfig(
@@ -119,10 +122,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*Available Commands:*\n"
         "• `/ta <ticker>` — Adaptive Technical Analysis (e.g. `/ta BBCA`)\n"
         "• `/fund <ticker>` — Detailed Fundamental & Valuation Report (e.g. `/fund TLKM`)\n"
+        "• `/quant <ticker>` — Level 2 Multi-Factor Quant Model (e.g. `/quant BBCA`)\n"
+        "• `/portfolio <t1> <t2> ...` — Markowitz Portfolio Optimizer (e.g. `/portfolio BBCA TLKM BMRI ICBP`)\n"
         "• `/decision <ticker>` — Multi-factor Decision Matrix (e.g. `/decision BMRI`)\n"
         "• `/chart <ticker>` — Technical Candlestick & Indicator Chart (e.g. `/chart ASII`)\n"
         "• `/scan` — Scan LQ45 / top IDX stocks for accumulation signals\n"
         "• `/help` — Display this command menu\n\n"
+
 
         "_Tip: Ticker symbols automatically default to IDX (.JK suffix)._"
     )
@@ -370,6 +376,95 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
 
+async def quant_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Executes Multi-Factor Quant Analysis for a given ticker."""
+    if not context.args:
+        await update.message.reply_text("ℹ️ Please specify a ticker symbol. Example: `/quant BBCA`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    ticker_symbol = _clean_ticker(context.args[0])
+    await update.message.reply_text(f"⏳ Running Level 2 Multi-Factor Quant Model for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
+
+    results, error = _run_full_analysis(ticker_symbol)
+    if error:
+        await update.message.reply_text(f"❌ *Error running Quant model for {ticker_symbol}:*\n{error}", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    data = results["data"]
+    quant = compute_quant_factors(
+        info=data.get("info"),
+        history=data.get("history"),
+        sector=data.get("basic", {}).get("sector"),
+        quarterly_income=data.get("quarterly_income"),
+        quarterly_balance=data.get("quarterly_balance"),
+    )
+
+    factors = quant.get("factors", {})
+    val_f = factors.get("value", {})
+    qual_f = factors.get("quality", {})
+    mom_f = factors.get("momentum", {})
+    vol_f = factors.get("low_volatility", {})
+
+    msg = (
+        f"🔬 *{data['ticker']} — Level 2 Multi-Factor Quant Report*\n"
+        f"Sector: *{data['basic'].get('sector', 'N/A')}*\n"
+        f"───────────────\n"
+        f"📊 *Composite Quant Score:* `{quant.get('composite_score', 0):.1f} / 100`\n"
+        f"🎯 *Factor Grade:* `{quant.get('grade', 'N/A')}`\n\n"
+        f"📐 *Sub-Factor Breakdown:*\n"
+        f"• *Value Factor:* `{val_f.get('score', 0):.1f}/100` (Grade `{val_f.get('grade', 'C')}`)\n"
+        f"• *Quality Factor:* `{qual_f.get('score', 0):.1f}/100` (Grade `{qual_f.get('grade', 'C')}`)\n"
+        f"• *Momentum Factor:* `{mom_f.get('score', 0):.1f}/100` (Grade `{mom_f.get('grade', 'C')}`)\n"
+        f"• *Low Volatility Factor:* `{vol_f.get('score', 0):.1f}/100` (Grade `{vol_f.get('grade', 'C')}`)\n\n"
+        f"💡 _Try `/portfolio {ticker_symbol} TLKM BMRI ICBP` to optimize capital allocation!_"
+    )
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+
+async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Runs Markowitz Mean-Variance Portfolio Optimization."""
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text(
+            "ℹ️ Please specify at least 2 ticker symbols. Example: `/portfolio BBCA TLKM BMRI ICBP`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    tickers_list = [_clean_ticker(t) for t in context.args]
+    tickers_str = ", ".join(tickers_list)
+    await update.message.reply_text(f"⏳ Running Markowitz Portfolio Optimization for: *{tickers_str}*...", parse_mode=ParseMode.MARKDOWN)
+
+    res = optimize_portfolio(tickers_list, period="1y")
+    if res.get("error"):
+        await update.message.reply_text(f"❌ *Portfolio Optimization Error:*\n{res['error']}", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    max_s = res["max_sharpe"]
+    weights = max_s["weights"]
+
+    lines = [
+        "🧮 *Markowitz Mean-Variance Portfolio Optimization*\n",
+        "🎯 *Optimal Capital Allocation (Max Sharpe Ratio):*"
+    ]
+
+    for tk, w in weights.items():
+        if w > 0:
+            lines.append(f"• *{tk}*: `{w:.2f}%`")
+        else:
+            lines.append(f"• *{tk}*: `0.00%` (Excluded for risk optimization)")
+
+    lines.append(
+        f"\n📊 *Expected Performance metrics:*\n"
+        f"• *Expected Annual Return:* `+{max_s['expected_return']:.2f}%`\n"
+        f"• *Annualized Volatility:* `{max_s['volatility']:.2f}%`\n"
+        f"• *Sharpe Ratio:* `{max_s['sharpe_ratio']:.2f}`"
+    )
+
+    msg = "\n".join(lines)
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+
+
 def main():
     logger.info("Starting PastiCuan Telegram Bot...")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
@@ -377,9 +472,12 @@ def main():
     app.add_handler(CommandHandler(["start", "help"], start_command))
     app.add_handler(CommandHandler(["ta", "analyze"], ta_command))
     app.add_handler(CommandHandler(["fund", "fundamental"], fund_command))
+    app.add_handler(CommandHandler(["quant"], quant_command))
+    app.add_handler(CommandHandler(["portfolio"], portfolio_command))
     app.add_handler(CommandHandler(["decision"], decision_command))
     app.add_handler(CommandHandler(["chart"], chart_command))
     app.add_handler(CommandHandler(["scan"], scan_command))
+
 
 
     print("🚀 PastiCuan Telegram Bot is running! Press Ctrl+C to stop.")

@@ -19,7 +19,9 @@ from ui.tabs import (
     render_backtest_tab,
     render_decision_tab,
     render_scanner_tab,
+    render_quant_tab,
 )
+
 
 load_dotenv()
 
@@ -368,9 +370,10 @@ def main():
     """, unsafe_allow_html=True)
 
     # ── Tabs ──────────────────────────────────────────────────────────
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "Dashboard",
         "Decision",
+        "Quant & Portfolio",
         "Backtest",
         "Scanner",
         "Valuation Bands",
@@ -386,22 +389,26 @@ def main():
         render_decision_tab(decision, tech, fund, ticker)
 
     with tab3:
-        render_backtest_tab(backtest, ticker)
+        render_quant_tab(data, tech, fund, ticker)
 
     with tab4:
-        render_scanner_tab(period_yf)
+        render_backtest_tab(backtest, ticker)
 
     with tab5:
-        render_valuation_tab(bands, ticker)
+        render_scanner_tab(period_yf)
 
     with tab6:
-        render_comparison_tab(ticker, period_yf)
+        render_valuation_tab(bands, ticker)
 
     with tab7:
-        render_seasonality_tab(seasonality, ticker)
+        render_comparison_tab(ticker, period_yf)
 
     with tab8:
+        render_seasonality_tab(seasonality, ticker)
+
+    with tab9:
         render_technical_tab(tech, ticker, history)
+
 
 
 if __name__ == "__main__":

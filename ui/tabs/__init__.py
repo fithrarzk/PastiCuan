@@ -7,6 +7,7 @@ from .learning import render_learning_page
 from .backtest_tab import render_backtest_tab
 from .decision_tab import render_decision_tab
 from .scanner import render_scanner_tab
+from .quant_tab import render_quant_tab
 
 __all__ = [
     "render_dashboard_tab",
@@ -18,4 +19,6 @@ __all__ = [
     "render_backtest_tab",
     "render_decision_tab",
     "render_scanner_tab",
+    "render_quant_tab",
 ]
+
