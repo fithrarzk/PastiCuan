@@ -7,3 +7,4 @@ numpy==2.5.2
 plotly==6.6.0
 python-dotenv==1.2.2
 scipy==1.18.0
+psycopg[binary]==3.2.13

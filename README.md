@@ -1,6 +1,6 @@
 # PastiCuan
 
-PastiCuan is an end-of-session IDX research system. Version 2 runs in **shadow
+PastiCuan is an end-of-session IDX research system. Version 3 runs in **shadow
 mode**: it publishes reproducible evidence and paper alerts, but no Buy/Sell
 label is eligible until the source, freshness, liquidity, broker-cost,
 walk-forward validation, and 60-completed-session gates all pass. No model can
@@ -33,10 +33,13 @@ How to run
   and consume the same versioned `AnalysisBundle` values.
 - Current Yahoo access is a flagged market-data fallback. It is not treated as
   authoritative fundamental data, so the action gate remains closed.
-- Production persistence is PostgreSQL; original filing documents are retained
-  in S3-compatible object storage. Apply
-  `storage/migrations/001_point_in_time_schema.up.sql`; its paired `.down.sql`
-  migration is the explicit rollback.
+- Canonical structured research data uses Supabase PostgreSQL; original filing
+  documents and logical backups use optional S3-compatible R2 storage. Apply
+  migrations `001` then `002`, followed by `storage/supabase_roles.sql`.
+- Railway runs only the Telegram webhook. GitHub Actions performs source
+  acquisition, candidate snapshot construction and backups outside the request
+  path. The bot caches an approved, checksummed snapshot and safely falls back
+  to the bundled snapshot when Supabase is unavailable.
 - Financial facts carry their period, publication/availability timestamps,
   currency, scale, consolidation/audit status, source, checksum and restatement
   version. Point-in-time queries must filter `available_at <= as_of`.
@@ -44,6 +47,9 @@ How to run
   completed close and can execute no earlier than the next tradable open.
 - Without every `BROKER_*` field, backtests are gross research results and
   cannot influence an action.
+- `VALIDATED_RESEARCH` can only come from persisted validation evidence. No
+  environment variable can promote a model, and action eligibility is not
+  supported by the current policy.
 
 Run the offline reliability suite with:
 
@@ -51,31 +57,34 @@ Run the offline reliability suite with:
 python -m unittest discover -s tests -v
 ```
 
-## Local AI setup
+## Research-core jobs
 
-PastiCuan can generate the AI Research Report with a local Ollama model, so the
-core app does not depend on paid API calls.
-
-1. Install Ollama from https://ollama.com/download
-2. Pull the default model:
+Install the job-only dependencies locally with
+`pip install -r requirements-jobs.txt`. Core commands are:
 
 ```bash
-ollama pull qwen2.5:7b
+python -m operations.research_cli ingest-manifest \
+  --manifest data/source_manifest.json --report ingestion-report.json
+python -m operations.research_cli build-snapshot-from-database \
+  --output data/snapshots/candidate.json.gz \
+  --effective-at 2026-08-31T16:15:00+07:00
+python -m operations.research_cli validate-quant \
+  --scores reviewed/monthly_scores.csv --bars reviewed/market_bars.csv \
+  --output validation-report.json --persist
+python -m operations.research_cli approve-snapshot \
+  --candidate data/snapshots/candidate.json.gz \
+  --output data/snapshots/latest.json.gz --status SHADOW
+python -m operations.research_cli publish-snapshot \
+  --snapshot data/snapshots/latest.json.gz
 ```
 
-3. Copy `.env.example` to `.env`, then keep:
+Candidate snapshots cannot be loaded by the bot. Approval changes the status
+and checksum explicitly. `VALIDATED_RESEARCH` additionally requires a persisted
+passing validation-run ID. Keep a model in `SHADOW` until those frozen gates
+pass; neither status can make the bot emit an actionable recommendation.
 
-```bash
-AI_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5:7b
-```
+## Narrative policy
 
-4. Start the app:
-
-```bash
-streamlit run app.py
-```
-
-If Ollama is not running or the model is missing, the app will still generate a
-deterministic local report from the technical/fundamental engine.
+Version 3 produces its report deterministically from the versioned evidence
+bundle. Generative providers are outside the validated core: they cannot alter
+facts, factor scores, gates, or verdicts. Keep `AI_PROVIDER=off` in production.

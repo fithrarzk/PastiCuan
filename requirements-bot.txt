@@ -9,3 +9,4 @@ numpy==2.5.2
 python-dotenv==1.2.2
 matplotlib==3.11.1
 scipy==1.18.0
+psycopg[binary]==3.2.13

@@ -1,0 +1,19 @@
+name: core-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-bot.txt
+      - run: python -m compileall -q analysis data storage operations telegram_utils bot.py bot_webhook.py
+      - run: python -m unittest discover -s tests -v

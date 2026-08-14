@@ -1,4 +1,4 @@
-"""AI-powered stock analysis with local-first provider support."""
+"""Deterministic narrative rendering for the structured analysis contract."""
 
 import json
 import os
@@ -46,77 +46,14 @@ def _http_json(method: str, url: str, payload: dict | None = None, timeout: int 
 
 def get_ai_provider_status() -> dict:
     """Return the configured AI provider and whether it is ready."""
-    if os.environ.get("MODEL_VALIDATED", "false").lower() != "true":
-        return {
-            "provider": "deterministic",
-            "ready": True,
-            "label": "Structured shadow report",
-            "message": "Generative narratives are locked until model validation; canonical values only.",
-        }
-    provider = _env_provider()
-    if provider == "off":
-        return {
-            "provider": "off",
-            "ready": True,
-            "label": "AI disabled",
-            "message": "AI report generation is disabled.",
-        }
-
-    if provider in {"ollama", "auto"}:
-        base_url = _ollama_base_url()
-        model = _ollama_model()
-        try:
-            data = _http_json("GET", f"{base_url}/api/tags", timeout=2)
-            models = [item.get("name") for item in data.get("models", [])]
-            model_ready = any(name == model or name.startswith(f"{model}:") for name in models if name)
-            if model_ready:
-                return {
-                    "provider": "ollama",
-                    "ready": True,
-                    "label": f"Ollama · {model}",
-                    "message": "Local model is ready.",
-                }
-            return {
-                "provider": "ollama",
-                "ready": False,
-                "label": f"Ollama · {model}",
-                "message": f"Ollama is running, but model `{model}` is not installed.",
-            }
-        except (HTTPError, URLError, TimeoutError, OSError):
-            if provider == "auto" and os.environ.get("GEMINI_API_KEY"):
-                return {
-                    "provider": "gemini",
-                    "ready": True,
-                    "label": "Gemini fallback",
-                    "message": "Ollama is unavailable; Gemini fallback is configured.",
-                }
-            return {
-                "provider": "ollama",
-                "ready": False,
-                "label": f"Ollama · {model}",
-                "message": "Ollama is not reachable on the configured local URL.",
-            }
-
-    if provider == "gemini":
-        return {
-            "provider": "gemini",
-            "ready": bool(os.environ.get("GEMINI_API_KEY")),
-            "label": "Gemini",
-            "message": (
-                "Gemini API key is configured."
-                if os.environ.get("GEMINI_API_KEY")
-                else "Set GEMINI_API_KEY to use Gemini."
-            ),
-        }
-
+    # v3 keeps narrative output deterministic even after research validation;
+    # validation is not authorization for an LLM to derive an action label.
     return {
-        "provider": provider,
-        "ready": False,
-        "label": provider,
-        "message": "Unknown AI provider. Use `ollama`, `gemini`, `auto`, or `off`.",
+        "provider": "deterministic",
+        "ready": True,
+        "label": "Structured shadow report",
+        "message": "Canonical values only; generative action narratives are disabled by policy.",
     }
-
-
 def _build_prompt(
     fundamental_data: dict,
     technical_data: dict,
@@ -439,7 +376,7 @@ def generate_ai_analysis(
     seasonality: dict | None = None,
     comparison_summary: str | None = None,
 ) -> str:
-    """Generate a Markdown analysis using Ollama locally by default.
+    """Render a Markdown analysis without delegating facts or labels to an LLM.
 
     Parameters
     ----------
@@ -452,8 +389,8 @@ def generate_ai_analysis(
     """
     # During the reliability rollout only a deterministic rendering is allowed.
     # This makes it impossible for an LLM to mutate numbers, action labels or
-    # warnings. Provider code remains available for a future validated,
-    # schema-constrained narrative endpoint.
+    # warnings. Legacy private provider helpers remain unreachable from this
+    # public entry point and require separate review before any future use.
     fallback = _build_deterministic_report(
         fundamental_data,
         technical_data,

@@ -1,0 +1,241 @@
+"""Core research jobs. Intended for local use and GitHub Actions, not Railway."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import json
+import hashlib
+import os
+from pathlib import Path
+import subprocess
+from uuid import uuid4
+
+import pandas as pd
+
+from analysis.quant import compute_cross_sectional_factors
+from analysis.backtest import BrokerCostProfile
+from analysis.quant_backtest import assess_holdout, backtest_monthly_quant
+from analysis.factor_dataset import build_factor_inputs
+from analysis.snapshots import ResearchSnapshot, load_snapshot, write_snapshot
+from data.ingestion import acquire_artifact, read_manifest, upload_to_r2
+from data.parsers import parse_canonical_csv
+
+
+def _signed_snapshot(**values) -> ResearchSnapshot:
+    base = ResearchSnapshot(**values)
+    return ResearchSnapshot(**{**base.unsigned_dict(), "checksum": base.calculated_checksum()})
+
+
+def build_snapshot(input_path: str, output_path: str, effective_at: str, model_version: str) -> ResearchSnapshot:
+    frame = pd.read_csv(input_path)
+    result = compute_cross_sectional_factors(frame, as_of=effective_at, min_universe=10)
+    if result["status"] != "AVAILABLE":
+        raise ValueError(result["reason"])
+    rankings = {}
+    for row in result["scores"].where(pd.notna(result["scores"]), None).to_dict("records"):
+        ticker = str(row.pop("ticker")).upper().replace(".JK", "")
+        rankings[ticker] = row
+    snapshot = _signed_snapshot(
+        snapshot_id=str(uuid4()), effective_at=effective_at,
+        created_at=datetime.now(timezone.utc).isoformat(), model_version=model_version,
+        model_status="CANDIDATE", constituents=sorted(rankings), rankings=rankings,
+        warnings=result.get("warnings", []),
+    )
+    write_snapshot(snapshot, output_path, allow_candidate=True)
+    return snapshot
+
+
+def approve_snapshot(candidate_path: str, output_path: str, status: str, validation_run_id: str | None) -> ResearchSnapshot:
+    raw = Path(candidate_path).read_bytes()
+    if candidate_path.endswith(".gz"):
+        import gzip
+        raw = gzip.decompress(raw)
+    candidate = ResearchSnapshot(**json.loads(raw))
+    candidate.validate(approved_only=False)
+    if candidate.model_status != "CANDIDATE":
+        raise ValueError("Only a candidate snapshot may be approved.")
+    if status == "VALIDATED_RESEARCH" and not validation_run_id:
+        raise ValueError("VALIDATED_RESEARCH requires a persisted validation run ID.")
+    approved = _signed_snapshot(**{
+        **candidate.unsigned_dict(), "model_status": status,
+        "validation_run_id": validation_run_id,
+    })
+    write_snapshot(approved, output_path)
+    return approved
+
+
+def ingest_manifest(path: str, *, archive_directory: str | None, use_r2: bool) -> list[dict]:
+    repository = None
+    if os.getenv("SUPABASE_WRITER_DATABASE_URL"):
+        from storage.database import connect_from_env
+        from storage.repository import SnapshotRepository
+        repository = SnapshotRepository(lambda: connect_from_env(writer=True))
+    report = []
+    for source in read_manifest(path):
+        artifact_id = None
+        try:
+            artifact, body = acquire_artifact(
+                provider=source["provider"], source_class=source.get("source_class", "official"),
+                artifact_type=source["artifact_type"], source_url=source["source_url"],
+                published_at=source.get("published_at"), archive_directory=archive_directory,
+            )
+            if repository:
+                artifact_id = repository.register_source_artifact(artifact.to_dict(), parse_status="PENDING")
+            if use_r2:
+                upload_to_r2(artifact.object_key or artifact.checksum, body, content_type=artifact.content_type)
+            records = parse_canonical_csv(artifact.artifact_type, body)
+            if repository:
+                repository.import_canonical_records(
+                    artifact.artifact_type, records, source_class=artifact.source_class,
+                )
+                repository.set_artifact_status(artifact_id, "ACCEPTED")
+            report.append({**artifact.to_dict(), "status": "ACCEPTED", "record_count": len(records)})
+        except Exception as exc:
+            if repository and artifact_id:
+                repository.set_artifact_status(artifact_id, "QUARANTINED")
+                repository.record_ingestion_issue(artifact_id, "PARSE_OR_ARCHIVE_FAILURE", str(exc))
+            report.append({"source_url": source.get("source_url"), "status": "QUARANTINED", "detail": str(exc)})
+    return report
+
+
+def backup_database(output_path: str, upload: bool) -> None:
+    database_url = os.getenv("SUPABASE_WRITER_DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("SUPABASE_WRITER_DATABASE_URL is required.")
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["pg_dump", "--format=custom", "--no-owner", "--file", str(destination), database_url], check=True)
+    if upload:
+        key = os.getenv("BACKUP_ENCRYPTION_KEY")
+        if not key:
+            raise RuntimeError("BACKUP_ENCRYPTION_KEY is required before a database backup may leave the runner.")
+        try:
+            from cryptography.fernet import Fernet
+        except ImportError as exc:
+            raise RuntimeError("Install requirements-jobs.txt for encrypted backups.") from exc
+        encrypted = Fernet(key.encode()).encrypt(destination.read_bytes())
+        upload_to_r2(f"backups/{destination.name}.fernet", encrypted, content_type="application/octet-stream")
+
+
+def publish_snapshot(path: str) -> str:
+    from storage.database import connect_from_env
+    from storage.repository import SnapshotRepository
+    return SnapshotRepository(lambda: connect_from_env(writer=True)).publish_quant_snapshot(load_snapshot(path))
+
+
+def build_snapshot_from_database(output_path: str, effective_at: str, model_version: str) -> ResearchSnapshot:
+    from storage.database import connect_from_env
+    from storage.repository import SnapshotRepository
+    repository = SnapshotRepository(lambda: connect_from_env(writer=True))
+    frame = build_factor_inputs(repository, effective_at)
+    if frame.empty:
+        raise ValueError("No eligible point-in-time LQ45 factor inputs were produced.")
+    temporary = Path(output_path).with_suffix(".factor-inputs.csv")
+    frame.to_csv(temporary, index=False)
+    try:
+        return build_snapshot(str(temporary), output_path, effective_at, model_version)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def validate_quant(scores_path: str, bars_path: str, output_path: str,
+                   *, persist: bool = False, model_version: str = "lq45-factor-v1") -> dict:
+    scores, bars = pd.read_csv(scores_path), pd.read_csv(bars_path)
+    costs = BrokerCostProfile(
+        os.getenv("BROKER_COST_PROFILE", "validation"),
+        float(os.getenv("BROKER_BUY_COMMISSION", ".0015")),
+        float(os.getenv("BROKER_SELL_COMMISSION", ".0025")),
+        float(os.getenv("BROKER_SELL_LEVY", ".001")),
+        float(os.getenv("BROKER_HALF_SPREAD", ".0005")),
+        float(os.getenv("BROKER_SLIPPAGE_BPS", "5")),
+    )
+    dates = sorted(pd.to_datetime(scores["rebalance_date"]).dt.tz_localize(None).unique())
+    holdout_dates = dates[-25:] if len(dates) >= 25 else dates
+    holdout = scores[pd.to_datetime(scores["rebalance_date"]).dt.tz_localize(None).isin(holdout_dates)]
+    result = backtest_monthly_quant(holdout, bars, broker_costs=costs)
+    if result.get("status") != "AVAILABLE":
+        raise ValueError(result.get("reason", "Quant validation unavailable."))
+    high_cost = BrokerCostProfile(
+        f"{costs.name}-2x", costs.buy_commission * 2, costs.sell_commission * 2,
+        costs.sell_tax_levy * 2, costs.half_spread * 2, costs.slippage_bps * 2,
+    )
+    stressed = backtest_monthly_quant(holdout, bars, broker_costs=high_cost)
+    delayed = backtest_monthly_quant(holdout, bars, broker_costs=costs, execution_delay_sessions=1)
+    usable_years = ((max(dates) - min(dates)).days / 365.25) if len(dates) > 1 else 0
+    acceptance = assess_holdout(
+        result, usable_years=usable_years, holdout_months=max(0, len(holdout_dates) - 1),
+        higher_cost_positive=(stressed.get("net_excess_cagr") or 0) > 0,
+        delayed_entry_positive=(delayed.get("net_excess_cagr") or 0) > 0,
+        deterministic_rebuild=True,
+    )
+    summary = {key: value for key, value in result.items() if key not in {"monthly", "observations"}}
+    payload = {"metrics": summary, "acceptance": acceptance}
+    encoded = json.dumps(payload, indent=2, sort_keys=True).encode()
+    Path(output_path).write_bytes(encoded)
+    if persist:
+        from storage.database import connect_from_env
+        from storage.repository import SnapshotRepository
+        input_checksum = hashlib.sha256(Path(scores_path).read_bytes() + Path(bars_path).read_bytes()).hexdigest()
+        run_id = str(uuid4())
+        persisted = SnapshotRepository(lambda: connect_from_env(writer=True)).save_validation_run(
+            run_id=run_id, model_version=model_version, input_checksum=input_checksum,
+            metrics=summary, acceptance=acceptance,
+            holdout_start=str(pd.Timestamp(holdout_dates[0]).date()) if holdout_dates else None,
+            holdout_end=str(pd.Timestamp(holdout_dates[-1]).date()) if holdout_dates else None,
+            output_checksum=hashlib.sha256(encoded).hexdigest(),
+        )
+        payload["validation_run_id"] = persisted
+    return payload
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(prog="pasticuan-research")
+    sub = parser.add_subparsers(dest="command", required=True)
+    build = sub.add_parser("build-snapshot")
+    build.add_argument("--input", required=True); build.add_argument("--output", required=True)
+    build.add_argument("--effective-at", required=True); build.add_argument("--model-version", default="lq45-factor-v1")
+    approve = sub.add_parser("approve-snapshot")
+    approve.add_argument("--candidate", required=True); approve.add_argument("--output", required=True)
+    approve.add_argument("--status", choices=["SHADOW", "VALIDATED_RESEARCH"], default="SHADOW")
+    approve.add_argument("--validation-run-id")
+    build_db = sub.add_parser("build-snapshot-from-database")
+    build_db.add_argument("--output", required=True); build_db.add_argument("--effective-at", required=True)
+    build_db.add_argument("--model-version", default="lq45-factor-v1")
+    ingest = sub.add_parser("ingest-manifest")
+    ingest.add_argument("--manifest", required=True); ingest.add_argument("--report", required=True)
+    ingest.add_argument("--archive-directory"); ingest.add_argument("--r2", action="store_true")
+    backup = sub.add_parser("backup")
+    backup.add_argument("--output", required=True); backup.add_argument("--r2", action="store_true")
+    publish = sub.add_parser("publish-snapshot")
+    publish.add_argument("--snapshot", required=True)
+    validate = sub.add_parser("validate-quant")
+    validate.add_argument("--scores", required=True); validate.add_argument("--bars", required=True)
+    validate.add_argument("--output", required=True)
+    validate.add_argument("--persist", action="store_true")
+    validate.add_argument("--model-version", default="lq45-factor-v1")
+    args = parser.parse_args(argv)
+    if args.command == "build-snapshot":
+        build_snapshot(args.input, args.output, args.effective_at, args.model_version)
+    elif args.command == "approve-snapshot":
+        approve_snapshot(args.candidate, args.output, args.status, args.validation_run_id)
+    elif args.command == "build-snapshot-from-database":
+        build_snapshot_from_database(args.output, args.effective_at, args.model_version)
+    elif args.command == "ingest-manifest":
+        report = ingest_manifest(args.manifest, archive_directory=args.archive_directory, use_r2=args.r2)
+        Path(args.report).write_text(json.dumps(report, indent=2, sort_keys=True))
+        if any(item["status"] == "QUARANTINED" for item in report):
+            return 2
+    elif args.command == "backup":
+        backup_database(args.output, args.r2)
+    elif args.command == "publish-snapshot":
+        print(publish_snapshot(args.snapshot))
+    elif args.command == "validate-quant":
+        result = validate_quant(args.scores, args.bars, args.output, persist=args.persist,
+                                model_version=args.model_version)
+        print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

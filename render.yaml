@@ -18,7 +18,3 @@ services:
         value: "10"
       - key: YAHOO_REQUEST_TIMEOUT
         value: "12"
-      - key: MODEL_VALIDATED
-        value: "false"
-      - key: SHADOW_COMPLETED_SESSIONS
-        value: "0"

@@ -13,7 +13,8 @@ import json
 from typing import Any
 
 
-ANALYSIS_VERSION = "2.1.0-shadow"
+ANALYSIS_VERSION = "3.0.0-shadow"
+CONTRACT_VERSION = "3.0"
 FORMULA_VERSION = "idx-eod-v2"
 
 
@@ -99,9 +100,21 @@ class AnalysisBundle:
     warnings: list[str] = field(default_factory=list)
     action: str | None = None
     analysis_version: str = ANALYSIS_VERSION
+    contract_version: str = CONTRACT_VERSION
+    analysis_as_of: str | None = None
+    signal_time: str | None = None
+    earliest_execution_time: str | None = None
+    snapshot_id: str | None = None
+    model_version: str | None = None
+    validation_run_id: str | None = None
+    provenance: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return _json_safe(asdict(self))
+        payload = _json_safe(asdict(self))
+        # v2 compatibility aliases remain until Streamlit and Telegram have
+        # fully migrated to the v3 timing fields.
+        payload["as_of"] = payload.get("analysis_as_of") or payload["as_of"]
+        return payload
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))

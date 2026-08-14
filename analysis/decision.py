@@ -63,6 +63,8 @@ def build_decision_report(
     data_quality: DataQualityReport | None = None,
     model_validated: bool = False,
     shadow_sessions: int = 0,
+    validation_run_id: str | None = None,
+    action_policy_enabled: bool = False,
 ) -> dict:
     """Return a policy label only after every mandatory gate passes.
 
@@ -101,16 +103,18 @@ def build_decision_report(
         GateResult("validation", model_validated, "untouched holdout and causality suite must pass"),
         GateResult("shadow_release", shadow_sessions >= 60,
                    f"60 completed shadow sessions required; observed {shadow_sessions}"),
+        GateResult("action_policy", False,
+                   "live action eligibility is not supported by the current research policy"),
     ]
     failed = [g for g in gates if g.mandatory and not g.passed]
     if dq is None or dq.quarantined or not dq.fresh:
         label = DecisionLabel.WAIT_FOR_DATA
     elif failed:
         label = DecisionLabel.RESEARCH_ONLY
-    elif backtest_score is None or (backtest or {}).get("summary", {}).get("expectancy", 0) <= 0:
-        label = DecisionLabel.NO_VALIDATED_EDGE
     else:
-        label = DecisionLabel.ACTION_ELIGIBLE
+        # v3 is a research system. Preserve evidence labels without exposing a
+        # code path that can be enabled into a trading action by configuration.
+        label = DecisionLabel.RESEARCH_ONLY
 
     warnings = [f"Gate failed — {g.name}: {g.reason}" for g in failed]
     warnings.extend(fund.get("risk_flags", []))
@@ -129,7 +133,7 @@ def build_decision_report(
     return {
         "final_score": final_score,
         "final_verdict": label.value,
-        "action": "REVIEW_ACTION_PLAN" if label == DecisionLabel.ACTION_ELIGIBLE else None,
+        "action": None,
         "evidence_label": _evidence_description(final_score),
         "decision_components": components,
         "coverage_pct": coverage_pct,
@@ -137,6 +141,8 @@ def build_decision_report(
         "warnings": list(dict.fromkeys(warnings)),
         "gates": [g.__dict__ for g in gates],
         "formula_version": "decision-gates-v2",
+        "validation_run_id": validation_run_id,
+        "action_policy_enabled": False,
         "action_plan": {
             "entry_zone": f"{entry[0]} - {entry[1]}" if entry else "N/A",
             "stop_loss": _fmt_price(tech.get("stop_loss")),

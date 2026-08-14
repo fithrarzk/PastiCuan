@@ -17,6 +17,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from telegram import Update
 
 from bot import build_application
+from analysis.snapshots import get_research_snapshot
 
 
 def create_api() -> FastAPI:
@@ -47,6 +48,16 @@ def create_api() -> FastAPI:
     @api.get("/")
     async def health() -> dict[str, str]:
         return {"status": "ok", "service": "pasticuan-telegram-webhook"}
+
+    @api.get("/ready")
+    async def readiness() -> dict[str, str]:
+        snapshot = get_research_snapshot()
+        return {
+            "status": "degraded" if snapshot.snapshot_id == "bundled-empty-shadow" else "ok",
+            "snapshot_id": snapshot.snapshot_id,
+            "snapshot_effective_at": snapshot.effective_at,
+            "model_status": snapshot.model_status,
+        }
 
     @api.post("/telegram/webhook")
     async def telegram_webhook(

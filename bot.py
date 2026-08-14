@@ -18,6 +18,7 @@ from data.extended import get_extended_data
 from analysis.engine import run_analysis_bundle
 from analysis.presentation import decision_view, display_number, scan_view
 from analysis.scanner import DEFAULT_SCAN_TICKERS, run_scan
+from analysis.snapshots import get_research_snapshot
 
 
 # Configure Logging
@@ -79,7 +80,16 @@ def _run_full_analysis(ticker_raw: str, period: str = "3y", *, include_backtest:
     if data.get("error"):
         return None, data["error"]
 
-    analysis = run_analysis_bundle(data, include_backtest=include_backtest)
+    snapshot = get_research_snapshot()
+    analysis = run_analysis_bundle(
+        data, include_backtest=include_backtest,
+        model_evidence={
+            "snapshot_id": snapshot.snapshot_id,
+            "model_version": snapshot.model_version,
+            "model_status": snapshot.model_status,
+            "validation_run_id": snapshot.validation_run_id,
+        },
+    )
 
     return {
         "data": data,
@@ -130,7 +140,7 @@ async def ta_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ticker_symbol = _clean_ticker(context.args[0])
     await update.message.reply_text(f"⏳ Analyzing technicals for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
 
-    results, error = _run_full_analysis(ticker_symbol)
+    results, error = await asyncio.to_thread(_run_full_analysis, ticker_symbol)
     if error:
         await update.message.reply_text(f"❌ *Error analyzing {ticker_symbol}:*\n{error}", parse_mode=ParseMode.MARKDOWN)
         return
@@ -192,7 +202,9 @@ async def decision_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"⏳ Generating Decision Report for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
 
     include_backtest = os.getenv("BOT_ENABLE_BACKTEST", "false").lower() == "true"
-    results, error = _run_full_analysis(ticker_symbol, include_backtest=include_backtest)
+    results, error = await asyncio.to_thread(
+        _run_full_analysis, ticker_symbol, include_backtest=include_backtest,
+    )
     if error:
         await update.message.reply_text(f"❌ *Error evaluating {ticker_symbol}:*\n{error}", parse_mode=ParseMode.MARKDOWN)
         return
@@ -250,7 +262,7 @@ async def range_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏳ Calculating price ranges for *{ticker_symbol}.JK*...",
         parse_mode=ParseMode.MARKDOWN,
     )
-    results, error = _run_full_analysis(ticker_symbol)
+    results, error = await asyncio.to_thread(_run_full_analysis, ticker_symbol)
     if error:
         await update.message.reply_text(
             f"❌ *Error evaluating {ticker_symbol}:*\n{error}",
@@ -294,7 +306,7 @@ async def fund_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ticker_symbol = _clean_ticker(context.args[0])
     await update.message.reply_text(f"⏳ Evaluating fundamentals for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
 
-    results, error = _run_full_analysis(ticker_symbol)
+    results, error = await asyncio.to_thread(_run_full_analysis, ticker_symbol)
     if error:
         await update.message.reply_text(f"❌ *Error analyzing fundamentals for {ticker_symbol}:*\n{error}", parse_mode=ParseMode.MARKDOWN)
         return
@@ -369,7 +381,7 @@ async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ticker_symbol = _clean_ticker(context.args[0])
     await update.message.reply_text(f"📊 Rendering technical chart for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
 
-    results, error = _run_full_analysis(ticker_symbol)
+    results, error = await asyncio.to_thread(_run_full_analysis, ticker_symbol)
     if error:
         await update.message.reply_text(f"❌ *Error rendering chart for {ticker_symbol}:*\n{error}", parse_mode=ParseMode.MARKDOWN)
         return
@@ -425,6 +437,27 @@ async def quant_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ticker_symbol = _clean_ticker(context.args[0])
+    snapshot = get_research_snapshot()
+    approved = snapshot.ticker(ticker_symbol)
+    if approved:
+        percentile = approved.get("composite_percentile", approved.get("quant_percentile"))
+        factor_lines = []
+        for name in ("value", "quality", "momentum", "low_volatility"):
+            if approved.get(name) is not None:
+                factor_lines.append(f"• *{name.replace('_', ' ').title()}:* `{display_number(approved[name])}`")
+        msg = (
+            f"🔬 *{ticker_symbol}.JK — Approved LQ45 Quant Snapshot*\n"
+            f"Effective `{snapshot.effective_at}` · Model `{snapshot.model_version}`\n"
+            f"───────────────\n"
+            f"📊 *Composite percentile:* `{display_number(percentile)}`\n"
+            f"🌐 *Ranking scope:* `{approved.get('ranking_scope', 'historical_lq45')}`\n"
+            f"📋 *Coverage:* `{float(approved.get('coverage_pct', 0)):.0f}%`\n"
+            + ("\n".join(factor_lines) + "\n" if factor_lines else "")
+            + f"🏷️ *Status:* `{snapshot.model_status}` · `RESEARCH_ONLY`\n\n"
+            f"_Snapshot `{snapshot.snapshot_id}`; rankings use information available at the stated cutoff._"
+        )
+        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        return
     await update.message.reply_text(f"⏳ Ranking *{ticker_symbol}.JK* in the default comparison universe...", parse_mode=ParseMode.MARKDOWN)
     comparison = [ticker_symbol, *[item for item in POPULAR_TICKERS if item != ticker_symbol]][:10]
     bundle = scan_view(await asyncio.to_thread(run_scan, comparison))
@@ -465,7 +498,7 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # SciPy is intentionally lazy-loaded to keep webhook cold-start memory low.
     from analysis.portfolio import optimize_portfolio
 
-    res = optimize_portfolio(tickers_list, period="1y")
+    res = await asyncio.to_thread(optimize_portfolio, tickers_list, period="1y")
     if res.get("error"):
         await update.message.reply_text(f"❌ *Portfolio Optimization Error:*\n{res['error']}", parse_mode=ParseMode.MARKDOWN)
         return
@@ -500,6 +533,9 @@ def build_application():
     """Build the shared Telegram application for polling or webhook delivery."""
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not set.")
+    # Validate and cache the approved snapshot once. Any Supabase failure falls
+    # back to the bundled snapshot without preventing bot startup.
+    get_research_snapshot()
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler(["start", "help"], start_command))
     app.add_handler(CommandHandler(["ta", "analyze"], ta_command))

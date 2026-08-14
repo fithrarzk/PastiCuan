@@ -105,7 +105,7 @@ def optimize_portfolio(
     # Optimization 1: Maximize Sharpe Ratio
     def neg_sharpe(weights):
         sharpe = portfolio_performance(weights)[2]
-        return -sharpe if sharpe is not None else portfolio_performance(weights)[1]
+        return -sharpe if sharpe is not None else 0.0
 
     constraints = ({'type': 'eq', 'fun': lambda w: np.sum(w) - 1})
     if max_position * num_assets < 1:
@@ -113,10 +113,14 @@ def optimize_portfolio(
     bounds = tuple((0.0, max_position) for _ in range(num_assets))
     init_weights = num_assets * [1.0 / num_assets]
 
-    res_sharpe = minimize(neg_sharpe, init_weights, method='SLSQP', bounds=bounds, constraints=constraints)
-    max_sharpe_weights = res_sharpe.x if res_sharpe.success else init_weights
-
-    ret_max, vol_max, sharpe_max = portfolio_performance(max_sharpe_weights)
+    if risk_free_rate is None:
+        res_sharpe = None
+        max_sharpe_weights = None
+        ret_max = vol_max = sharpe_max = None
+    else:
+        res_sharpe = minimize(neg_sharpe, init_weights, method='SLSQP', bounds=bounds, constraints=constraints)
+        max_sharpe_weights = res_sharpe.x if res_sharpe.success else init_weights
+        ret_max, vol_max, sharpe_max = portfolio_performance(max_sharpe_weights)
 
     # Optimization 2: Minimum Volatility
     def min_volatility(weights):
@@ -145,7 +149,7 @@ def optimize_portfolio(
     opt_alloc = {
         ticker: round(float(weight * 100), 2)
         for ticker, weight in zip(display_tickers, max_sharpe_weights)
-    }
+    } if max_sharpe_weights is not None else {}
 
     min_vol_alloc = {
         ticker: round(float(weight * 100), 2)
@@ -161,8 +165,8 @@ def optimize_portfolio(
         "tickers": display_tickers,
         "max_sharpe": {
             "weights": opt_alloc,
-            "expected_return": float(ret_max * 100),
-            "volatility": float(vol_max * 100),
+            "expected_return": float(ret_max * 100) if ret_max is not None else None,
+            "volatility": float(vol_max * 100) if vol_max is not None else None,
             "sharpe_ratio": float(sharpe_max) if sharpe_max is not None else None,
             "status": "EXPERIMENTAL" if risk_free_rate is not None else "UNAVAILABLE_WITHOUT_POLICY_RATE",
         },

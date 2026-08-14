@@ -52,6 +52,7 @@ def run_analysis_bundle(
     *,
     broker_costs: BrokerCostProfile | None = None,
     include_backtest: bool = True,
+    model_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one immutable-output contract and compatibility section objects."""
     raw_history = data.get("history")
@@ -80,7 +81,10 @@ def run_analysis_bundle(
         info, history, sector, data.get("quarterly_income"), data.get("quarterly_balance")
     )
     bands = compute_valuation_bands(
-        history, data.get("quarterly_income"), data.get("quarterly_balance"), info
+        history, data.get("quarterly_income"), data.get("quarterly_balance"), info,
+        income_available_at=data.get("quarterly_income_available_at"),
+        balance_available_at=data.get("quarterly_balance_available_at"),
+        shares_history=data.get("shares_history"),
     )
     seasonality = compute_seasonality(history)
     costs = broker_costs if broker_costs is not None else broker_costs_from_env()
@@ -95,12 +99,16 @@ def run_analysis_bundle(
         }
     )
     liquidity = _liquidity(history)
-    validated = os.getenv("MODEL_VALIDATED", "false").lower() == "true"
-    shadow_sessions = int(os.getenv("SHADOW_COMPLETED_SESSIONS", "0"))
+    # Validation authority comes only from a reviewed immutable snapshot or a
+    # persisted validation run. Environment switches may no longer open gates.
+    evidence = model_evidence or {}
+    validated = evidence.get("model_status") == "VALIDATED_RESEARCH" and bool(evidence.get("validation_run_id"))
+    shadow_sessions = int(evidence.get("shadow_completed_sessions", 0) or 0)
     decision = build_decision_report(
         tech, fund, bands=bands, seasonality=seasonality, backtest=backtest,
         liquidity=liquidity, data_quality=quality, model_validated=validated,
         shadow_sessions=shadow_sessions,
+        validation_run_id=evidence.get("validation_run_id"), action_policy_enabled=False,
     )
     buy_range = build_buy_range(tech, fund, bands, data_usable=quality.usable)
     fund["decision_label"] = decision["final_verdict"]
@@ -113,6 +121,16 @@ def run_analysis_bundle(
         quant=quant, backtest={k: v for k, v in backtest.items() if k not in {"trades", "equity_curve"}},
         buy_range=buy_range,
         decision=decision, gates=gates, warnings=decision["warnings"], action=decision["action"],
+        analysis_as_of=as_of,
+        signal_time=as_of,
+        earliest_execution_time=None,
+        snapshot_id=evidence.get("snapshot_id"),
+        model_version=evidence.get("model_version"),
+        validation_run_id=evidence.get("validation_run_id"),
+        provenance={
+            "price": data.get("price_source") or {"provider": "Yahoo Finance", "source_class": "yahoo_fallback"},
+            "fundamental": source_meta,
+        },
     )
     return {
         "bundle": bundle, "tech": tech, "fund": fund, "quant": quant,

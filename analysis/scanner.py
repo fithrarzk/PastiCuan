@@ -16,6 +16,7 @@ import pandas as pd
 from analysis.contracts import ScanBundle
 from analysis.engine import run_analysis_bundle
 from analysis.quant import compute_cross_sectional_factors
+from analysis.snapshots import get_research_snapshot
 from data.extended import get_extended_data
 from data.validation import completed_eod_history, split_adjusted_ohlcv
 
@@ -206,6 +207,19 @@ def run_scan(
     quant_map = {}
     if quant["status"] == "AVAILABLE":
         quant_map = {row["ticker"]: row for row in quant["scores"].to_dict("records")}
+    approved_snapshot = get_research_snapshot()
+    snapshot_hits = 0
+    for ticker in normalized:
+        approved = approved_snapshot.ticker(ticker)
+        if approved:
+            quant_map[ticker] = {
+                **approved,
+                "ticker": ticker,
+                "composite_percentile": approved.get("composite_percentile", approved.get("quant_percentile")),
+                "ranking_scope": approved.get("ranking_scope", "historical_lq45"),
+                "coverage_pct": approved.get("coverage_pct", 0),
+            }
+            snapshot_hits += 1
     value_scores = _relative_value_scores(bases)
 
     weights = {"technical": .35, "fundamental": .25, "quant": .20, "range": .10, "liquidity": .10}
@@ -265,6 +279,8 @@ def run_scan(
     for rank, candidate in enumerate(candidates, 1):
         candidate["rank"] = rank
     warnings = list(quant.get("warnings", []))
+    if snapshot_hits:
+        warnings.insert(0, f"Quant evidence uses approved {approved_snapshot.snapshot_id} effective {approved_snapshot.effective_at}.")
     if any(value is not None for value in value_scores.values()):
         warnings.append("Relative PE/PBV evidence uses the global scan universe, not sector peers.")
     warnings.append("Yahoo fundamentals are fallback data without authoritative filing publication timestamps.")

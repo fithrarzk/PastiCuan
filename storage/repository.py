@@ -7,6 +7,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from analysis.contracts import AnalysisBundle
+from analysis.snapshots import ResearchSnapshot
 
 
 class SnapshotRepository:
@@ -83,3 +84,266 @@ class SnapshotRepository:
                 )
                 return [row[0] for row in cursor.fetchall()]
 
+    def constituent_issuers_as_of(self, index_code: str, on_date: str) -> list[dict]:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT i.id, i.ticker, i.sector, i.issuer_type, i.currency
+                       FROM index_constituents c JOIN issuers i ON i.id=c.issuer_id
+                       WHERE c.index_code=%s AND c.effective_from<=%s AND c.effective_to>=%s
+                       ORDER BY i.ticker""", (index_code, on_date, on_date),
+                )
+                names = [column.name for column in cursor.description]
+                return [dict(zip(names, row)) for row in cursor.fetchall()]
+
+    def shares_as_of(self, issuer_id: int, as_of: str) -> dict | None:
+        on_date = str(as_of).split("T", 1)[0].split(" ", 1)[0]
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT effective_from,period_end_shares,weighted_average_shares,
+                              available_at,checksum
+                       FROM shares_history WHERE issuer_id=%s AND effective_from<=%s
+                         AND (effective_to IS NULL OR effective_to>=%s)
+                         AND available_at<=%s
+                       ORDER BY effective_from DESC, available_at DESC LIMIT 1""",
+                    (issuer_id, on_date, on_date, as_of),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                names = [column.name for column in cursor.description]
+                return dict(zip(names, row))
+
+    def corporate_actions_as_of(self, issuer_id: int, as_of: str) -> list[dict]:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT action_type,ex_date,ratio,cash_amount,currency,available_at
+                       FROM corporate_actions WHERE issuer_id=%s AND available_at<=%s
+                       ORDER BY ex_date,version""", (issuer_id, as_of),
+                )
+                names = [column.name for column in cursor.description]
+                return [dict(zip(names, row)) for row in cursor.fetchall()]
+
+    def latest_approved_quant_snapshot(self) -> ResearchSnapshot | None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT payload FROM quant_research_snapshots
+                       WHERE status IN ('SHADOW','VALIDATED_RESEARCH')
+                       ORDER BY effective_at DESC, approved_at DESC LIMIT 1"""
+                )
+                row = cursor.fetchone()
+                return ResearchSnapshot.from_dict(row[0]) if row else None
+
+    def model_evidence(self, model_version_id: str) -> dict:
+        """Return validation authority only when a persisted run passed."""
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT mv.id, mv.status, vr.id, vr.metrics
+                       FROM model_versions mv
+                       LEFT JOIN LATERAL (
+                         SELECT id, metrics FROM validation_runs
+                         WHERE model_version_id = mv.id AND status = 'PASSED'
+                         ORDER BY completed_at DESC LIMIT 1
+                       ) vr ON true
+                       WHERE mv.id = %s""",
+                    (model_version_id,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return {"model_version": model_version_id, "model_status": "SHADOW"}
+                return {
+                    "model_version": row[0], "model_status": row[1],
+                    "validation_run_id": str(row[2]) if row[2] else None,
+                    "validation_metrics": row[3] or {},
+                }
+
+    def register_source_artifact(self, artifact: dict, *, parse_status: str = "PENDING") -> str:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO source_artifacts
+                         (id, provider, source_class, artifact_type, source_url, object_key,
+                          checksum, published_at, retrieved_at, parse_status, metadata)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                       ON CONFLICT (checksum) DO UPDATE SET retrieved_at = EXCLUDED.retrieved_at
+                       RETURNING id""",
+                    (artifact["id"], artifact["provider"], artifact["source_class"],
+                     artifact["artifact_type"], artifact["source_url"], artifact.get("object_key"),
+                     artifact["checksum"], artifact.get("published_at"), artifact["retrieved_at"],
+                     parse_status, json.dumps({"content_type": artifact.get("content_type"),
+                                               "size_bytes": artifact.get("size_bytes")})),
+                )
+                return str(cursor.fetchone()[0])
+
+    def record_ingestion_issue(self, artifact_id: str | None, code: str, detail: str) -> None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO ingestion_issues(artifact_id, issue_code, severity, detail)
+                       VALUES (%s,%s,'ERROR',%s)""", (artifact_id, code, detail),
+                )
+
+    def set_artifact_status(self, artifact_id: str, status: str) -> None:
+        if status not in {"PENDING", "ACCEPTED", "QUARANTINED"}:
+            raise ValueError("Invalid artifact status.")
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("UPDATE source_artifacts SET parse_status=%s WHERE id=%s", (status, artifact_id))
+
+    def import_canonical_records(self, artifact_type: str, records: list[dict], *, source_class: str) -> int:
+        """Import a reviewed canonical interchange file in one transaction."""
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                imported = 0
+                for row in records:
+                    ticker = str(row["ticker"]).upper().replace(".JK", "")
+                    if artifact_type == "lq45_constituents_csv":
+                        cursor.execute(
+                            """INSERT INTO issuers(ticker,legal_name,sector,currency,active_from,active_to)
+                               VALUES (%s,%s,%s,%s,%s,%s)
+                               ON CONFLICT (ticker) DO UPDATE SET legal_name=EXCLUDED.legal_name,
+                                 sector=EXCLUDED.sector, active_to=EXCLUDED.active_to RETURNING id""",
+                            (ticker, row["legal_name"], row["sector"], row["currency"],
+                             row["active_from"], row.get("active_to")),
+                        )
+                        issuer_id = cursor.fetchone()[0]
+                        cursor.execute(
+                            """INSERT INTO index_constituents
+                                 (index_code,issuer_id,effective_from,effective_to,source_url,checksum)
+                               VALUES ('LQ45',%s,%s,%s,%s,%s)
+                               ON CONFLICT (index_code,issuer_id,effective_from) DO UPDATE SET
+                                 effective_to=EXCLUDED.effective_to, source_url=EXCLUDED.source_url,
+                                 checksum=EXCLUDED.checksum""",
+                            (issuer_id, row["effective_from"], row["effective_to"], row["source_url"], row["checksum"]),
+                        )
+                    else:
+                        cursor.execute("SELECT id FROM issuers WHERE ticker=%s", (ticker,))
+                        found = cursor.fetchone()
+                        if not found:
+                            raise ValueError(f"Issuer {ticker} must be imported before {artifact_type}.")
+                        issuer_id = found[0]
+                        if artifact_type == "market_bars_csv":
+                            cursor.execute(
+                                """INSERT INTO market_bars
+                                     (issuer_id,session_date,version,open,high,low,close,volume,currency,
+                                      available_at,source_class,source_url,checksum)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                   ON CONFLICT (issuer_id,session_date,version) DO NOTHING""",
+                                (issuer_id, row["session_date"], int(row.get("version") or 1), row["open"],
+                                 row["high"], row["low"], row["close"], row["volume"], row["currency"],
+                                 row["available_at"], source_class, row["source_url"], row["checksum"]),
+                            )
+                        elif artifact_type == "shares_history_csv":
+                            cursor.execute(
+                                """INSERT INTO shares_history
+                                     (issuer_id,effective_from,effective_to,period_end_shares,
+                                      weighted_average_shares,available_at,source_url,checksum)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                                   ON CONFLICT (issuer_id,effective_from) DO UPDATE SET
+                                     period_end_shares=EXCLUDED.period_end_shares,
+                                     weighted_average_shares=EXCLUDED.weighted_average_shares,
+                                     available_at=EXCLUDED.available_at, checksum=EXCLUDED.checksum""",
+                                (issuer_id, row["effective_from"], row.get("effective_to"),
+                                 row["period_end_shares"], row.get("weighted_average_shares"),
+                                 row["available_at"], row["source_url"], row["checksum"]),
+                            )
+                        elif artifact_type == "statement_facts_csv":
+                            consolidated = str(row["consolidated"]).lower() in {"true", "1", "yes"}
+                            cursor.execute(
+                                """INSERT INTO filings
+                                     (issuer_id,filing_type,period_end,published_at,available_at,consolidated,
+                                      audit_status,restatement_version,source_url,object_key,document_checksum)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                   ON CONFLICT (issuer_id,filing_type,period_end,restatement_version)
+                                   DO UPDATE SET available_at=EXCLUDED.available_at,
+                                     source_url=EXCLUDED.source_url, object_key=EXCLUDED.object_key
+                                   RETURNING id""",
+                                (issuer_id, row["filing_type"], row["period_end"], row.get("published_at"),
+                                 row["available_at"], consolidated, row["audit_status"],
+                                 int(row["restatement_version"]), row["source_url"], row["object_key"],
+                                 row["document_checksum"]),
+                            )
+                            filing_id = cursor.fetchone()[0]
+                            cursor.execute(
+                                """INSERT INTO statement_facts
+                                     (filing_id,taxonomy,concept,normalized_concept,period_start,period_end,
+                                      published_at,available_at,value,currency,scale,unit,consolidated,
+                                      audit_status,source_url,document_checksum,restatement_version)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                   ON CONFLICT (filing_id,concept,period_start,period_end,unit) DO NOTHING""",
+                                (filing_id, row["taxonomy"], row["concept"], row["normalized_concept"],
+                                 row.get("period_start"), row["period_end"], row.get("published_at"),
+                                 row["available_at"], row["value"], row.get("currency"), int(row["scale"]),
+                                 row["unit"], consolidated, row["audit_status"], row["source_url"],
+                                 row["document_checksum"], int(row["restatement_version"])),
+                            )
+                        else:
+                            raise ValueError(f"Unsupported canonical artifact type {artifact_type}.")
+                    imported += 1
+                return imported
+
+    def publish_quant_snapshot(self, snapshot: ResearchSnapshot) -> str:
+        snapshot.validate()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                if snapshot.model_status == "VALIDATED_RESEARCH":
+                    if not snapshot.validation_run_id:
+                        raise ValueError("Validated snapshots require a validation run.")
+                    cursor.execute(
+                        """SELECT 1 FROM validation_runs
+                           WHERE id=%s AND model_version_id=%s AND status='PASSED'""",
+                        (snapshot.validation_run_id, snapshot.model_version),
+                    )
+                    if cursor.fetchone() is None:
+                        raise ValueError("Validation run is missing, failed, or belongs to another model.")
+                cursor.execute(
+                    """INSERT INTO model_versions
+                         (id, model_type, formula_version, parameters, code_checksum, status)
+                       VALUES (%s,'CROSS_SECTIONAL_QUANT',%s,'{}'::jsonb,%s,%s)
+                       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status""",
+                    (snapshot.model_version, snapshot.formula_version, snapshot.checksum, snapshot.model_status),
+                )
+                cursor.execute(
+                    """INSERT INTO quant_research_snapshots
+                         (id, model_version_id, validation_run_id, effective_at, status,
+                          schema_version, checksum, payload, approved_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,now())
+                       ON CONFLICT (checksum) DO NOTHING RETURNING id""",
+                    (snapshot.snapshot_id, snapshot.model_version, snapshot.validation_run_id,
+                     snapshot.effective_at, snapshot.model_status, snapshot.schema_version,
+                     snapshot.checksum, json.dumps(snapshot.to_dict())),
+                )
+                row = cursor.fetchone()
+                return str(row[0]) if row else snapshot.snapshot_id
+
+    def save_validation_run(self, *, run_id: str, model_version: str, input_checksum: str,
+                            metrics: dict, acceptance: dict, holdout_start: str | None,
+                            holdout_end: str | None, output_checksum: str) -> str:
+        status = "PASSED" if acceptance.get("passed") else "FAILED"
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO model_versions
+                         (id, model_type, formula_version, parameters, code_checksum, status)
+                       VALUES (%s,'CROSS_SECTIONAL_QUANT','monthly-lq45-next-open-v1',
+                               '{}'::jsonb,%s,'SHADOW')
+                       ON CONFLICT (id) DO NOTHING""", (model_version, input_checksum),
+                )
+                cursor.execute(
+                    """INSERT INTO validation_runs
+                         (id, model_version_id, input_checksum, started_at, completed_at,
+                          status, holdout_start, holdout_end, metrics, acceptance, output_checksum)
+                       VALUES (%s,%s,%s,now(),now(),%s,%s,%s,%s::jsonb,%s::jsonb,%s)
+                       ON CONFLICT (model_version_id,input_checksum) DO UPDATE SET
+                         completed_at=EXCLUDED.completed_at, status=EXCLUDED.status,
+                         metrics=EXCLUDED.metrics, acceptance=EXCLUDED.acceptance,
+                         output_checksum=EXCLUDED.output_checksum
+                       RETURNING id""",
+                    (run_id, model_version, input_checksum, status, holdout_start, holdout_end,
+                     json.dumps(metrics), json.dumps(acceptance), output_checksum),
+                )
+                return str(cursor.fetchone()[0])
