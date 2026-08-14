@@ -1,7 +1,10 @@
 """Extended data fetching for multi-year analysis and multi-ticker comparison."""
 
+import os
+
 import yfinance as yf
 import pandas as pd
+from curl_cffi import requests
 
 
 def _normalize_ticker(ticker: str) -> str:
@@ -36,10 +39,19 @@ def get_extended_data(ticker: str, period: str = "3y") -> dict:
         "info": {},
         "quarterly_income": pd.DataFrame(),
         "quarterly_balance": pd.DataFrame(),
+        "quarterly_cashflow": pd.DataFrame(),
+        "fundamental_source": {
+            "provider": "Yahoo Finance",
+            "source_class": "yahoo_fallback",
+            "source_url": f"https://finance.yahoo.com/quote/{ticker}",
+            "published_at": None,
+        },
         "error": None,
     }
+    request_timeout = max(5.0, min(30.0, float(os.getenv("YAHOO_REQUEST_TIMEOUT", "12"))))
+    session = requests.Session(timeout=request_timeout, impersonate="chrome")
     try:
-        stock = yf.Ticker(ticker)
+        stock = yf.Ticker(ticker, session=session)
         info = _normalize_info_currency(stock.info)
 
         if not info or (
@@ -47,7 +59,7 @@ def get_extended_data(ticker: str, period: str = "3y") -> dict:
             and info.get("currentPrice") is None
             and info.get("previousClose") is None
         ):
-            hist_check = stock.history(period="5d", auto_adjust=False, actions=True)
+            hist_check = stock.history(period="5d", auto_adjust=False, actions=True, timeout=request_timeout)
             if hist_check.empty:
                 result["error"] = f"Ticker **{ticker}** not found or has no trading data."
                 return result
@@ -73,7 +85,7 @@ def get_extended_data(ticker: str, period: str = "3y") -> dict:
             "Debt-to-Equity":         fmt_num(info.get("debtToEquity")),
             "Net Profit Margin":      fmt_pct(info.get("profitMargins")),
         }
-        history = stock.history(period=period, auto_adjust=False, actions=True)
+        history = stock.history(period=period, auto_adjust=False, actions=True, timeout=request_timeout)
         if history.empty:
             result["error"] = f"No historical price data available for **{ticker}**."
             return result
@@ -92,8 +104,16 @@ def get_extended_data(ticker: str, period: str = "3y") -> dict:
                 result["quarterly_balance"] = qb
         except Exception:
             pass
+        try:
+            qcf = stock.quarterly_cash_flow
+            if qcf is not None and not qcf.empty:
+                result["quarterly_cashflow"] = qcf
+        except Exception:
+            pass
     except Exception as exc:
         result["error"] = f"An error occurred while fetching data: {exc}"
+    finally:
+        session.close()
     return result
 
 

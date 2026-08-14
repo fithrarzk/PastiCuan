@@ -8,6 +8,8 @@ HTTP 200 is not reliable when an idle instance is throttled or removed.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from collections import OrderedDict
+import asyncio
 import os
 import secrets
 
@@ -22,6 +24,8 @@ def create_api() -> FastAPI:
     if not webhook_secret:
         raise RuntimeError("TELEGRAM_WEBHOOK_SECRET is required for webhook deployment.")
     telegram_app = build_application()
+    processed_updates: OrderedDict[int, None] = OrderedDict()
+    update_lock = asyncio.Lock()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -53,11 +57,24 @@ def create_api() -> FastAPI:
         if not secrets.compare_digest(supplied, webhook_secret):
             raise HTTPException(status_code=403, detail="Invalid webhook secret.")
         update = Update.de_json(await request.json(), telegram_app.bot)
-        await telegram_app.process_update(update)
+        if update.update_id is not None:
+            async with update_lock:
+                if update.update_id in processed_updates:
+                    return {"ok": True}
+                processed_updates[update.update_id] = None
+                processed_updates.move_to_end(update.update_id)
+                while len(processed_updates) > 500:
+                    processed_updates.popitem(last=False)
+        try:
+            await telegram_app.process_update(update)
+        except Exception:
+            if update.update_id is not None:
+                async with update_lock:
+                    processed_updates.pop(update.update_id, None)
+            raise
         return {"ok": True}
 
     return api
 
 
 api = create_api()
-

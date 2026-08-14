@@ -1,100 +1,70 @@
-"""Watchlist scanner tab."""
+"""Watchlist scanner backed by the same contract as Telegram."""
 
 import pandas as pd
 import streamlit as st
 
-from analysis.backtest import backtest_technical_strategy
-from analysis.decision import build_decision_report
-from analysis.fundamental import analyze_fundamental
-from analysis.technical import analyze_technical
-from data.extended import get_extended_data
-
-
-def _liquidity_from_history(history: pd.DataFrame) -> dict:
-    if history is None or history.empty:
-        return {"avg_volume": None, "avg_value": None}
-    tail = history.tail(min(len(history), 60))
-    avg_volume = float(tail["Volume"].fillna(0).mean()) if "Volume" in tail else None
-    avg_value = float((tail["Close"] * tail["Volume"].fillna(0)).mean()) if {"Close", "Volume"}.issubset(tail.columns) else None
-    return {"avg_volume": avg_volume, "avg_value": avg_value}
+from analysis.scanner import DEFAULT_SCAN_TICKERS, normalize_scan_tickers, run_scan
+from analysis.presentation import scan_view
 
 
 def _normalize_input(value: str) -> list[str]:
-    tickers = []
-    for raw in value.split(","):
-        ticker = raw.strip().upper()
-        if ticker:
-            tickers.append(ticker)
-    return list(dict.fromkeys(tickers))
+    tickers, _ = normalize_scan_tickers(value.split(","))
+    return tickers
 
 
 def render_scanner_tab(period_yf: str) -> None:
-    st.caption("Rank a small IDX watchlist using the same decision engine as the single-stock view.")
+    st.caption(
+        "Rank 5–10 IDX stocks with technical, fundamental, cross-sectional quant, "
+        "valuation-range, and liquidity evidence. Results remain research-only."
+    )
     ticker_input = st.text_area(
         "Watchlist Tickers",
-        value="BBCA, BBRI, BMRI, ADRO, PTBA",
+        value=", ".join(DEFAULT_SCAN_TICKERS),
         height=80,
-        help="Comma-separated IDX tickers. Keep this to around 5-8 names for a responsive scan.",
+        help="Comma-separated IDX tickers; the scan is capped at 10 names for free-tier reliability.",
     )
-    c1, c2, c3 = st.columns(3)
-    min_rr = c1.number_input("Minimum Risk/Reward", min_value=0.0, value=0.8, step=0.1)
-    min_avg_value = c2.number_input("Minimum Avg Value Traded (IDR)", min_value=0, value=1_000_000_000, step=500_000_000)
-    only_uptrend = c3.checkbox("Only Uptrend", value=False)
-
-    if not st.button("Run Scanner", type="primary"):
+    if not st.button("Run Research Scanner", type="primary"):
         return
 
-    tickers = _normalize_input(ticker_input)[:8]
+    tickers = _normalize_input(ticker_input)
     if not tickers:
-        st.warning("Enter at least one ticker.")
+        st.warning("Enter at least one valid ticker.")
         return
+
+    with st.spinner(f"Analyzing {len(tickers)} stocks..."):
+        scan_period = period_yf if period_yf in {"1y", "2y", "3y"} else "3y"
+        bundle = scan_view(run_scan(tickers, period=scan_period))
 
     rows = []
-    progress = st.progress(0)
-    for idx, ticker in enumerate(tickers, start=1):
-        progress.progress(idx / len(tickers), text=f"Scanning {ticker}...")
-        data = get_extended_data(ticker, period=period_yf)
-        if data.get("error") or data["history"].empty:
-            rows.append({"Ticker": ticker, "Status": data.get("error", "No data")})
-            continue
-
-        history = data["history"]
-        info = data["info"]
-        sector = data["basic"].get("sector", "N/A")
-        tech = analyze_technical(history, sector=sector, info=info)
-        fund = analyze_fundamental(
-            info,
-            sector,
-            quarterly_income=data.get("quarterly_income"),
-            quarterly_balance=data.get("quarterly_balance"),
-        )
-        backtest = backtest_technical_strategy(history, sector=sector, info=info)
-        liquidity = _liquidity_from_history(history)
-        decision = build_decision_report(tech, fund, backtest=backtest, liquidity=liquidity)
-
-        rr = tech.get("risk_reward")
-        avg_value = liquidity.get("avg_value") or 0
-        trend_ok = "Uptrend" in tech.get("sma_signal", "") or "Constructive" in tech.get("sma_signal", "")
-        passes = (rr is None or rr >= min_rr) and avg_value >= min_avg_value and (trend_ok or not only_uptrend)
-
+    for item in bundle["candidates"]:
+        preferred = item.get("preferred_range")
         rows.append({
-            "Ticker": data["ticker"],
-            "Company": data["basic"].get("longName", data["ticker"]),
-            "Verdict": decision.get("final_verdict"),
-            "Final Score": round(decision.get("final_score", 0), 1),
-            "Technical": round(tech.get("technical_score", 0), 1),
-            "Fundamental": round(fund.get("fundamental_score", 0), 1),
-            "Backtest Win Rate": round(backtest.get("summary", {}).get("win_rate", 0), 1),
-            "Risk/Reward": round(rr, 2) if rr is not None else None,
-            "Avg Value": avg_value,
-            "Status": "Pass" if passes else "Filtered",
+            "Rank": item["rank"],
+            "Ticker": item["display_ticker"],
+            "Price": item["current_price"],
+            "Research Composite": round(item["composite_score"], 1),
+            "Technical": round(item["technical_score"], 1) if item.get("technical_score") is not None else None,
+            "Fundamental": round(item["fundamental_score"], 1) if item.get("fundamental_score") is not None else None,
+            "Quant Percentile": round(item["quant_percentile"], 1) if item.get("quant_percentile") is not None else None,
+            "Quant Scope": item["quant_scope"],
+            "Preferred Low": preferred.get("low") if preferred else None,
+            "Preferred High": preferred.get("high") if preferred else None,
+            "Risk/Reward": round(item["risk_reward"], 2) if item.get("risk_reward") is not None else None,
+            "Coverage": round(item["coverage_pct"], 0),
+            "Data Grade": item["data_grade"],
+            "Policy": item["policy_label"],
         })
-    progress.empty()
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("No ticker passed the mandatory data, coverage, and liquidity gates.")
 
-    result = pd.DataFrame(rows)
-    if result.empty:
-        st.info("No scanner results.")
-        return
-    if "Final Score" in result.columns:
-        result = result.sort_values("Final Score", ascending=False, na_position="last")
-    st.dataframe(result, use_container_width=True, hide_index=True)
+    if bundle["warnings"]:
+        for warning in bundle["warnings"]:
+            st.warning(warning)
+    if bundle["excluded"]:
+        st.subheader("Excluded")
+        st.dataframe(pd.DataFrame(bundle["excluded"]), use_container_width=True, hide_index=True)
+    st.caption(
+        f"As of {bundle['as_of']} · {bundle['formula_version']} · {bundle['analysis_version']}"
+    )

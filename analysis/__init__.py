@@ -9,6 +9,7 @@ from .buy_range import build_buy_range
 from .risk import calculate_position_size
 from .engine import run_analysis_bundle
 from .contracts import AnalysisBundle, DataQualityReport
+from .scanner import run_scan
 
 __all__ = [
     "analyze_technical",
@@ -23,4 +24,5 @@ __all__ = [
     "run_analysis_bundle",
     "AnalysisBundle",
     "DataQualityReport",
+    "run_scan",
 ]

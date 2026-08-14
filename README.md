@@ -19,6 +19,11 @@ Follow [DEPLOY_FREE.md](DEPLOY_FREE.md) from start to finish. The bot supports
 valuation reference, and preferred overlap; fallback fundamentals keep it
 explicitly research-only.
 
+`/scan [ticker ...]` ranks a bounded 5–10 name watchlist using the same shared
+technical, fundamental, cross-sectional quant, range-alignment, liquidity, and
+data-quality contract as Streamlit. `/quant <ticker>` reports the ticker's
+relative percentile within the current default comparison universe.
+
 How to run
 `streamlit run app.py`
 

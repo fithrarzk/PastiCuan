@@ -108,6 +108,22 @@ def _growth_from_statement(statement, candidates: list[str]) -> float | None:
     return float((recent / abs(previous) - 1) * 100)
 
 
+def _ttm_statement_value(statement, candidates: list[str]) -> float | None:
+    """Sum four discrete quarterly facts; never fill a missing quarter."""
+    if statement is None or getattr(statement, "empty", True):
+        return None
+    for candidate in candidates:
+        if candidate not in statement.index:
+            continue
+        series = statement.loc[candidate].dropna().sort_index()
+        if len(series) < 4:
+            return None
+        values = series.tail(4)
+        if len(values) == 4:
+            return float(values.sum())
+    return None
+
+
 def _component_average(values: list[float | None]) -> float | None:
     valid = [v for v in values if v is not None]
     if not valid:
@@ -134,7 +150,9 @@ def analyze_fundamental(
     sector: str,
     quarterly_income=None,
     quarterly_balance=None,
+    quarterly_cashflow=None,
     peer_metrics: list[dict] | None = None,
+    peer_scope: str = "sector",
 ) -> dict:
     """
     Evaluates valuation and fundamental quality against sector-specific IDX
@@ -178,6 +196,35 @@ def analyze_fundamental(
         quarterly_income,
         ["Net Income", "Net Income Common Stockholders", "NetIncome"],
     )
+    operating_cash_flow_ttm = _ttm_statement_value(
+        quarterly_cashflow,
+        ["Operating Cash Flow", "Total Cash From Operating Activities", "Cash Flow From Continuing Operating Activities"],
+    )
+    free_cash_flow_ttm = _ttm_statement_value(
+        quarterly_cashflow,
+        ["Free Cash Flow"],
+    )
+    net_income_ttm = _ttm_statement_value(
+        quarterly_income,
+        ["Net Income", "Net Income Common Stockholders", "NetIncome"],
+    )
+    cash_conversion = (
+        operating_cash_flow_ttm / net_income_ttm
+        if operating_cash_flow_ttm is not None and net_income_ttm is not None and net_income_ttm > 0
+        else None
+    )
+    market_cap = _safe_float(info.get("marketCap"))
+    currency_alignment = info.get("_currency_alignment_status", "INSUFFICIENT_DATA")
+    fcf_yield = (
+        free_cash_flow_ttm / market_cap
+        if free_cash_flow_ttm is not None and market_cap is not None and market_cap > 0
+        and currency_alignment == "AVAILABLE"
+        else None
+    )
+    operating_cash_flow_growth = _growth_from_statement(
+        quarterly_cashflow,
+        ["Operating Cash Flow", "Total Cash From Operating Activities", "Cash Flow From Continuing Operating Activities"],
+    )
 
     # Point-in-time peer comparisons replace undocumented fixed ranges.  The
     # legacy benchmark table remains above solely for old imports; it is not
@@ -196,13 +243,14 @@ def analyze_fundamental(
 
     pe_pct = peer_percentile("pe", pe_val)
     pbv_pct = peer_percentile("pbv", pbv_val)
+    scope_label = "Sector" if peer_scope == "sector" else "Scan-universe"
     pe_label = "N/A" if pe_status == "INSUFFICIENT_DATA" else (
         "NOT_MEANINGFUL" if pe_status == "NOT_MEANINGFUL" else
-        ("Unavailable — peer sample < 5" if pe_pct is None else f"Sector percentile {pe_pct:.0f}")
+        ("Unavailable — peer sample < 5" if pe_pct is None else f"{scope_label} percentile {pe_pct:.0f}")
     )
     pbv_label = "N/A" if pbv_status == "INSUFFICIENT_DATA" else (
         "NOT_MEANINGFUL" if pbv_status == "NOT_MEANINGFUL" else
-        ("Unavailable — peer sample < 5" if pbv_pct is None else f"Sector percentile {pbv_pct:.0f}")
+        ("Unavailable — peer sample < 5" if pbv_pct is None else f"{scope_label} percentile {pbv_pct:.0f}")
     )
 
     pct_values = [p for p in (pe_pct, pbv_pct) if p is not None]
@@ -256,6 +304,10 @@ def analyze_fundamental(
         profitability_score,
         65 if statement_income_growth is not None and statement_income_growth > 0 else None,
         65 if statement_revenue_growth is not None and statement_revenue_growth > 0 else None,
+        _score_higher_better(cash_conversion, 0.5, 1.2),
+        70 if free_cash_flow_ttm is not None and free_cash_flow_ttm > 0 else (
+            25 if free_cash_flow_ttm is not None else None
+        ),
     ]
     quality_score = _component_average(quality_values)
 
@@ -329,6 +381,12 @@ def analyze_fundamental(
         quality_flags.append("Trailing four-quarter revenue is growing.")
     if statement_income_growth is not None and statement_income_growth > 0:
         quality_flags.append("Trailing four-quarter net income is growing.")
+    if cash_conversion is not None and cash_conversion >= 1:
+        quality_flags.append("TTM operating cash flow covers reported net income.")
+    if free_cash_flow_ttm is not None and free_cash_flow_ttm < 0:
+        risk_flags.append("Reported TTM free cash flow is negative.")
+    if free_cash_flow_ttm is not None and currency_alignment != "AVAILABLE":
+        risk_flags.append("FCF yield is unavailable because reporting and market-price currencies are not aligned.")
     if style != "bank" and debt_to_equity is not None and debt_to_equity > leverage_bad:
         risk_flags.append("Debt-to-equity is elevated for this sector profile.")
     if margin is not None and margin < 0:
@@ -361,9 +419,16 @@ def analyze_fundamental(
         "earnings_growth": earnings_growth,
         "statement_revenue_growth": statement_revenue_growth,
         "statement_income_growth": statement_income_growth,
+        "operating_cash_flow_ttm": operating_cash_flow_ttm,
+        "free_cash_flow_ttm": free_cash_flow_ttm,
+        "operating_cash_flow_growth": operating_cash_flow_growth,
+        "cash_conversion": cash_conversion,
+        "fcf_yield": fcf_yield,
         "fundamental_score": _clip(fundamental_score) if fundamental_score is not None else None,
         "coverage_pct": coverage_pct,
-        "formula_version": "fundamental-pit-v2",
+        "formula_version": "fundamental-pit-v3",
+        "currency_alignment_status": currency_alignment,
+        "peer_scope": peer_scope if pct_values else None,
         "fundamental_components": components,
         "quality_flags": quality_flags,
         "risk_flags": risk_flags,

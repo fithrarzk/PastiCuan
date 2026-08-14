@@ -21,3 +21,17 @@ def decision_view(decision: dict) -> dict:
 def display_number(value, suffix="/100", decimals=1) -> str:
     return "N/A" if value is None else f"{value:.{decimals}f}{suffix}"
 
+
+def scan_view(scan) -> dict:
+    """Return the exact scanner contract consumed by every interface."""
+    value = scan.to_dict() if hasattr(scan, "to_dict") else dict(scan)
+    return {
+        "as_of": value.get("as_of"),
+        "analysis_version": value.get("analysis_version"),
+        "formula_version": value.get("formula_version"),
+        "policy_label": value.get("policy_label", "RESEARCH_ONLY"),
+        "requested_tickers": list(value.get("requested_tickers", [])),
+        "candidates": list(value.get("candidates", [])),
+        "excluded": list(value.get("excluded", [])),
+        "warnings": list(value.get("warnings", [])),
+    }

@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+import asyncio
 from dotenv import load_dotenv
 import pandas as pd
 
@@ -15,8 +16,8 @@ from telegram.constants import ParseMode
 
 from data.extended import get_extended_data
 from analysis.engine import run_analysis_bundle
-from analysis.quant import compute_quant_factors
-from analysis.presentation import decision_view, display_number
+from analysis.presentation import decision_view, display_number, scan_view
+from analysis.scanner import DEFAULT_SCAN_TICKERS, run_scan
 
 
 # Configure Logging
@@ -45,7 +46,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-POPULAR_TICKERS = ["BBCA", "BBRI", "BMRI", "BBNI", "TLKM", "ASII", "UNTR", "ICBP", "AMRT", "ADRO"]
+POPULAR_TICKERS = DEFAULT_SCAN_TICKERS
 
 
 def _clean_ticker(text: str) -> str:
@@ -54,6 +55,10 @@ def _clean_ticker(text: str) -> str:
     ticker = text.strip().split()[0].upper()
     ticker = ticker.replace(".JK", "")
     return ticker
+
+
+def _escape_markdown_text(value: str) -> str:
+    return str(value).replace("_", "\\_")
 
 
 def _compute_liquidity(history):
@@ -103,7 +108,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/decision <ticker>` — Multi-factor Decision Matrix (e.g. `/decision BMRI`)\n"
         "• `/range <ticker>` — Technical + valuation buy-range research (e.g. `/range BBCA`)\n"
         "• `/chart <ticker>` — Technical Candlestick & Indicator Chart (e.g. `/chart ASII`)\n"
-        "• `/scan` — Scan LQ45 / top IDX stocks for accumulation signals\n"
+        "• `/scan [5–10 tickers]` — Combined research ranking; arguments are optional\n"
         "• `/help` — Display this command menu\n\n"
 
 
@@ -201,7 +206,7 @@ async def decision_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
     view = decision_view(decision)
-    bullet_text = "\n".join(f"• {w}" for w in view["warnings"][:4]) or f"• {view['reason']}"
+    bullet_text = "\n".join(f"• {_escape_markdown_text(w)}" for w in view["warnings"][:4]) or f"• {view['reason']}"
 
     msg = (
         f"🏛️ *Decision Matrix:* *{data['ticker']}*\n"
@@ -311,6 +316,15 @@ async def fund_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     margin = fund.get("net_margin")
     margin_str = f"{margin * 100:.2f}%" if isinstance(margin, (int, float)) else "N/A"
+    statement_currency = data.get("info", {}).get("financialCurrency") or "reported currency"
+    ocf = fund.get("operating_cash_flow_ttm")
+    fcf = fund.get("free_cash_flow_ttm")
+    cash_conversion = fund.get("cash_conversion")
+    fcf_yield = fund.get("fcf_yield")
+    ocf_str = f"{statement_currency} {ocf:,.0f}" if isinstance(ocf, (int, float)) else "N/A"
+    fcf_str = f"{statement_currency} {fcf:,.0f}" if isinstance(fcf, (int, float)) else "N/A"
+    conversion_str = f"{cash_conversion:.2f}x" if isinstance(cash_conversion, (int, float)) else "N/A"
+    fcf_yield_str = f"{fcf_yield * 100:.2f}%" if isinstance(fcf_yield, (int, float)) else "N/A"
 
     q_flags = fund.get("quality_flags", [])
     r_flags = fund.get("risk_flags", [])
@@ -332,6 +346,11 @@ async def fund_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• *Net Profit Margin:* `{margin_str}`\n"
         f"• *Dividend Yield:* `{div_str}`\n"
         f"• *Debt-to-Equity:* `{ratios.get('Debt-to-Equity', 'N/A')}`\n\n"
+        f"💵 *Cash Flow Quality:*\n"
+        f"• *TTM Operating Cash Flow:* `{ocf_str}`\n"
+        f"• *TTM Reported Free Cash Flow:* `{fcf_str}`\n"
+        f"• *Cash Conversion:* `{conversion_str}`\n"
+        f"• *FCF Yield:* `{fcf_yield_str}`\n\n"
         f"✨ *Quality Drivers:*\n"
         f"{q_text}\n\n"
         f"⚠️ *Risk Alerts:*\n"
@@ -370,84 +389,62 @@ async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Scans popular IDX stocks and ranks them by technical score."""
-    await update.message.reply_text("🔎 Scanning top IDX stocks (LQ45 shortlist)... Please wait 10-15 seconds.", parse_mode=ParseMode.MARKDOWN)
-
-    scanned = []
-    scan_limit = max(1, min(len(POPULAR_TICKERS), int(os.getenv("BOT_SCAN_LIMIT", "5"))))
-    for symbol in POPULAR_TICKERS[:scan_limit]:
-        try:
-            results, err = _run_full_analysis(symbol, period="1y")
-            if not err and results:
-                tech = results["tech"]
-                valid_c = results["data"]["history"]["Close"].dropna()
-                close = float(valid_c.iloc[-1]) if not valid_c.empty else 0
-
-                scanned.append({
-                    "ticker": symbol,
-                    "score": tech.get("technical_score", 0),
-                    "rec": tech.get("recommendation", "N/A"),
-                    "price": close,
-                })
-        except Exception as e:
-            logger.error(f"Error scanning {symbol}: {e}")
-
-    scanned.sort(key=lambda x: x["score"], reverse=True)
-
-    lines = ["🔎 *IDX Market Scanner — Top Setup Rankings*\n"]
-    for i, item in enumerate(scanned, 1):
-        emoji = "🟢" if item["score"] >= 60 else ("🟡" if item["score"] >= 45 else "🔴")
+    """Rank a bounded custom watchlist using the shared research contract."""
+    scan_limit = max(5, min(10, int(os.getenv("BOT_SCAN_LIMIT", "10"))))
+    requested = [_clean_ticker(value) for value in context.args] if context.args else POPULAR_TICKERS
+    await update.message.reply_text(
+        f"🔎 Scanning {len(requested)} IDX stocks across technical, fundamental, quant, range, and liquidity evidence...",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    bundle = scan_view(await asyncio.to_thread(run_scan, requested, max_tickers=scan_limit))
+    lines = ["🔎 *IDX Research Scanner — Top 5*", "_Policy: RESEARCH\\_ONLY · Swing horizon 5–20 sessions_\n"]
+    for item in bundle["candidates"][:5]:
+        preferred = _format_range(item.get("preferred_range"))
+        quant = display_number(item.get("quant_percentile"))
+        rr = f"{item['risk_reward']:.2f}R" if item.get("risk_reward") is not None else "N/A"
         lines.append(
-            f"{i}. {emoji} *{item['ticker']}*: `{item['score']:.1f}/100` — Rp {item['price']:,.0f}\n"
-            f"   └ _{item['rec']}_"
+            f"{item['rank']}. *{item['ticker']}* · `{item['composite_score']:.1f}/100` · Rp {item['current_price']:,.0f}\n"
+            f"   T `{display_number(item.get('technical_score'))}` · F `{display_number(item.get('fundamental_score'))}` · Q `{quant}`\n"
+            f"   Range `{preferred}` · R/R `{rr}` · Coverage `{item['coverage_pct']:.0f}%`"
         )
-
-    lines.append("\n_Use `/ta <ticker>` or `/chart <ticker>` for deep dive._")
-    msg = "\n".join(lines)
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    if not bundle["candidates"]:
+        lines.append("No ticker passed the mandatory data, coverage, and liquidity gates.")
+    if bundle["excluded"]:
+        excluded_text = "; ".join(f"{row['ticker']}: {row['reason']}" for row in bundle["excluded"][:5])
+        lines.append(f"\n⚠️ *Excluded:* {_escape_markdown_text(excluded_text)}")
+    if bundle["warnings"]:
+        lines.append(f"\nℹ️ {_escape_markdown_text(bundle['warnings'][0])}")
+    lines.append("\n_Use `/range <ticker>` or `/decision <ticker>` for detail._")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
 async def quant_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Executes Multi-Factor Quant Analysis for a given ticker."""
+    """Show a ticker's relative percentile in a bounded comparison universe."""
     if not context.args:
         await update.message.reply_text("ℹ️ Please specify a ticker symbol. Example: `/quant BBCA`", parse_mode=ParseMode.MARKDOWN)
         return
 
     ticker_symbol = _clean_ticker(context.args[0])
-    await update.message.reply_text(f"⏳ Running Level 2 Multi-Factor Quant Model for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
-
-    results, error = _run_full_analysis(ticker_symbol)
-    if error:
-        await update.message.reply_text(f"❌ *Error running Quant model for {ticker_symbol}:*\n{error}", parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(f"⏳ Ranking *{ticker_symbol}.JK* in the default comparison universe...", parse_mode=ParseMode.MARKDOWN)
+    comparison = [ticker_symbol, *[item for item in POPULAR_TICKERS if item != ticker_symbol]][:10]
+    bundle = scan_view(await asyncio.to_thread(run_scan, comparison))
+    item = next((row for row in bundle["candidates"] if row["ticker"] == ticker_symbol), None)
+    if item is None:
+        reason = next((row["reason"] for row in bundle["excluded"] if row["ticker"] == ticker_symbol), "Insufficient comparison evidence.")
+        await update.message.reply_text(f"⚪ *{ticker_symbol} quant unavailable:* {reason}", parse_mode=ParseMode.MARKDOWN)
         return
-
-    data = results["data"]
-    quant = compute_quant_factors(
-        info=data.get("info"),
-        history=data.get("history"),
-        sector=data.get("basic", {}).get("sector"),
-        quarterly_income=data.get("quarterly_income"),
-        quarterly_balance=data.get("quarterly_balance"),
-    )
-
-    factors = quant.get("factors", {})
-    val_f = factors.get("value", {})
-    qual_f = factors.get("quality", {})
-    mom_f = factors.get("momentum", {})
-    vol_f = factors.get("low_volatility", {})
-
+    components = item.get("components", {})
     msg = (
-        f"🔬 *{data['ticker']} — Level 2 Multi-Factor Quant Report*\n"
-        f"Sector: *{data['basic'].get('sector', 'N/A')}*\n"
+        f"🔬 *{item['display_ticker']} — Cross-Sectional Quant*\n"
+        f"Compared with `{len(bundle['requested_tickers'])}` current scan names\n"
         f"───────────────\n"
-        f"📊 *Composite Quant Score:* `{display_number(quant.get('composite_score'))}`\n"
-        f"🎯 *Factor Grade:* `{quant.get('grade', 'N/A')}`\n\n"
-        f"📐 *Sub-Factor Breakdown:*\n"
-        f"• *Value Factor:* `{display_number(val_f.get('score'))}` (Grade `{val_f.get('grade', 'N/A')}`)\n"
-        f"• *Quality Factor:* `{display_number(qual_f.get('score'))}` (Grade `{qual_f.get('grade', 'N/A')}`)\n"
-        f"• *Momentum Factor:* `{display_number(mom_f.get('score'))}` (Grade `{mom_f.get('grade', 'N/A')}`)\n"
-        f"• *Low Volatility Factor:* `{display_number(vol_f.get('score'))}` (Grade `{vol_f.get('grade', 'N/A')}`)\n\n"
-        f"💡 _Try `/portfolio {ticker_symbol} TLKM BMRI ICBP` to optimize capital allocation!_"
+        f"📊 *Quant percentile:* `{display_number(item.get('quant_percentile'))}`\n"
+        f"🌐 *Ranking scope:* `{item.get('quant_scope', 'unavailable')}`\n"
+        f"📈 *Technical evidence:* `{display_number(components.get('technical'))}`\n"
+        f"🏛️ *Fundamental evidence:* `{display_number(components.get('fundamental'))}`\n"
+        f"💧 *Liquidity evidence:* `{display_number(components.get('liquidity'))}`\n"
+        f"📋 *Coverage:* `{item['coverage_pct']:.0f}%` · `RESEARCH_ONLY`\n\n"
+        f"_Percentiles are relative to this small current universe; they are not absolute investment quality._"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 

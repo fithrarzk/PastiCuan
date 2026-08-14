@@ -13,7 +13,7 @@ import json
 from typing import Any
 
 
-ANALYSIS_VERSION = "2.0.0-shadow"
+ANALYSIS_VERSION = "2.1.0-shadow"
 FORMULA_VERSION = "idx-eod-v2"
 
 
@@ -105,6 +105,21 @@ class AnalysisBundle:
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
+
+
+@dataclass
+class ScanBundle:
+    as_of: str
+    requested_tickers: list[str]
+    candidates: list[dict[str, Any]]
+    excluded: list[dict[str, str]]
+    warnings: list[str] = field(default_factory=list)
+    formula_version: str = "research-scan-v1"
+    analysis_version: str = ANALYSIS_VERSION
+    policy_label: str = "RESEARCH_ONLY"
+
+    def to_dict(self) -> dict[str, Any]:
+        return _json_safe(asdict(self))
 
 
 def _json_safe(value: Any) -> Any:

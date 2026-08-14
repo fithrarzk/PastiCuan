@@ -1,5 +1,6 @@
 import unittest
 import logging
+from unittest.mock import patch
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -13,9 +14,10 @@ from analysis.contracts import DataQualityReport
 from analysis.decision import build_decision_report
 from analysis.fundamental import analyze_fundamental
 from analysis.financials import growth, ttm, valuation_multiple, ytd_to_discrete
-from analysis.presentation import decision_view
+from analysis.presentation import decision_view, scan_view
 from analysis.portfolio import allocate_lots
 from analysis.quant import compute_cross_sectional_factors
+from analysis.scanner import normalize_scan_tickers, run_scan
 from analysis.technical import _atr, _rsi
 from data.validation import completed_eod_history, split_adjusted_ohlcv, validate_ohlcv
 
@@ -79,6 +81,23 @@ class QualityAndFundamentalTests(unittest.TestCase):
         from decimal import Decimal
         self.assertEqual(growth(Decimal(5), Decimal(-2)).status, "LOSS_TO_PROFIT")
         self.assertEqual(valuation_multiple(Decimal(100), Decimal(-4))[0], "NOT_MEANINGFUL")
+
+    def test_cash_flow_metrics_require_four_reported_quarters(self):
+        columns = pd.to_datetime(["2025-03-31", "2025-06-30", "2025-09-30", "2025-12-31"])
+        income = pd.DataFrame([[50, 50, 50, 50]], index=["Net Income"], columns=columns)
+        cashflow = pd.DataFrame(
+            [[100, 100, 100, 100], [50, 50, 50, 50]],
+            index=["Operating Cash Flow", "Free Cash Flow"], columns=columns,
+        )
+        result = analyze_fundamental(
+            {"marketCap": 2_000, "trailingPE": 10, "priceToBook": 2,
+             "_currency_alignment_status": "AVAILABLE"},
+            "Industrials", quarterly_income=income, quarterly_cashflow=cashflow,
+        )
+        self.assertEqual(result["operating_cash_flow_ttm"], 400)
+        self.assertEqual(result["free_cash_flow_ttm"], 200)
+        self.assertEqual(result["cash_conversion"], 2)
+        self.assertEqual(result["fcf_yield"], .1)
 
 
 class CausalityAndGateTests(unittest.TestCase):
@@ -181,11 +200,87 @@ class CrossSectionTests(unittest.TestCase):
         pd.testing.assert_frame_equal(first["scores"], second["scores"])
         self.assertTrue(first["scores"]["value"].between(0, 100).all())
 
+    def test_small_sector_samples_use_disclosed_global_fallback(self):
+        rows = [
+            {"ticker": f"T{i}", "sector": f"S{i}", "earnings_yield": i + 1,
+             "realized_volatility": 10 - i}
+            for i in range(5)
+        ]
+        result = compute_cross_sectional_factors(
+            pd.DataFrame(rows), min_universe=5, allow_global_fallback=True,
+        )
+        self.assertEqual(result["status"], "AVAILABLE")
+        self.assertTrue((result["scores"]["ranking_scope"] == "global_fallback").all())
+        self.assertTrue(result["warnings"])
+
     def test_lot_allocation_never_overspends(self):
         result = allocate_lots({"A": .7, "B": .3}, {"A": 1250, "B": 4300}, 10_000_000)
         self.assertGreaterEqual(result["cash_remaining"], 0)
         self.assertLessEqual(result["invested"], 10_000_000)
         self.assertTrue(all(row["shares"] % 100 == 0 for row in result["allocations"].values()))
+
+
+class ScannerTests(unittest.TestCase):
+    @staticmethod
+    def _base(ticker: str) -> dict:
+        i = int(ticker[-1])
+        return {
+            "ticker": ticker, "display_ticker": f"{ticker}.JK", "company": ticker,
+            "sector": f"Sector{i}", "as_of": "2026-08-13T00:00:00+07:00",
+            "data_usable": ticker != "T4", "data_grade": "A", "data_coverage": 100,
+            "quality_reasons": ["stale fixture"] if ticker == "T4" else [],
+            "current_price": 1000 + i * 10, "technical_score": 80 - i,
+            "technical_coverage": 100, "fundamental_score": None if ticker == "T3" else 70 - i,
+            "fundamental_coverage": 80,
+            "buy_range": {"status": "RESEARCH_ONLY", "preferred_range": {"low": 900, "high": 1000}},
+            "risk_reward": 2, "avg_value": 5_000_000_000,
+            "pe": 10 + i, "pbv": 1 + i / 10,
+            "quant_inputs": {
+                "earnings_yield": 1 / (10 + i), "book_yield": 1 / (1 + i / 10),
+                "dividend_yield": .02, "roe": .15, "roic": .12,
+                "cash_conversion": 1.1, "leverage": 50,
+                "return_6m_skip_1m": .1 - i / 100,
+                "return_12m_skip_1m": .2 - i / 100,
+                "realized_volatility": .2 + i / 100,
+                "downside_deviation": .12 + i / 100,
+            },
+            "source": "Yahoo Finance",
+        }
+
+    def test_ticker_normalization_deduplicates_and_caps(self):
+        values = ["bbca", "BBCA.JK", "bad ticker", *[f"T{i}" for i in range(12)]]
+        tickers, excluded = normalize_scan_tickers(values)
+        self.assertEqual(tickers[0], "BBCA")
+        self.assertEqual(len(tickers), 10)
+        self.assertTrue(any("Invalid" in row["reason"] for row in excluded))
+        self.assertTrue(any("limit" in row["reason"] for row in excluded))
+
+    def test_scan_is_deterministic_reweights_missing_optional_data_and_excludes_bad_data(self):
+        def fake_fetch(ticker, period, loader):
+            return self._base(ticker)
+
+        with patch("analysis.scanner._fetch_base", side_effect=fake_fetch):
+            first = run_scan([f"T{i}" for i in range(5)], loader=lambda *a, **k: None).to_dict()
+            second = run_scan([f"T{i}" for i in range(5)], loader=lambda *a, **k: None).to_dict()
+        self.assertEqual(
+            [row["ticker"] for row in first["candidates"]],
+            [row["ticker"] for row in second["candidates"]],
+        )
+        self.assertTrue(all(0 <= row["composite_score"] <= 100 for row in first["candidates"]))
+        t3 = next(row for row in first["candidates"] if row["ticker"] == "T3")
+        self.assertIsNone(t3["components"]["fundamental"])
+        self.assertEqual(t3["coverage_pct"], 75)
+        self.assertTrue(any(row["ticker"] == "T4" for row in first["excluded"]))
+        self.assertTrue(all(row["policy_label"] == "RESEARCH_ONLY" for row in first["candidates"]))
+
+    def test_streamlit_and_telegram_consume_identical_scan_contract(self):
+        from analysis.contracts import ScanBundle
+        bundle = ScanBundle(
+            as_of="2026-08-14T16:15:00+07:00", requested_tickers=["BBCA"],
+            candidates=[{"ticker": "BBCA", "composite_score": 61.5}],
+            excluded=[], warnings=["research only"],
+        )
+        self.assertEqual(scan_view(bundle), scan_view(bundle.to_dict()))
 
 
 if __name__ == "__main__":

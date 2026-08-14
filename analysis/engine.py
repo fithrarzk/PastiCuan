@@ -66,6 +66,7 @@ def run_analysis_bundle(
     fund = analyze_fundamental(
         info, sector, quarterly_income=data.get("quarterly_income"),
         quarterly_balance=data.get("quarterly_balance"),
+        quarterly_cashflow=data.get("quarterly_cashflow"),
     )
     # Yahoo is permitted only as a visibly flagged market fallback. The
     # compatibility loader cannot establish filing publication timestamps.
