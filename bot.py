@@ -20,6 +20,7 @@ from analysis.engine import run_analysis_bundle
 from analysis.presentation import decision_view, display_number, scan_view
 from analysis.scanner import DEFAULT_SCAN_TICKERS, run_scan
 from analysis.snapshots import get_research_snapshot
+from analysis.scan_snapshots import get_scan_snapshot
 
 
 # Configure Logging
@@ -119,7 +120,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/decision <ticker>` — Multi-factor Decision Matrix (e.g. `/decision BMRI`)\n"
         "• `/range <ticker>` — Technical + valuation buy-range research (e.g. `/range BBCA`)\n"
         "• `/chart <ticker>` — Technical Candlestick & Indicator Chart (e.g. `/chart ASII`)\n"
-        "• `/scan [5–10 tickers]` — Combined research ranking; arguments are optional\n"
+        "• `/scan [ticker ...]` — Latest full-LQ45 EOD snapshot; optional filter\n"
         "• `/help` — Display this command menu\n\n"
 
 
@@ -252,33 +253,58 @@ def _format_price(value) -> str:
 def _render_scan_message(bundle: dict) -> str:
     """Render scanner output as escaped Telegram HTML."""
     escape = lambda value: html.escape(str(value), quote=False)
-    lines = [
-        "🔎 <b>IDX Research Scanner — Top 5</b>",
-        "<i>Policy: RESEARCH_ONLY · Swing horizon 5–20 sessions</i>\n",
-    ]
-    for item in bundle["candidates"][:5]:
-        preferred = escape(_format_range(item.get("preferred_range")))
-        quant = escape(display_number(item.get("quant_percentile")))
-        rr = f"{item['risk_reward']:.2f}R" if item.get("risk_reward") is not None else "N/A"
-        lines.append(
-            f"{item['rank']}. <b>{escape(item['ticker'])}</b> · "
-            f"<code>{item['composite_score']:.1f}/100</code> · "
-            f"Rp {item['current_price']:,.0f}\n"
-            f"   T <code>{escape(display_number(item.get('technical_score')))}</code> · "
-            f"F <code>{escape(display_number(item.get('fundamental_score')))}</code> · "
-            f"Q <code>{quant}</code>\n"
-            f"   Range <code>{preferred}</code> · R/R <code>{escape(rr)}</code> · "
-            f"Coverage <code>{item['coverage_pct']:.0f}%</code>"
+    mode = bundle.get("mode", "UNAVAILABLE")
+    title = {
+        "PRIMARY": "🔎 <b>LQ45 Research Scanner — Full-Universe EOD</b>",
+        "DEGRADED": "⚠️ <b>LQ45 Degraded Watchlist — No Overall Score</b>",
+        "UNAVAILABLE": "⚪ <b>LQ45 Scanner Unavailable</b>",
+    }.get(mode, "⚪ <b>LQ45 Scanner Unavailable</b>")
+    lines = [title, "<i>Policy: RESEARCH_ONLY · Swing horizon 5–20 sessions</i>"]
+    lines.append(
+        f"Session <code>{escape(bundle.get('session_date') or 'N/A')}</code> · "
+        f"Universe coverage <code>{float(bundle.get('universe_coverage_pct') or 0):.0f}%</code>"
+    )
+    if bundle.get("snapshot_id"):
+        lines.append(f"Snapshot <code>{escape(bundle['snapshot_id'])}</code>\n")
+
+    def candidate_line(item: dict) -> str:
+        rank = f"#{int(item['rank'])} " if item.get("rank") is not None else ""
+        score = (
+            f" · Score <code>{item['ranking_score']:.1f}/100</code>"
+            if item.get("ranking_score") is not None else ""
         )
-    if not bundle["candidates"]:
-        lines.append("No ticker passed the mandatory data, coverage, and liquidity gates.")
+        rr = f"{item['risk_reward']:.2f}R" if item.get("risk_reward") is not None else "N/A"
+        return (
+            f"• {rank}<b>{escape(item['ticker'])}</b>{score} · Rp {float(item['current_price']):,.0f}\n"
+            f"  T <code>{escape(display_number(item.get('technical_score')))}</code> · "
+            f"Q <code>{escape(display_number(item.get('quant_percentile')))}</code> · "
+            f"R/R <code>{escape(rr)}</code>\n"
+            f"  Entry <code>{escape(_format_range(item.get('entry_zone')))}</code> "
+            f"({escape(item.get('entry_zone_type', 'unavailable'))}) · "
+            f"Coverage <code>{float(item.get('coverage_pct') or 0):.0f}%</code>"
+        )
+
+    shortlist = [row for row in bundle["candidates"] if row.get("eligibility") == "SHORTLIST"]
+    watch = [row for row in bundle["candidates"] if row.get("eligibility") == "WATCH"]
+    if mode == "PRIMARY" and shortlist:
+        lines.append("\n✅ <b>SHORTLIST — ≥1.5R and in entry zone</b>")
+        lines.extend(candidate_line(item) for item in shortlist[:5])
+    remaining = max(0, 5 - min(5, len(shortlist) if mode == "PRIMARY" else 0))
+    if watch and remaining:
+        label = "WATCH — not entry-ready" if mode == "PRIMARY" else "MARKET OBSERVATIONS — quant unavailable"
+        lines.append(f"\n👀 <b>{label}</b>")
+        lines.extend(candidate_line(item) for item in watch[:remaining])
+    if not shortlist and not watch:
+        lines.append("\nNo ticker passed the current evidence and risk/reward gates.")
     if bundle["excluded"]:
         excluded = "; ".join(
-            f"{row['ticker']}: {row['reason']}" for row in bundle["excluded"][:5]
+            f"{row['ticker']}: {str(row['reason'])[:100]}" for row in bundle["excluded"][:3]
         )
         lines.append(f"\n⚠️ <b>Excluded:</b> {escape(excluded)}")
-    if bundle["warnings"]:
-        lines.append(f"\nℹ️ {escape(bundle['warnings'][0])}")
+    for warning in bundle["warnings"][:2]:
+        lines.append(f"\nℹ️ {escape(str(warning)[:160])}")
+    if len(bundle["warnings"]) > 2:
+        lines.append(f"<i>…and {len(bundle['warnings']) - 2} more warning(s).</i>")
     lines.append(
         "\n<i>Use <code>/range &lt;ticker&gt;</code> or "
         "<code>/decision &lt;ticker&gt;</code> for detail.</i>"
@@ -439,15 +465,17 @@ async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Rank a bounded custom watchlist using the shared research contract."""
+    """Read the immutable full-LQ45 scan; never call a provider here."""
     scan_limit = max(5, min(10, int(os.getenv("BOT_SCAN_LIMIT", "10"))))
-    requested = [_clean_ticker(value) for value in context.args] if context.args else POPULAR_TICKERS
+    requested = [_clean_ticker(value) for value in context.args[:scan_limit]] if context.args else None
     await update.message.reply_text(
-        f"🔎 Scanning {len(requested)} IDX stocks across technical, market-quant, "
-        "approved snapshot, and liquidity evidence...",
+        "🔎 Loading the latest full-LQ45 end-of-day research snapshot...",
         parse_mode=ParseMode.MARKDOWN,
     )
-    bundle = scan_view(await asyncio.to_thread(run_scan, requested, max_tickers=scan_limit))
+    snapshot = await asyncio.to_thread(get_scan_snapshot)
+    bundle = scan_view(snapshot.to_bundle(requested))
+    if len(context.args) > scan_limit:
+        bundle["warnings"].insert(0, f"Only the first {scan_limit} ticker filters were used.")
     await update.message.reply_text(_render_scan_message(bundle), parse_mode=ParseMode.HTML)
 
 
@@ -573,6 +601,7 @@ def build_application():
     # Validate and cache the approved snapshot once. Any Supabase failure falls
     # back to the bundled snapshot without preventing bot startup.
     get_research_snapshot()
+    get_scan_snapshot()
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler(["start", "help"], start_command))
     app.add_handler(CommandHandler(["ta", "analyze"], ta_command))

@@ -18,6 +18,7 @@ from telegram import Update
 
 from bot import build_application
 from analysis.snapshots import get_research_snapshot
+from analysis.scan_snapshots import get_scan_snapshot
 
 
 def create_api() -> FastAPI:
@@ -52,11 +53,17 @@ def create_api() -> FastAPI:
     @api.get("/ready")
     async def readiness() -> dict[str, str]:
         snapshot = get_research_snapshot()
+        scan = (await asyncio.to_thread(get_scan_snapshot)).to_bundle()
         return {
-            "status": "degraded" if snapshot.snapshot_id == "bundled-empty-shadow" else "ok",
+            "status": "degraded" if (
+                snapshot.snapshot_id == "bundled-empty-shadow" or scan.mode != "PRIMARY"
+            ) else "ok",
             "snapshot_id": snapshot.snapshot_id,
             "snapshot_effective_at": snapshot.effective_at,
             "model_status": snapshot.model_status,
+            "scan_mode": scan.mode,
+            "scan_snapshot_id": scan.snapshot_id or "unavailable",
+            "scan_session_date": scan.session_date or "unavailable",
         }
 
     @api.post("/telegram/webhook")

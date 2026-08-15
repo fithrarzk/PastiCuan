@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 from typing import Any, Callable
 from uuid import uuid4
 
 from analysis.contracts import AnalysisBundle
 from analysis.snapshots import ResearchSnapshot
+from analysis.scan_snapshots import ScanResearchSnapshot
 
 
 class SnapshotRepository:
@@ -51,6 +54,100 @@ class SnapshotRepository:
                 names = [column.name for column in cursor.description]
                 return [dict(zip(names, row)) for row in cursor.fetchall()]
 
+    def completed_session_age(self, session_date: str, on_date: str) -> int | None:
+        """Count known completed IDX sessions after ``session_date``."""
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT count(*) FROM market_sessions
+                       WHERE exchange='IDX' AND status='COMPLETED'
+                         AND session_date>%s AND session_date<=%s""",
+                    (session_date, on_date),
+                )
+                count = int(cursor.fetchone()[0])
+                cursor.execute(
+                    """SELECT 1 FROM market_sessions
+                       WHERE exchange='IDX' AND status='COMPLETED' LIMIT 1"""
+                )
+                return count if cursor.fetchone() else None
+
+    def import_yahoo_market_histories(self, histories: dict[str, Any], *, available_at: str) -> int:
+        """Store fetched OHLCV with retrieval-time availability; never backdate knowledge."""
+        rows = []
+        for ticker, history in histories.items():
+            if history is None or history.empty:
+                continue
+            clean = history.dropna(subset=["Open", "High", "Low", "Close"])
+            for index, values in clean.iterrows():
+                raw_volume = values.get("Volume", 0)
+                volume = float(raw_volume) if raw_volume is not None else 0.0
+                if not math.isfinite(volume):
+                    volume = 0.0
+                payload = {
+                    "ticker": ticker, "session_date": str(index.date()),
+                    "open": float(values["Open"]), "high": float(values["High"]),
+                    "low": float(values["Low"]), "close": float(values["Close"]),
+                    "volume": volume,
+                }
+                checksum = hashlib.sha256(
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest()
+                rows.append((
+                    payload["ticker"], payload["session_date"], payload["open"],
+                    payload["high"], payload["low"], payload["close"],
+                    payload["volume"], available_at, checksum,
+                ))
+        if not rows:
+            return 0
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT ticker,id FROM issuers WHERE ticker=ANY(%s)", (list(histories),))
+                issuer_ids = {str(ticker): issuer_id for ticker, issuer_id in cursor.fetchall()}
+                cursor.execute(
+                    """SELECT DISTINCT ON (issuer_id,session_date)
+                         issuer_id,session_date,version,checksum
+                       FROM market_bars WHERE issuer_id=ANY(%s)
+                       ORDER BY issuer_id,session_date,version DESC""",
+                    (list(issuer_ids.values()),),
+                )
+                latest = {
+                    (issuer_id, str(session_date)): (int(version), checksum)
+                    for issuer_id, session_date, version, checksum in cursor.fetchall()
+                }
+                values = []
+                for ticker, session_date, open_, high, low, close, volume, available_at, checksum in rows:
+                    if ticker not in issuer_ids:
+                        continue
+                    issuer_id = issuer_ids[ticker]
+                    version, previous_checksum = latest.get((issuer_id, session_date), (0, None))
+                    if checksum == previous_checksum:
+                        continue
+                    values.append(
+                        (issuer_id, session_date, version + 1, open_, high, low, close,
+                         volume, available_at, checksum)
+                    )
+                cursor.executemany(
+                    """INSERT INTO market_bars
+                         (issuer_id,session_date,version,open,high,low,close,volume,currency,
+                          available_at,source_class,source_url,checksum)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'IDR',%s,'yahoo_fallback',
+                               'https://finance.yahoo.com',%s)
+                       ON CONFLICT (issuer_id,session_date,version) DO NOTHING""",
+                    values,
+                )
+                return len(values)
+
+    def record_completed_market_session(self, session_date: str, *, observed_at: str) -> None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO market_sessions(exchange,session_date,closes_at,status)
+                       VALUES ('IDX',%s,%s,'COMPLETED')
+                       ON CONFLICT (exchange,session_date) DO UPDATE SET
+                         closes_at=EXCLUDED.closes_at,status='COMPLETED'""",
+                    (session_date, f"{session_date}T16:00:00+07:00"),
+                )
+
     def facts_as_of(self, issuer_id: int, as_of: str) -> list[dict]:
         """Only facts whose filing was actually available by simulation time."""
         with self._connect() as connection:
@@ -88,13 +185,43 @@ class SnapshotRepository:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT i.id, i.ticker, i.sector, i.issuer_type, i.currency
+                    """SELECT i.id, i.ticker, i.legal_name, i.sector, i.issuer_type, i.currency
                        FROM index_constituents c JOIN issuers i ON i.id=c.issuer_id
                        WHERE c.index_code=%s AND c.effective_from<=%s AND c.effective_to>=%s
                        ORDER BY i.ticker""", (index_code, on_date, on_date),
                 )
                 names = [column.name for column in cursor.description]
                 return [dict(zip(names, row)) for row in cursor.fetchall()]
+
+    def latest_scan_snapshot(self) -> ScanResearchSnapshot | None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT payload FROM scan_research_snapshots
+                       ORDER BY session_date DESC, published_at DESC LIMIT 1"""
+                )
+                row = cursor.fetchone()
+                return ScanResearchSnapshot.from_dict(row[0]) if row else None
+
+    def publish_scan_snapshot(self, snapshot: ScanResearchSnapshot) -> str:
+        snapshot.validate()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO scan_research_snapshots
+                         (id,session_date,universe,mode,model_status,quant_snapshot_id,
+                          universe_coverage_pct,schema_version,formula_version,checksum,
+                          payload,created_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
+                       ON CONFLICT (checksum) DO NOTHING RETURNING id""",
+                    (snapshot.snapshot_id, snapshot.session_date, snapshot.universe,
+                     snapshot.mode, snapshot.model_status, snapshot.quant_snapshot_id,
+                     snapshot.universe_coverage_pct, snapshot.schema_version,
+                     snapshot.formula_version, snapshot.checksum,
+                     json.dumps(snapshot.to_dict()), snapshot.created_at),
+                )
+                row = cursor.fetchone()
+                return str(row[0]) if row else snapshot.snapshot_id
 
     def shares_as_of(self, issuer_id: int, as_of: str) -> dict | None:
         on_date = str(as_of).split("T", 1)[0].split(" ", 1)[0]

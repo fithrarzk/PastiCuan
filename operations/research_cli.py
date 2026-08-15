@@ -17,6 +17,7 @@ from analysis.quant import compute_cross_sectional_factors
 from analysis.backtest import BrokerCostProfile
 from analysis.quant_backtest import assess_holdout, backtest_monthly_quant
 from analysis.factor_dataset import build_factor_inputs
+from analysis.scan_v2 import build_full_lq45_scan
 from analysis.snapshots import ResearchSnapshot, load_snapshot, write_snapshot
 from data.ingestion import acquire_artifact, read_manifest, upload_to_r2
 from data.parsers import parse_canonical_csv
@@ -124,6 +125,25 @@ def publish_snapshot(path: str) -> str:
     return SnapshotRepository(lambda: connect_from_env(writer=True)).publish_quant_snapshot(load_snapshot(path))
 
 
+def build_daily_scan(output_path: str, *, use_r2: bool = False) -> dict:
+    """Build and atomically publish the full-LQ45 EOD scan outside Railway."""
+    from storage.database import connect_from_env
+    from storage.repository import SnapshotRepository
+    repository = SnapshotRepository(lambda: connect_from_env(writer=True))
+
+    archive = None
+    if use_r2:
+        archive = lambda key, body: upload_to_r2(key, body, content_type="application/gzip")
+    snapshot = build_full_lq45_scan(repository, archive_callback=archive)
+    payload = snapshot.to_dict()
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(output_path).write_text(json.dumps(payload, indent=2, sort_keys=True))
+    if snapshot.mode == "UNAVAILABLE":
+        return {"published": False, "snapshot": payload}
+    snapshot_id = repository.publish_scan_snapshot(snapshot)
+    return {"published": True, "snapshot_id": snapshot_id, "snapshot": payload}
+
+
 def build_snapshot_from_database(output_path: str, effective_at: str, model_version: str) -> ResearchSnapshot:
     from storage.database import connect_from_env
     from storage.repository import SnapshotRepository
@@ -214,6 +234,9 @@ def main(argv=None) -> int:
     validate.add_argument("--output", required=True)
     validate.add_argument("--persist", action="store_true")
     validate.add_argument("--model-version", default="lq45-factor-v1")
+    daily_scan = sub.add_parser("build-daily-scan")
+    daily_scan.add_argument("--output", required=True)
+    daily_scan.add_argument("--r2", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "build-snapshot":
         build_snapshot(args.input, args.output, args.effective_at, args.model_version)
@@ -234,6 +257,11 @@ def main(argv=None) -> int:
         result = validate_quant(args.scores, args.bars, args.output, persist=args.persist,
                                 model_version=args.model_version)
         print(json.dumps(result, sort_keys=True))
+    elif args.command == "build-daily-scan":
+        result = build_daily_scan(args.output, use_r2=args.r2)
+        print(json.dumps({key: value for key, value in result.items() if key != "snapshot"}, sort_keys=True))
+        if not result["published"]:
+            return 2
     return 0
 
 

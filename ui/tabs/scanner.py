@@ -1,10 +1,11 @@
-"""Watchlist scanner backed by the same contract as Telegram."""
+"""Immutable full-LQ45 scanner view backed by the same contract as Telegram."""
 
 import pandas as pd
 import streamlit as st
 
-from analysis.scanner import DEFAULT_SCAN_TICKERS, normalize_scan_tickers, run_scan
 from analysis.presentation import scan_view
+from analysis.scan_snapshots import get_scan_snapshot
+from analysis.scanner import normalize_scan_tickers
 
 
 def _normalize_input(value: str) -> list[str]:
@@ -12,46 +13,48 @@ def _normalize_input(value: str) -> list[str]:
     return tickers
 
 
-def render_scanner_tab(period_yf: str) -> None:
+def render_scanner_tab(_period_yf: str) -> None:
     st.caption(
-        "Rank 5–10 IDX stocks with technical, fundamental, cross-sectional quant, "
-        "valuation-range, and liquidity evidence. Results remain research-only."
+        "Read the latest full-LQ45 end-of-day snapshot. Optional tickers only "
+        "filter the frozen ranks; this page never recalculates a small universe."
     )
     ticker_input = st.text_area(
-        "Watchlist Tickers",
-        value=", ".join(DEFAULT_SCAN_TICKERS),
+        "Optional ticker filter",
+        value="",
         height=80,
-        help="Comma-separated IDX tickers; the scan is capped at 10 names for free-tier reliability.",
+        help="Leave blank for the full result, or enter up to 10 comma-separated LQ45 tickers.",
     )
-    if not st.button("Run Research Scanner", type="primary"):
+    if not st.button("Load Research Snapshot", type="primary"):
         return
 
-    tickers = _normalize_input(ticker_input)
-    if not tickers:
-        st.warning("Enter at least one valid ticker.")
+    tickers = _normalize_input(ticker_input)[:10] if ticker_input.strip() else None
+    if ticker_input.strip() and not tickers:
+        st.warning("No valid IDX ticker filter was found.")
         return
+    with st.spinner("Loading the latest approved database snapshot..."):
+        bundle = scan_view(get_scan_snapshot().to_bundle(tickers))
 
-    with st.spinner(f"Analyzing {len(tickers)} stocks..."):
-        scan_period = period_yf if period_yf in {"1y", "2y", "3y"} else "3y"
-        bundle = scan_view(run_scan(tickers, period=scan_period))
+    st.caption(
+        f"Mode {bundle['mode']} · Session {bundle['session_date'] or 'N/A'} · "
+        f"LQ45 coverage {bundle['universe_coverage_pct']:.0f}% · "
+        f"Snapshot {bundle['snapshot_id'] or 'unavailable'}"
+    )
 
     rows = []
     for item in bundle["candidates"]:
-        preferred = item.get("preferred_range")
+        entry = item.get("entry_zone") or {}
         rows.append({
             "Rank": item["rank"],
             "Ticker": item["display_ticker"],
             "Price": item["current_price"],
-            "Research Composite": round(item["composite_score"], 1),
+            "Eligibility": item["eligibility"],
+            "Research Score": round(item["ranking_score"], 1) if item.get("ranking_score") is not None else None,
             "Technical": round(item["technical_score"], 1) if item.get("technical_score") is not None else None,
-            "Fundamental": round(item["fundamental_score"], 1) if item.get("fundamental_score") is not None else None,
             "Quant Percentile": round(item["quant_percentile"], 1) if item.get("quant_percentile") is not None else None,
-            "Quant Scope": item["quant_scope"],
-            "Preferred Low": preferred.get("low") if preferred else None,
-            "Preferred High": preferred.get("high") if preferred else None,
+            "Entry Low": entry.get("low"),
+            "Entry High": entry.get("high"),
             "Risk/Reward": round(item["risk_reward"], 2) if item.get("risk_reward") is not None else None,
             "Coverage": round(item["coverage_pct"], 0),
-            "Data Grade": item["data_grade"],
             "Policy": item["policy_label"],
         })
     if rows:
@@ -65,6 +68,4 @@ def render_scanner_tab(period_yf: str) -> None:
     if bundle["excluded"]:
         st.subheader("Excluded")
         st.dataframe(pd.DataFrame(bundle["excluded"]), use_container_width=True, hide_index=True)
-    st.caption(
-        f"As of {bundle['as_of']} · {bundle['formula_version']} · {bundle['analysis_version']}"
-    )
+    st.caption(f"Created {bundle['as_of']} · {bundle['formula_version']} · {bundle['analysis_version']}")

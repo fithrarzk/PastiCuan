@@ -5,9 +5,11 @@
 The Telegram webhook does not require a database to start. To enable the
 point-in-time research core without adding another Railway service:
 
-1. Create one Supabase project and apply migration `001`, followed by `002`.
-2. Apply `storage/supabase_roles.sql`, create separate login users, and grant
+1. Create one Supabase project and apply migrations `001`, `002`, then `003`.
+2. Apply or re-apply `storage/supabase_roles.sql`, create separate login users, and grant
    Railway only `pasticuan_bot` while GitHub receives an ingest/validator user.
+   In pooler URLs, use the login names (`pasticuan_bot_login.PROJECT_REF` and
+   `pasticuan_jobs_login.PROJECT_REF`), not the NOLOGIN group-role names.
 3. Put the read-only session-pooler URL in Railway as
    `SUPABASE_DATABASE_URL`. Never add `SUPABASE_WRITER_DATABASE_URL` to Railway.
 4. Add the writer URL and optional `R2_*` values as GitHub Actions secrets.
@@ -65,6 +67,7 @@ terms can change in the future.
    - `BOT_SCAN_LIMIT`: `10`
    - `YAHOO_REQUEST_TIMEOUT`: `12`
    - `RESEARCH_SNAPSHOT_PATH`: `data/snapshots/latest.json.gz`
+   - `SCAN_SNAPSHOT_TTL_SECONDS`: `900`
    - `SUPABASE_DATABASE_URL`: optional read-only session-pooler URL
    - `AI_PROVIDER`: `off`
 
@@ -211,7 +214,7 @@ launch. Add Supabase and R2 only when enabling durable official-source ingestion
 For the point-in-time data pipeline:
 
 1. Create a Supabase Free project.
-2. Run both files in `storage/migrations` in numeric order, then apply
+2. Run all `.up.sql` files in `storage/migrations` in numeric order, then apply
    `storage/supabase_roles.sql` and create separate login users for the groups.
 3. Create a Cloudflare R2 Standard bucket for original filings.
 4. Put the read-only pooler URL in Railway. Put the writer database URL, R2
@@ -219,6 +222,10 @@ For the point-in-time data pipeline:
 5. Populate `data/source_manifest.json` only with reviewed official sources,
    then run the research workflow. Unknown schemas are quarantined instead of
    being guessed.
+6. Confirm Supabase contains exactly 45 effective LQ45 constituents, then run
+   **Actions → research-core → Run workflow** with `build_scan` enabled. A
+   PRIMARY result additionally requires a fresh approved quant snapshot;
+   otherwise the bot correctly displays a scoreless DEGRADED watchlist.
 
 The current ingestion path supports strict canonical CSV layouts for LQ45
 constituents, market bars, statement facts, and share history. Original PDFs

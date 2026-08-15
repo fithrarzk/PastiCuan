@@ -127,7 +127,14 @@ class ScanBundle:
     candidates: list[dict[str, Any]]
     excluded: list[dict[str, str]]
     warnings: list[str] = field(default_factory=list)
-    formula_version: str = "research-scan-v1"
+    mode: str = "UNAVAILABLE"
+    snapshot_id: str | None = None
+    session_date: str | None = None
+    universe: str = "LQ45"
+    universe_coverage_pct: float = 0.0
+    quant_snapshot_id: str | None = None
+    source_summary: dict[str, Any] = field(default_factory=dict)
+    formula_version: str = "research-scan-v2"
     analysis_version: str = ANALYSIS_VERSION
     policy_label: str = "RESEARCH_ONLY"
 

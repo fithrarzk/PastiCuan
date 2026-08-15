@@ -124,6 +124,8 @@ def _fetch_base(ticker: str, period: str, loader: Callable) -> dict:
         "fundamental_coverage": fund.get("coverage_pct", 0),
         "buy_range": analysis["buy_range"],
         "risk_reward": tech.get("risk_reward"),
+        "stop_loss": tech.get("stop_loss"),
+        "take_profit": tech.get("take_profit"),
         "avg_value": analysis["liquidity"].get("avg_value"),
         "pe": pe,
         "pbv": pbv,
@@ -138,6 +140,7 @@ def _fetch_base(ticker: str, period: str, loader: Callable) -> dict:
             **momentum,
         },
         "source": fund.get("source"),
+        "_history": data.get("history"),
     }
     if loader is get_extended_data:
         _cache_put((ticker, period), base)

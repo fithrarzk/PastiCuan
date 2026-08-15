@@ -34,4 +34,11 @@ def scan_view(scan) -> dict:
         "candidates": list(value.get("candidates", [])),
         "excluded": list(value.get("excluded", [])),
         "warnings": list(value.get("warnings", [])),
+        "mode": value.get("mode", "UNAVAILABLE"),
+        "snapshot_id": value.get("snapshot_id"),
+        "session_date": value.get("session_date"),
+        "universe": value.get("universe", "LQ45"),
+        "universe_coverage_pct": value.get("universe_coverage_pct", 0),
+        "quant_snapshot_id": value.get("quant_snapshot_id"),
+        "source_summary": dict(value.get("source_summary", {})),
     }
