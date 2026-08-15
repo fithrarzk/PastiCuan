@@ -18,6 +18,8 @@ from analysis.snapshots import ResearchSnapshot, load_snapshot, write_snapshot
 from analysis.valuation_bands import compute_valuation_bands
 from operations.research_cli import approve_snapshot, build_snapshot
 from data.parsers import parse_canonical_csv
+from data.extended import get_extended_data
+from bot import _render_scan_message
 
 
 class SnapshotContractTests(unittest.TestCase):
@@ -82,6 +84,42 @@ class CanonicalParserTests(unittest.TestCase):
         self.assertEqual(rows[0]["ticker"], "BBCA")
         with self.assertRaisesRegex(ValueError, "missing"):
             parse_canonical_csv("lq45_constituents_csv", b"ticker\nBBCA\n")
+
+
+class ProviderResilienceTests(unittest.TestCase):
+    def test_price_only_fetch_never_requests_crumb_dependent_fundamentals(self):
+        prices = pd.DataFrame(
+            {"Open": [100], "High": [102], "Low": [99], "Close": [101], "Volume": [1000]},
+            index=pd.to_datetime(["2026-08-14"]),
+        )
+
+        class Stock:
+            def history(self, **_): return prices
+            @property
+            def info(self): raise AssertionError("quote-summary must not be requested")
+            @property
+            def quarterly_income_stmt(self): raise AssertionError("statements must not be requested")
+
+        class Session:
+            def close(self): pass
+
+        with patch("data.extended.requests.Session", return_value=Session()), \
+             patch("data.extended.yf.Ticker", return_value=Stock()):
+            result = get_extended_data("BBCA", include_fundamentals=False)
+        self.assertIsNone(result["error"])
+        self.assertFalse(result["history"].empty)
+        self.assertEqual(result["info"], {})
+
+    def test_scan_output_escapes_provider_error_text(self):
+        message = _render_scan_message({
+            "candidates": [],
+            "excluded": [{"ticker": "BAD", "reason": "Ticker **BAD** <invalid> _crumb_"}],
+            "warnings": ["fallback <unsafe> & unavailable"],
+        })
+        self.assertIn("RESEARCH_ONLY", message)
+        self.assertIn("&lt;invalid&gt;", message)
+        self.assertIn("&amp;", message)
+        self.assertNotIn("<invalid>", message)
 
 
 class PointInTimeValuationTests(unittest.TestCase):

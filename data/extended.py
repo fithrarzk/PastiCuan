@@ -29,7 +29,7 @@ def _normalize_info_currency(info: dict) -> dict:
     return info
 
 
-def get_extended_data(ticker: str, period: str = "3y") -> dict:
+def get_extended_data(ticker: str, period: str = "3y", *, include_fundamentals: bool = True) -> dict:
     ticker = _normalize_ticker(ticker)
     result = {
         "ticker": ticker,
@@ -52,17 +52,23 @@ def get_extended_data(ticker: str, period: str = "3y") -> dict:
     session = requests.Session(timeout=request_timeout, impersonate="chrome")
     try:
         stock = yf.Ticker(ticker, session=session)
-        info = _normalize_info_currency(stock.info)
+        # Price history is the minimum viable evidence and uses Yahoo's chart
+        # endpoint. Fetch it before the crumb-dependent quote-summary endpoint
+        # so a fundamentals authentication failure cannot discard usable OHLCV.
+        history = stock.history(period=period, auto_adjust=False, actions=True, timeout=request_timeout)
+        if history.empty:
+            result["error"] = f"No historical price data available for {ticker}."
+            return result
+        history = history.dropna(subset=["Close"])
+        result["history"] = history
 
-        if not info or (
-            info.get("regularMarketPrice") is None
-            and info.get("currentPrice") is None
-            and info.get("previousClose") is None
-        ):
-            hist_check = stock.history(period="5d", auto_adjust=False, actions=True, timeout=request_timeout)
-            if hist_check.empty:
-                result["error"] = f"Ticker **{ticker}** not found or has no trading data."
-                return result
+        info = {}
+        if include_fundamentals:
+            try:
+                info = _normalize_info_currency(stock.info)
+            except Exception as exc:
+                result["fundamental_source"]["status"] = "UNAVAILABLE"
+                result["fundamental_source"]["warning"] = type(exc).__name__
         result["info"] = info
         result["basic"] = {
             "longName": info.get("longName") or info.get("shortName") or ticker,
@@ -85,31 +91,25 @@ def get_extended_data(ticker: str, period: str = "3y") -> dict:
             "Debt-to-Equity":         fmt_num(info.get("debtToEquity")),
             "Net Profit Margin":      fmt_pct(info.get("profitMargins")),
         }
-        history = stock.history(period=period, auto_adjust=False, actions=True, timeout=request_timeout)
-        if history.empty:
-            result["error"] = f"No historical price data available for **{ticker}**."
-            return result
-        history = history.dropna(subset=["Close"])
-        result["history"] = history
-
-        try:
-            qi = stock.quarterly_income_stmt
-            if qi is not None and not qi.empty:
-                result["quarterly_income"] = qi
-        except Exception:
-            pass
-        try:
-            qb = stock.quarterly_balance_sheet
-            if qb is not None and not qb.empty:
-                result["quarterly_balance"] = qb
-        except Exception:
-            pass
-        try:
-            qcf = stock.quarterly_cash_flow
-            if qcf is not None and not qcf.empty:
-                result["quarterly_cashflow"] = qcf
-        except Exception:
-            pass
+        if include_fundamentals:
+            try:
+                qi = stock.quarterly_income_stmt
+                if qi is not None and not qi.empty:
+                    result["quarterly_income"] = qi
+            except Exception:
+                pass
+            try:
+                qb = stock.quarterly_balance_sheet
+                if qb is not None and not qb.empty:
+                    result["quarterly_balance"] = qb
+            except Exception:
+                pass
+            try:
+                qcf = stock.quarterly_cash_flow
+                if qcf is not None and not qcf.empty:
+                    result["quarterly_cashflow"] = qcf
+            except Exception:
+                pass
     except Exception as exc:
         result["error"] = f"An error occurred while fetching data: {exc}"
     finally:

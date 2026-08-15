@@ -93,7 +93,11 @@ def _fetch_base(ticker: str, period: str, loader: Callable) -> dict:
     cached = _cache_get((ticker, period))
     if cached is not None and loader is get_extended_data:
         return cached
-    data = loader(ticker, period=period)
+    data = (
+        loader(ticker, period=period, include_fundamentals=False)
+        if loader is get_extended_data
+        else loader(ticker, period=period)
+    )
     if data.get("error"):
         raise ValueError(str(data["error"]))
     analysis = run_analysis_bundle(data, include_backtest=False)
@@ -258,8 +262,15 @@ def run_scan(
             "liquidity": 1.0 if components["liquidity"] is not None else 0,
         }
         coverage = sum(weights[key] * component_coverage[key] for key in weights) * 100
-        if coverage < 70:
-            excluded.append({"ticker": base["ticker"], "reason": f"Composite evidence coverage is {coverage:.0f}%, below 70%."})
+        minimum_coverage = 55 if loader is get_extended_data else 70
+        if coverage < minimum_coverage:
+            excluded.append({
+                "ticker": base["ticker"],
+                "reason": (
+                    f"Composite evidence coverage is {coverage:.0f}%, "
+                    f"below {minimum_coverage}%."
+                ),
+            })
             continue
         composite = sum(value * weights[key] for key, value in present.items()) / sum(weights[key] for key in present)
         candidates.append({
@@ -283,7 +294,13 @@ def run_scan(
         warnings.insert(0, f"Quant evidence uses approved {approved_snapshot.snapshot_id} effective {approved_snapshot.effective_at}.")
     if any(value is not None for value in value_scores.values()):
         warnings.append("Relative PE/PBV evidence uses the global scan universe, not sector peers.")
-    warnings.append("Yahoo fundamentals are fallback data without authoritative filing publication timestamps.")
+    if loader is get_extended_data:
+        warnings.append(
+            "Interactive scan intentionally skips Yahoo quote-summary fundamentals; "
+            "scores use market evidence and any approved snapshot quant only."
+        )
+    else:
+        warnings.append("Yahoo fundamentals are fallback data without authoritative filing publication timestamps.")
     return ScanBundle(
         as_of=datetime.now(ZoneInfo("Asia/Jakarta")).isoformat(),
         requested_tickers=normalized, candidates=candidates, excluded=excluded,

@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import asyncio
+import html
 from dotenv import load_dotenv
 import pandas as pd
 
@@ -248,6 +249,43 @@ def _format_price(value) -> str:
     return f"Rp {value:,.0f}" if isinstance(value, (int, float)) else "N/A"
 
 
+def _render_scan_message(bundle: dict) -> str:
+    """Render scanner output as escaped Telegram HTML."""
+    escape = lambda value: html.escape(str(value), quote=False)
+    lines = [
+        "🔎 <b>IDX Research Scanner — Top 5</b>",
+        "<i>Policy: RESEARCH_ONLY · Swing horizon 5–20 sessions</i>\n",
+    ]
+    for item in bundle["candidates"][:5]:
+        preferred = escape(_format_range(item.get("preferred_range")))
+        quant = escape(display_number(item.get("quant_percentile")))
+        rr = f"{item['risk_reward']:.2f}R" if item.get("risk_reward") is not None else "N/A"
+        lines.append(
+            f"{item['rank']}. <b>{escape(item['ticker'])}</b> · "
+            f"<code>{item['composite_score']:.1f}/100</code> · "
+            f"Rp {item['current_price']:,.0f}\n"
+            f"   T <code>{escape(display_number(item.get('technical_score')))}</code> · "
+            f"F <code>{escape(display_number(item.get('fundamental_score')))}</code> · "
+            f"Q <code>{quant}</code>\n"
+            f"   Range <code>{preferred}</code> · R/R <code>{escape(rr)}</code> · "
+            f"Coverage <code>{item['coverage_pct']:.0f}%</code>"
+        )
+    if not bundle["candidates"]:
+        lines.append("No ticker passed the mandatory data, coverage, and liquidity gates.")
+    if bundle["excluded"]:
+        excluded = "; ".join(
+            f"{row['ticker']}: {row['reason']}" for row in bundle["excluded"][:5]
+        )
+        lines.append(f"\n⚠️ <b>Excluded:</b> {escape(excluded)}")
+    if bundle["warnings"]:
+        lines.append(f"\nℹ️ {escape(bundle['warnings'][0])}")
+    lines.append(
+        "\n<i>Use <code>/range &lt;ticker&gt;</code> or "
+        "<code>/decision &lt;ticker&gt;</code> for detail.</i>"
+    )
+    return "\n".join(lines)
+
+
 async def range_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show the auditable overlap of technical and valuation references."""
     if not context.args:
@@ -405,29 +443,12 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     scan_limit = max(5, min(10, int(os.getenv("BOT_SCAN_LIMIT", "10"))))
     requested = [_clean_ticker(value) for value in context.args] if context.args else POPULAR_TICKERS
     await update.message.reply_text(
-        f"🔎 Scanning {len(requested)} IDX stocks across technical, fundamental, quant, range, and liquidity evidence...",
+        f"🔎 Scanning {len(requested)} IDX stocks across technical, market-quant, "
+        "approved snapshot, and liquidity evidence...",
         parse_mode=ParseMode.MARKDOWN,
     )
     bundle = scan_view(await asyncio.to_thread(run_scan, requested, max_tickers=scan_limit))
-    lines = ["🔎 *IDX Research Scanner — Top 5*", "_Policy: RESEARCH\\_ONLY · Swing horizon 5–20 sessions_\n"]
-    for item in bundle["candidates"][:5]:
-        preferred = _format_range(item.get("preferred_range"))
-        quant = display_number(item.get("quant_percentile"))
-        rr = f"{item['risk_reward']:.2f}R" if item.get("risk_reward") is not None else "N/A"
-        lines.append(
-            f"{item['rank']}. *{item['ticker']}* · `{item['composite_score']:.1f}/100` · Rp {item['current_price']:,.0f}\n"
-            f"   T `{display_number(item.get('technical_score'))}` · F `{display_number(item.get('fundamental_score'))}` · Q `{quant}`\n"
-            f"   Range `{preferred}` · R/R `{rr}` · Coverage `{item['coverage_pct']:.0f}%`"
-        )
-    if not bundle["candidates"]:
-        lines.append("No ticker passed the mandatory data, coverage, and liquidity gates.")
-    if bundle["excluded"]:
-        excluded_text = "; ".join(f"{row['ticker']}: {row['reason']}" for row in bundle["excluded"][:5])
-        lines.append(f"\n⚠️ *Excluded:* {_escape_markdown_text(excluded_text)}")
-    if bundle["warnings"]:
-        lines.append(f"\nℹ️ {_escape_markdown_text(bundle['warnings'][0])}")
-    lines.append("\n_Use `/range <ticker>` or `/decision <ticker>` for detail._")
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(_render_scan_message(bundle), parse_mode=ParseMode.HTML)
 
 
 async def quant_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -528,6 +549,22 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
 
+async def telegram_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log unexpected handler failures and give the user a parse-safe response."""
+    error = context.error
+    logger.error(
+        "Unhandled Telegram command failure: %s", error,
+        exc_info=(type(error), error, error.__traceback__) if error else None,
+    )
+    if isinstance(update, Update) and update.effective_message is not None:
+        try:
+            await update.effective_message.reply_text(
+                "⚠️ The command failed safely. Please try again; if it repeats, check the deployment logs."
+            )
+        except Exception:
+            logger.error("Could not deliver Telegram error notice", exc_info=True)
+
+
 
 def build_application():
     """Build the shared Telegram application for polling or webhook delivery."""
@@ -546,6 +583,7 @@ def build_application():
     app.add_handler(CommandHandler(["range", "buyrange"], range_command))
     app.add_handler(CommandHandler(["chart"], chart_command))
     app.add_handler(CommandHandler(["scan"], scan_command))
+    app.add_error_handler(telegram_error_handler)
     return app
 
 
