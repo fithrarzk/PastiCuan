@@ -72,17 +72,20 @@ Install the job-only dependencies locally with
 ```bash
 python -m operations.research_cli ingest-manifest \
   --manifest data/source_manifest.json --report ingestion-report.json
+python -m operations.research_cli discover-idx-xbrl \
+  --output idx-manifest-draft.json --as-of 2026-08-16T16:15:00+07:00 \
+  --year 2026 --period tw2
+python -m operations.research_cli ingest-idx-xbrl \
+  --manifest data/idx_filing_manifest.json --report idx-xbrl-report.json --r2
 python -m operations.research_cli build-snapshot-from-database \
   --output data/snapshots/candidate.json.gz \
   --effective-at 2026-08-31T16:15:00+07:00
 python -m operations.research_cli validate-quant \
   --scores reviewed/monthly_scores.csv --bars reviewed/market_bars.csv \
   --output validation-report.json --persist
-python -m operations.research_cli approve-snapshot \
+python -m operations.research_cli publish-reviewed-shadow \
   --candidate data/snapshots/candidate.json.gz \
-  --output data/snapshots/latest.json.gz --status SHADOW
-python -m operations.research_cli publish-snapshot \
-  --snapshot data/snapshots/latest.json.gz
+  --output data/snapshots/latest.json.gz
 python -m operations.research_cli build-daily-scan \
   --output scan-report.json --r2
 ```
@@ -91,6 +94,15 @@ Candidate snapshots cannot be loaded by the bot. Approval changes the status
 and checksum explicitly. `VALIDATED_RESEARCH` additionally requires a persisted
 passing validation-run ID. Keep a model in `SHADOW` until those frozen gates
 pass; neither status can make the bot emit an actionable recommendation.
+
+`data/idx_filing_manifest.json` contains only metadata and official IDX
+attachment URLs; do not commit filing binaries. The job downloads each XBRL
+instance, archives the immutable original to R2 when configured, imports only
+the reviewed factor concepts, and quarantines malformed or mismatched files.
+The discovery command only creates a review draft; it never imports data.
+Because IDX sometimes challenges automated clients, copying attachment URLs
+from the official page into the checked manifest is the deterministic fallback.
+No manual upload to R2 is required.
 
 The daily scan command requires exactly 45 effective LQ45 constituents in
 Supabase. GitHub Actions runs it after the weekday IDX close and publishes only

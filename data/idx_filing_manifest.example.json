@@ -1,0 +1,13 @@
+{
+  "filings": [
+    {
+      "ticker": "BBCA",
+      "source_url": "https://www.idx.co.id/path/from-the-official-financial-statements-page/instance.zip",
+      "published_at": "2026-04-30T09:00:00+07:00",
+      "filing_type": "Q1",
+      "period_end": "2026-03-31",
+      "audit_status": "UNAUDITED",
+      "restatement_version": 1
+    }
+  ]
+}

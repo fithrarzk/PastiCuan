@@ -7,6 +7,27 @@ on:
         description: Build a candidate snapshot when factor inputs exist
         type: boolean
         default: false
+      ingest_idx_filings:
+        description: Download and import official IDX XBRL URLs from the reviewed manifest
+        type: boolean
+        default: false
+      discover_idx_filings:
+        description: Create a review PR containing official IDX XBRL attachment URLs
+        type: boolean
+        default: false
+      idx_report_year:
+        description: Reporting year used by IDX discovery
+        type: string
+        default: "2026"
+      idx_report_period:
+        description: Latest cumulative interim period used by IDX discovery
+        type: choice
+        options: [tw1, tw2, tw3]
+        default: tw2
+      publish_reviewed_shadow:
+        description: Publish the reviewed candidate already merged to the default branch
+        type: boolean
+        default: false
       run_backup:
         description: Export and encrypt Supabase to R2
         type: boolean
@@ -54,6 +75,49 @@ jobs:
           name: ingestion-review-${{ github.run_id }}
           path: /tmp/ingestion-report.json
           retention-days: 14
+      - name: Acquire official IDX XBRL filings
+        if: ${{ (github.event_name == 'schedule' && github.event.schedule == '17 2 * * 1') || inputs.ingest_idx_filings }}
+        run: |
+          r2_flag=""
+          if [ -n "$R2_BUCKET" ]; then r2_flag="--r2"; fi
+          python -m operations.research_cli ingest-idx-xbrl \
+            --manifest data/idx_filing_manifest.json \
+            --report /tmp/idx-xbrl-ingestion-report.json $r2_flag
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && ((github.event_name == 'schedule' && github.event.schedule == '17 2 * * 1') || inputs.ingest_idx_filings) }}
+        with:
+          name: idx-xbrl-review-${{ github.run_id }}
+          path: /tmp/idx-xbrl-ingestion-report.json
+          retention-days: 30
+      - name: Discover official IDX XBRL attachment URLs
+        if: ${{ inputs.discover_idx_filings }}
+        run: |
+          as_of="$(date -u +%Y-%m-%dT%H:%M:%S+00:00)"
+          python -m operations.research_cli discover-idx-xbrl \
+            --output /tmp/idx_filing_manifest.json --as-of "$as_of" \
+            --year "${{ inputs.idx_report_year }}" --period "${{ inputs.idx_report_period }}"
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && inputs.discover_idx_filings }}
+        with:
+          name: idx-manifest-draft-${{ github.run_id }}
+          path: /tmp/idx_filing_manifest.json
+          retention-days: 30
+      - name: Open IDX manifest review pull request
+        if: ${{ inputs.discover_idx_filings }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp /tmp/idx_filing_manifest.json data/idx_filing_manifest.json
+          branch="idx-manifest-${GITHUB_RUN_ID}"
+          git config user.name "pasticuan-research-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add data/idx_filing_manifest.json
+          git commit -m "Update reviewed IDX filing manifest"
+          git push origin "$branch"
+          gh pr create --title "Review official IDX filing manifest" \
+            --body "Review every ticker, publication timestamp, period, and official IDX URL before merge. This PR imports no data." \
+            --base "$GITHUB_REF_NAME" --head "$branch"
       - name: Build and publish full-LQ45 EOD scan
         if: ${{ (github.event_name == 'schedule' && github.event.schedule == '30 10 * * 1-5') || inputs.build_scan }}
         run: |
@@ -97,6 +161,18 @@ jobs:
           gh pr create --title "Review candidate research snapshot" \
             --body "Candidate only. Review ingestion report and validation evidence before approval." \
             --base "$GITHUB_REF_NAME" --head "$branch"
+      - name: Publish reviewed SHADOW quant snapshot
+        if: ${{ inputs.publish_reviewed_shadow }}
+        run: |
+          python -m operations.research_cli publish-reviewed-shadow \
+            --candidate data/snapshots/candidate.json.gz \
+            --output /tmp/approved-shadow.json.gz
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && inputs.publish_reviewed_shadow }}
+        with:
+          name: approved-shadow-${{ github.run_id }}
+          path: /tmp/approved-shadow.json.gz
+          retention-days: 30
 
   backup:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_backup }}

@@ -163,7 +163,7 @@ class SnapshotRepository:
                     WHERE f.issuer_id = %s AND sf.available_at <= %s
                       AND f.available_at <= %s AND f.quarantined_at IS NULL
                     ORDER BY sf.normalized_concept, sf.period_start, sf.period_end,
-                             sf.restatement_version DESC
+                             sf.restatement_version DESC, sf.available_at DESC, sf.id DESC
                     """,
                     (issuer_id, as_of, as_of),
                 )

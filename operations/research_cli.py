@@ -9,6 +9,7 @@ import hashlib
 import os
 from pathlib import Path
 import subprocess
+import math
 from uuid import uuid4
 
 import pandas as pd
@@ -21,6 +22,8 @@ from analysis.scan_v2 import build_full_lq45_scan
 from analysis.snapshots import ResearchSnapshot, load_snapshot, write_snapshot
 from data.ingestion import acquire_artifact, read_manifest, upload_to_r2
 from data.parsers import parse_canonical_csv
+from data.idx_xbrl import parse_idx_xbrl, validate_official_idx_url
+from data.idx_reports import discover_idx_xbrl_manifest
 
 
 def _signed_snapshot(**values) -> ResearchSnapshot:
@@ -30,18 +33,26 @@ def _signed_snapshot(**values) -> ResearchSnapshot:
 
 def build_snapshot(input_path: str, output_path: str, effective_at: str, model_version: str) -> ResearchSnapshot:
     frame = pd.read_csv(input_path)
-    result = compute_cross_sectional_factors(frame, as_of=effective_at, min_universe=10)
+    result = compute_cross_sectional_factors(
+        frame, as_of=effective_at, min_universe=10, allow_global_fallback=True,
+    )
     if result["status"] != "AVAILABLE":
         raise ValueError(result["reason"])
     rankings = {}
     for row in result["scores"].where(pd.notna(result["scores"]), None).to_dict("records"):
         ticker = str(row.pop("ticker")).upper().replace(".JK", "")
         rankings[ticker] = row
+    warnings = list(result.get("warnings", []))
+    if "share_count_source" in frame and (frame["share_count_source"] == "idx_xbrl_implied_weighted_average").any():
+        warnings.append(
+            "Where official period-end shares were unavailable, market cap uses the weighted-average "
+            "share count implied by official IDX XBRL profit and basic EPS."
+        )
     snapshot = _signed_snapshot(
         snapshot_id=str(uuid4()), effective_at=effective_at,
         created_at=datetime.now(timezone.utc).isoformat(), model_version=model_version,
         model_status="CANDIDATE", constituents=sorted(rankings), rankings=rankings,
-        warnings=result.get("warnings", []),
+        warnings=warnings,
     )
     write_snapshot(snapshot, output_path, allow_candidate=True)
     return snapshot
@@ -98,6 +109,115 @@ def ingest_manifest(path: str, *, archive_directory: str | None, use_r2: bool) -
                 repository.record_ingestion_issue(artifact_id, "PARSE_OR_ARCHIVE_FAILURE", str(exc))
             report.append({"source_url": source.get("source_url"), "status": "QUARANTINED", "detail": str(exc)})
     return report
+
+
+def ingest_idx_xbrl_manifest(path: str, *, archive_directory: str | None, use_r2: bool) -> list[dict]:
+    """Acquire official IDX instances, archive originals, and import reviewed facts."""
+    payload = json.loads(Path(path).read_text())
+    filings = payload.get("filings", payload) if isinstance(payload, dict) else payload
+    if not isinstance(filings, list):
+        raise ValueError("IDX filing manifest must be a list or contain a filings list.")
+    if not filings:
+        return []
+    from storage.database import connect_from_env
+    from storage.repository import SnapshotRepository
+    repository = SnapshotRepository(lambda: connect_from_env(writer=True))
+    report = []
+    required = {"ticker", "source_url", "published_at", "filing_type", "period_end"}
+    for source in filings:
+        artifact_id = None
+        try:
+            missing = required - set(source)
+            if missing:
+                raise ValueError(f"IDX filing manifest entry is missing: {', '.join(sorted(missing))}.")
+            validate_official_idx_url(source["source_url"])
+            artifact, body = acquire_artifact(
+                provider="IDX", source_class="official", artifact_type="idx_xbrl_instance",
+                source_url=source["source_url"], published_at=source["published_at"],
+                archive_directory=archive_directory,
+            )
+            artifact_id = repository.register_source_artifact(artifact.to_dict(), parse_status="PENDING")
+            if use_r2:
+                upload_to_r2(artifact.object_key or artifact.checksum, body,
+                             content_type=artifact.content_type or "application/zip")
+            parsed = parse_idx_xbrl(
+                body, ticker=source["ticker"], source_url=source["source_url"],
+                published_at=source["published_at"], filing_type=source["filing_type"],
+                filing_period_end=source["period_end"], document_checksum=artifact.checksum,
+                object_key=artifact.object_key or artifact.checksum,
+                audit_status=source.get("audit_status", "UNAUDITED"),
+                restatement_version=int(source.get("restatement_version", 1)),
+            )
+            imported = repository.import_canonical_records(
+                "statement_facts_csv", parsed["facts"], source_class="official",
+            )
+            repository.set_artifact_status(artifact_id, "ACCEPTED")
+            report.append({
+                **artifact.to_dict(), "ticker": source["ticker"], "status": "ACCEPTED",
+                "record_count": imported, "diagnostics": parsed["diagnostics"],
+            })
+        except Exception as exc:
+            if artifact_id:
+                repository.set_artifact_status(artifact_id, "QUARANTINED")
+                repository.record_ingestion_issue(artifact_id, "IDX_XBRL_FAILURE", str(exc))
+            report.append({"ticker": source.get("ticker"), "source_url": source.get("source_url"),
+                           "status": "QUARANTINED", "detail": str(exc)})
+    return report
+
+
+def discover_idx_manifest(output_path: str, *, as_of: str, year: int, period: str) -> dict:
+    from storage.database import connect_from_env
+    from storage.repository import SnapshotRepository
+    repository = SnapshotRepository(lambda: connect_from_env(writer=True))
+    issuers = repository.constituent_issuers_as_of("LQ45", as_of.split("T", 1)[0])
+    if len(issuers) != 45:
+        raise ValueError(f"Official discovery requires exactly 45 effective LQ45 issuers; found {len(issuers)}.")
+    manifest = discover_idx_xbrl_manifest(
+        [issuer["ticker"] for issuer in issuers], year=year, period=period,
+    )
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(output_path).write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    return manifest
+
+
+def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
+    """Enforce the scan's quant gate before a reviewed candidate can publish."""
+    snapshot.validate(approved_only=False)
+    expected = 45
+    eligible = [
+        ticker for ticker, row in snapshot.rankings.items()
+        if row.get("composite_percentile") is not None
+        and float(row.get("coverage_pct") or 0) >= 75.0
+    ]
+    required_eligible = math.ceil(expected * 0.90)
+    checks = {
+        "candidate_status": snapshot.model_status == "CANDIDATE",
+        "exact_lq45_universe": len(snapshot.constituents) == expected,
+        "rankings_match_constituents": set(snapshot.rankings) == set(snapshot.constituents),
+        "eligible_quant_rows": len(eligible) >= required_eligible,
+    }
+    return {
+        "ready": all(checks.values()), "checks": checks,
+        "constituent_count": len(snapshot.constituents), "eligible_count": len(eligible),
+        "required_eligible_count": required_eligible,
+    }
+
+
+def publish_reviewed_shadow(candidate_path: str, output_path: str) -> dict:
+    """Publish only a candidate already reviewed and merged to the trusted branch."""
+    raw = Path(candidate_path).read_bytes()
+    if candidate_path.endswith(".gz"):
+        import gzip
+        raw = gzip.decompress(raw)
+    candidate = ResearchSnapshot(**json.loads(raw))
+    readiness = candidate_readiness(candidate)
+    if not readiness["ready"]:
+        failed = ", ".join(key for key, passed in readiness["checks"].items() if not passed)
+        raise ValueError(f"Candidate is not publishable: {failed}. Details: {json.dumps(readiness, sort_keys=True)}")
+    approved = approve_snapshot(candidate_path, output_path, "SHADOW", None)
+    snapshot_id = publish_snapshot(output_path)
+    return {"published": True, "snapshot_id": snapshot_id, "readiness": readiness,
+            "checksum": approved.checksum}
 
 
 def backup_database(output_path: str, upload: bool) -> None:
@@ -225,10 +345,19 @@ def main(argv=None) -> int:
     ingest = sub.add_parser("ingest-manifest")
     ingest.add_argument("--manifest", required=True); ingest.add_argument("--report", required=True)
     ingest.add_argument("--archive-directory"); ingest.add_argument("--r2", action="store_true")
+    ingest_idx = sub.add_parser("ingest-idx-xbrl")
+    ingest_idx.add_argument("--manifest", required=True); ingest_idx.add_argument("--report", required=True)
+    ingest_idx.add_argument("--archive-directory"); ingest_idx.add_argument("--r2", action="store_true")
+    discover_idx = sub.add_parser("discover-idx-xbrl")
+    discover_idx.add_argument("--output", required=True); discover_idx.add_argument("--as-of", required=True)
+    discover_idx.add_argument("--year", required=True, type=int)
+    discover_idx.add_argument("--period", required=True, choices=["tw1", "tw2", "tw3"])
     backup = sub.add_parser("backup")
     backup.add_argument("--output", required=True); backup.add_argument("--r2", action="store_true")
     publish = sub.add_parser("publish-snapshot")
     publish.add_argument("--snapshot", required=True)
+    publish_shadow = sub.add_parser("publish-reviewed-shadow")
+    publish_shadow.add_argument("--candidate", required=True); publish_shadow.add_argument("--output", required=True)
     validate = sub.add_parser("validate-quant")
     validate.add_argument("--scores", required=True); validate.add_argument("--bars", required=True)
     validate.add_argument("--output", required=True)
@@ -249,10 +378,27 @@ def main(argv=None) -> int:
         Path(args.report).write_text(json.dumps(report, indent=2, sort_keys=True))
         if any(item["status"] == "QUARANTINED" for item in report):
             return 2
+    elif args.command == "ingest-idx-xbrl":
+        report = ingest_idx_xbrl_manifest(
+            args.manifest, archive_directory=args.archive_directory, use_r2=args.r2,
+        )
+        Path(args.report).write_text(json.dumps(report, indent=2, sort_keys=True))
+        if any(item["status"] == "QUARANTINED" for item in report):
+            return 2
+    elif args.command == "discover-idx-xbrl":
+        manifest = discover_idx_manifest(
+            args.output, as_of=args.as_of, year=args.year, period=args.period,
+        )
+        missing = manifest["discovery"]["current_period_missing"] + manifest["discovery"]["prior_annual_missing"]
+        print(json.dumps(manifest["discovery"], sort_keys=True))
+        if missing:
+            return 2
     elif args.command == "backup":
         backup_database(args.output, args.r2)
     elif args.command == "publish-snapshot":
         print(publish_snapshot(args.snapshot))
+    elif args.command == "publish-reviewed-shadow":
+        print(json.dumps(publish_reviewed_shadow(args.candidate, args.output), sort_keys=True))
     elif args.command == "validate-quant":
         result = validate_quant(args.scores, args.bars, args.output, persist=args.persist,
                                 model_version=args.model_version)

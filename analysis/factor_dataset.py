@@ -12,6 +12,7 @@ FLOW_CONCEPTS = {
     "net_income": {"net_income", "net_income_common_stockholders"},
     "operating_cash_flow": {"operating_cash_flow", "cash_flow_from_operations"},
     "operating_income": {"operating_income"},
+    "basic_eps": {"basic_earnings_per_share"},
 }
 STOCK_CONCEPTS = {
     "equity": {"stockholders_equity", "common_stock_equity", "total_equity"},
@@ -37,13 +38,32 @@ def _ttm(facts: list[dict], names: set[str]) -> float | None:
         if not row.get("period_start"):
             continue
         duration = (pd.Timestamp(row["period_end"]) - pd.Timestamp(row["period_start"])).days
-        if 60 <= duration <= 120:
-            rows.append(row)
+        if 60 <= duration <= 380:
+            rows.append({**row, "_duration": duration})
     by_period = {}
     for row in rows:
-        by_period[str(row["period_end"])] = row
-    latest = list(by_period.values())[-4:]
-    return sum(_scaled(row) for row in latest) if len(latest) == 4 else None
+        by_period[(str(row.get("period_start")), str(row["period_end"]))] = row
+    rows = sorted(by_period.values(), key=lambda row: str(row["period_end"]))
+
+    # IDX interim statements are normally cumulative YTD. Build TTM as the
+    # latest annual result + current YTD - comparable prior-year YTD.
+    annuals = [row for row in rows if 330 <= row["_duration"] <= 380]
+    interims = [row for row in rows if 60 <= row["_duration"] < 330]
+    for current in reversed(interims):
+        annual = next((row for row in reversed(annuals)
+                       if pd.Timestamp(row["period_end"]) < pd.Timestamp(current["period_end"])), None)
+        prior = next((row for row in reversed(interims)
+                      if abs(row["_duration"] - current["_duration"]) <= 8
+                      and 330 <= (pd.Timestamp(current["period_end"]) - pd.Timestamp(row["period_end"])).days <= 400), None)
+        if annual is not None and prior is not None:
+            return _scaled(annual) + _scaled(current) - _scaled(prior)
+
+    # Some canonical feeds provide discrete quarters instead of cumulative YTD.
+    quarters = [row for row in rows if 60 <= row["_duration"] <= 120]
+    latest = quarters[-4:]
+    if len(latest) == 4:
+        return sum(_scaled(row) for row in latest)
+    return _scaled(annuals[-1]) if annuals else None
 
 
 def _latest(facts: list[dict], names: set[str]) -> float | None:
@@ -96,9 +116,21 @@ def build_factor_inputs(repository, as_of: str, *, index_code: str = "LQ45") -> 
         shares = repository.shares_as_of(issuer_id, as_of)
         close = _adjusted_close(bars, actions)
         latest_price = float(close.iloc[-1]) if not close.empty else None
-        share_count = float(shares["period_end_shares"]) if shares else None
-        market_cap = latest_price * share_count if latest_price and share_count else None
         net_income = _ttm(facts, FLOW_CONCEPTS["net_income"])
+        basic_eps = _ttm(facts, FLOW_CONCEPTS["basic_eps"])
+        if shares:
+            share_count = float(shares["period_end_shares"])
+            share_count_source = "official_shares_history"
+        elif net_income is not None and basic_eps is not None and abs(basic_eps) > 1e-12:
+            # IDX taxonomy exposes profit and basic EPS but not a universal
+            # period-end share-count concept. Their ratio is the disclosed
+            # weighted-average share count, used transparently as a fallback.
+            share_count = abs(net_income / basic_eps)
+            share_count_source = "idx_xbrl_implied_weighted_average"
+        else:
+            share_count = None
+            share_count_source = "unavailable"
+        market_cap = latest_price * share_count if latest_price and share_count else None
         operating_cash = _ttm(facts, FLOW_CONCEPTS["operating_cash_flow"])
         equity = _latest(facts, STOCK_CONCEPTS["equity"])
         debt = _latest(facts, STOCK_CONCEPTS["debt"])
@@ -110,6 +142,7 @@ def build_factor_inputs(repository, as_of: str, *, index_code: str = "LQ45") -> 
         )
         rows.append({
             "ticker": issuer["ticker"], "sector": issuer["sector"],
+            "share_count_source": share_count_source,
             "earnings_yield": net_income / market_cap if net_income is not None and market_cap else None,
             "book_yield": equity / market_cap if equity is not None and market_cap else None,
             "dividend_yield": dividends / latest_price if latest_price else None,

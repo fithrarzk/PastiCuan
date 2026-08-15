@@ -220,10 +220,22 @@ For the point-in-time data pipeline:
 3. Create a Cloudflare R2 Standard bucket for original filings.
 4. Put the read-only pooler URL in Railway. Put the writer database URL, R2
    credentials, and `BACKUP_ENCRYPTION_KEY` only in GitHub Actions secrets.
-5. Populate `data/source_manifest.json` only with reviewed official sources,
-   then run the research workflow. Unknown schemas are quarantined instead of
-   being guessed.
-6. Confirm Supabase contains exactly 45 effective LQ45 constituents, then run
+5. Run **Actions → research-core** with `discover_idx_filings` enabled and choose
+   the latest filed interim period (`tw1`, `tw2`, or `tw3`). Discovery includes
+   that cumulative interim and the prior audited annual filing for every active
+   LQ45 member, then opens a manifest-only review PR. It never imports data.
+   Review and merge the PR. If IDX blocks the automated catalog, copy the
+   official `instance.zip` URLs from its Financial Statements page into
+   `data/idx_filing_manifest.json` using the example file as the schema.
+6. Run the workflow with `ingest_idx_filings` enabled. It downloads the files
+   and archives them to R2; you do not upload them manually. Unknown schemas,
+   wrong tickers, and unsafe archives are quarantined. Review the
+   uploaded `idx-xbrl-review-*` artifact. Then run it with `build_snapshot`
+   enabled; this opens a candidate-only pull request.
+7. Review and merge that candidate PR. Run the workflow again with
+   `publish_reviewed_shadow` enabled. Publication fails unless all 45 members
+   are present and at least 41 have 75% quant-factor coverage.
+8. Confirm Supabase contains exactly 45 effective LQ45 constituents, then run
    **Actions → research-core → Run workflow** with `build_scan` enabled. A
    PRIMARY result additionally requires a fresh approved quant snapshot;
    otherwise the bot correctly displays a scoreless DEGRADED watchlist.
@@ -235,10 +247,13 @@ Editor after migrations and role grants. It inserts the composition effective
 45 constituents. Placeholder issuer names/sectors are explicitly unclassified;
 they must not be interpreted as official fundamental metadata.
 
-The current ingestion path supports strict canonical CSV layouts for LQ45
-constituents, market bars, statement facts, and share history. Original PDFs
-can be archived, but unrecognized PDF layouts are deliberately quarantined;
-they do not become authoritative facts until a reviewed parser is added.
+The ingestion path supports strict canonical CSV layouts plus the reviewed IDX
+XBRL concepts used by value and quality: parent net income, operating cash
+flow, parent equity, cash, and basic EPS. TTM
+flows correctly combine annual and cumulative interim comparisons. If official
+period-end shares are absent, the factor dataset discloses use of the
+weighted-average shares implied by official profit and EPS. Original PDFs can
+be archived, but unrecognized PDF layouts remain quarantined.
 
 R2 archival is optional for daily scan publication. An upload failure is
 recorded in the signed SHADOW snapshot but does not discard a valid Supabase
