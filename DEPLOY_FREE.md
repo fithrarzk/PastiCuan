@@ -227,6 +227,13 @@ For the point-in-time data pipeline:
    PRIMARY result additionally requires a fresh approved quant snapshot;
    otherwise the bot correctly displays a scoreless DEGRADED watchlist.
 
+For the initial August 2026 bootstrap, the reviewed membership seed is
+`storage/seeds/2026-08-03_lq45_membership.sql`. Run it once in the Supabase SQL
+Editor after migrations and role grants. It inserts the composition effective
+3 August through 30 October 2026 and asserts that the period contains exactly
+45 constituents. Placeholder issuer names/sectors are explicitly unclassified;
+they must not be interpreted as official fundamental metadata.
+
 The current ingestion path supports strict canonical CSV layouts for LQ45
 constituents, market bars, statement facts, and share history. Original PDFs
 can be archived, but unrecognized PDF layouts are deliberately quarantined;
