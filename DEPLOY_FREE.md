@@ -63,6 +63,7 @@ terms can change in the future.
 
    - `TELEGRAM_BOT_TOKEN`: the newly rotated BotFather token.
    - `TELEGRAM_WEBHOOK_SECRET`: the random secret generated in step 1.
+   - `TELEGRAM_REQUEST_TIMEOUT`: `20`
    - `BOT_ENABLE_BACKTEST`: `false`
    - `BOT_SCAN_LIMIT`: `10`
    - `YAHOO_REQUEST_TIMEOUT`: `12`

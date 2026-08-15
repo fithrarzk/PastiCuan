@@ -581,7 +581,8 @@ async def telegram_error_handler(update: object, context: ContextTypes.DEFAULT_T
     """Log unexpected handler failures and give the user a parse-safe response."""
     error = context.error
     logger.error(
-        "Unhandled Telegram command failure: %s", error,
+        "Unhandled Telegram command failure: %s (cause=%r)",
+        error, getattr(error, "__cause__", None),
         exc_info=(type(error), error, error.__traceback__) if error else None,
     )
     if isinstance(update, Update) and update.effective_message is not None:
@@ -602,7 +603,20 @@ def build_application():
     # back to the bundled snapshot without preventing bot startup.
     get_research_snapshot()
     get_scan_snapshot()
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    request_timeout = max(
+        5.0, min(60.0, float(os.getenv("TELEGRAM_REQUEST_TIMEOUT", "20")))
+    )
+    app = (
+        ApplicationBuilder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .connection_pool_size(8)
+        .connect_timeout(request_timeout)
+        .read_timeout(request_timeout)
+        .write_timeout(request_timeout)
+        .pool_timeout(5.0)
+        .media_write_timeout(max(30.0, request_timeout))
+        .build()
+    )
     app.add_handler(CommandHandler(["start", "help"], start_command))
     app.add_handler(CommandHandler(["ta", "analyze"], ta_command))
     app.add_handler(CommandHandler(["fund", "fundamental"], fund_command))
