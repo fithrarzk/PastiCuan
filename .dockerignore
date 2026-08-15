@@ -9,7 +9,6 @@ venv
 __pycache__
 *.py[cod]
 tests
-storage
 operations
 ui
 app.py
