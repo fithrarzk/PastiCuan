@@ -239,6 +239,11 @@ constituents, market bars, statement facts, and share history. Original PDFs
 can be archived, but unrecognized PDF layouts are deliberately quarantined;
 they do not become authoritative facts until a reviewed parser is added.
 
+R2 archival is optional for daily scan publication. An upload failure is
+recorded in the signed SHADOW snapshot but does not discard a valid Supabase
+scan. Database backups remain strict and fail when R2 upload is denied. For R2,
+use an API token with Object Read & Write access scoped to the configured bucket.
+
 ## 5. Keep the deployment free
 
 - On Railway, keep the subscription on **Free** and check monthly resource usage.

@@ -147,10 +147,13 @@ class ScanSnapshotTests(unittest.TestCase):
         repository = Repository()
         bases = {ticker: base_record(ticker=ticker, display_ticker=f"{ticker}.JK", _history=history)
                  for ticker in tickers}
+        def unavailable_archive(_key, _body):
+            raise PermissionError("fixture must not block scan publication")
         with patch("analysis.scan_v2._fetch_base", side_effect=lambda ticker, *_: bases[ticker]):
             snapshot = build_full_lq45_scan(
                 repository, now=datetime(2026, 8, 14, 10, 30, tzinfo=timezone.utc),
                 loader=lambda *_args, **_kwargs: None,
+                archive_callback=unavailable_archive,
             )
 
         self.assertEqual(snapshot.mode, "PRIMARY")
@@ -159,6 +162,8 @@ class ScanSnapshotTests(unittest.TestCase):
         self.assertEqual(len(snapshot.candidates), 45)
         self.assertEqual(len(repository.imported[0]), 45)
         self.assertEqual(repository.recorded[0], "2026-08-14")
+        self.assertEqual(snapshot.source_summary["r2_archive"]["status"], "FAILED")
+        self.assertTrue(any("R2" in warning for warning in snapshot.warnings))
 
     def test_primary_requires_90_percent_usable_quant_rows(self):
         tickers = [f"T{i:02d}" for i in range(45)]

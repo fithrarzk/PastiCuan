@@ -100,11 +100,7 @@ class ProviderResilienceTests(unittest.TestCase):
             @property
             def quarterly_income_stmt(self): raise AssertionError("statements must not be requested")
 
-        class Session:
-            def close(self): pass
-
-        with patch("data.extended.requests.Session", return_value=Session()), \
-             patch("data.extended.yf.Ticker", return_value=Stock()):
+        with patch("data.extended.yf.Ticker", return_value=Stock()):
             result = get_extended_data("BBCA", include_fundamentals=False)
         self.assertIsNone(result["error"])
         self.assertFalse(result["history"].empty)

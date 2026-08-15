@@ -4,7 +4,6 @@ import os
 
 import yfinance as yf
 import pandas as pd
-from curl_cffi import requests
 
 
 def _normalize_ticker(ticker: str) -> str:
@@ -49,9 +48,11 @@ def get_extended_data(ticker: str, period: str = "3y", *, include_fundamentals: 
         "error": None,
     }
     request_timeout = max(5.0, min(30.0, float(os.getenv("YAHOO_REQUEST_TIMEOUT", "12"))))
-    session = requests.Session(timeout=request_timeout, impersonate="chrome")
     try:
-        stock = yf.Ticker(ticker, session=session)
+        # yfinance owns a process-wide singleton session. Supplying and closing
+        # a different session per ticker races under the full-universe scanner:
+        # one worker can close the session another worker has just installed.
+        stock = yf.Ticker(ticker)
         # Price history is the minimum viable evidence and uses Yahoo's chart
         # endpoint. Fetch it before the crumb-dependent quote-summary endpoint
         # so a fundamentals authentication failure cannot discard usable OHLCV.
@@ -112,8 +113,6 @@ def get_extended_data(ticker: str, period: str = "3y", *, include_fundamentals: 
                 pass
     except Exception as exc:
         result["error"] = f"An error occurred while fetching data: {exc}"
-    finally:
-        session.close()
     return result
 
 

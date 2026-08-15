@@ -307,12 +307,23 @@ def build_full_lq45_scan(
     if archive_callback:
         checksum, body = _archive_payload(same_session, session_date)
         archive_key = f"scan-inputs/{session_date}/{checksum}.json.gz"
-        archive_callback(archive_key, body)
-        archive_summary = {
-            "object_key": archive_key,
-            "checksum": checksum,
-            "content": "normalized Yahoo OHLCV extraction",
-        }
+        try:
+            archive_callback(archive_key, body)
+            archive_summary = {
+                "status": "ARCHIVED",
+                "object_key": archive_key,
+                "checksum": checksum,
+                "content": "normalized Yahoo OHLCV extraction",
+            }
+        except Exception as exc:
+            # R2 is optional and cannot make a valid Supabase scan disappear.
+            # Keep the failure visible without leaking credentials or provider
+            # response bodies into the signed snapshot.
+            archive_summary = {"status": "FAILED", "error_type": type(exc).__name__}
+            warnings.append(
+                f"Optional R2 scan-input archive failed ({type(exc).__name__}); "
+                "the SHADOW snapshot was still published."
+            )
     return signed_scan_snapshot(
         snapshot_id=str(uuid4()), session_date=session_date, created_at=observed.isoformat(),
         mode=mode, candidates=candidates, excluded=excluded, warnings=warnings,
