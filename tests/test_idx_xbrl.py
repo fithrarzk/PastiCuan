@@ -93,7 +93,7 @@ class IdxDiscoveryTests(unittest.TestCase):
         self.assertEqual(len(result["filings"]), 2)
         current = [row for row in result["filings"] if row["filing_type"] == "Q2"][0]
         self.assertEqual(current["period_end"], "2026-06-30")
-        self.assertEqual(current["source_url"], "https://www.idx.co.id/files/instance.zip")
+        self.assertEqual(current["source_url"], "https://www.idx.id/files/instance.zip")
         self.assertTrue(current["published_at"].endswith("+07:00"))
         self.assertEqual(result["discovery"]["current_period_missing"], [])
 
