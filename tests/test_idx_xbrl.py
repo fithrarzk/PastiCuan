@@ -1,12 +1,17 @@
 import io
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 from zipfile import ZipFile
+
+import pandas as pd
 
 from analysis.factor_dataset import _ttm
 from analysis.snapshots import ResearchSnapshot
 from data.idx_xbrl import parse_idx_xbrl, validate_official_idx_url
 from data.idx_reports import discover_idx_xbrl_manifest
-from operations.research_cli import candidate_readiness
+from operations.research_cli import build_snapshot_from_database, candidate_readiness
 
 
 def _instance() -> bytes:
@@ -120,6 +125,25 @@ class CandidateReadinessTests(unittest.TestCase):
         broken = ResearchSnapshot(**{**base.unsigned_dict(), "rankings": rankings})
         broken = ResearchSnapshot(**{**broken.unsigned_dict(), "checksum": broken.calculated_checksum()})
         self.assertFalse(candidate_readiness(broken)["ready"])
+
+
+class CandidateWorkflowTests(unittest.TestCase):
+    def test_fresh_runner_creates_snapshot_directory_before_temporary_csv(self):
+        frame = pd.DataFrame([{"ticker": "TEST", "sector": "TEST"}])
+        with TemporaryDirectory() as root:
+            output = Path(root) / "data" / "snapshots" / "candidate.json.gz"
+            with patch("storage.database.connect_from_env"), \
+                    patch("storage.repository.SnapshotRepository"), \
+                    patch("operations.research_cli.build_factor_inputs", return_value=frame), \
+                    patch("operations.research_cli.build_snapshot", return_value="snapshot") as build:
+                result = build_snapshot_from_database(
+                    str(output), "2026-08-16T00:00:00+00:00", "test-model",
+                )
+            self.assertEqual(result, "snapshot")
+            self.assertTrue(output.parent.is_dir())
+            temporary = output.with_suffix(".factor-inputs.csv")
+            self.assertFalse(temporary.exists())
+            self.assertEqual(build.call_args.args[1], str(output))
 
 
 if __name__ == "__main__":

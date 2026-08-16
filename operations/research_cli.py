@@ -271,7 +271,9 @@ def build_snapshot_from_database(output_path: str, effective_at: str, model_vers
     frame = build_factor_inputs(repository, effective_at)
     if frame.empty:
         raise ValueError("No eligible point-in-time LQ45 factor inputs were produced.")
-    temporary = Path(output_path).with_suffix(".factor-inputs.csv")
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(".factor-inputs.csv")
     frame.to_csv(temporary, index=False)
     try:
         return build_snapshot(str(temporary), output_path, effective_at, model_version)
