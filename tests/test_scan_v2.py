@@ -7,6 +7,7 @@ import pandas as pd
 
 from analysis.scan_snapshots import ScanResearchSnapshot, signed_scan_snapshot
 from analysis.scan_v2 import (
+    _quant_is_fresh,
     build_full_lq45_scan,
     planned_entry_risk_reward,
     risk_reward_score,
@@ -33,6 +34,13 @@ def base_record(**overrides):
 
 
 class ScanScoringTests(unittest.TestCase):
+    def test_weekend_quant_snapshot_is_fresh_for_sunday_scan(self):
+        snapshot = SimpleNamespace(
+            snapshot_id="weekend-quant", effective_at="2026-08-16T00:00:00+00:00",
+        )
+        observed = datetime(2026, 8, 16, 8, 0, tzinfo=timezone.utc)
+        self.assertTrue(_quant_is_fresh(snapshot, observed))
+
     def test_planned_rr_uses_conservative_entry_high(self):
         result = planned_entry_risk_reward(base_record())
         self.assertEqual(result["entry_reference"], 100)

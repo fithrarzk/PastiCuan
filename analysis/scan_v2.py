@@ -76,10 +76,14 @@ def _iso_date(value: str) -> str:
     return pd.Timestamp(value).date().isoformat()
 
 
-def _quant_is_fresh(snapshot, session_date: str) -> bool:
+def _quant_is_fresh(snapshot, observed_at: datetime) -> bool:
     if snapshot is None or snapshot.snapshot_id == "bundled-empty-shadow":
         return False
-    age = (pd.Timestamp(session_date).date() - pd.Timestamp(snapshot.effective_at).date()).days
+    # The latest completed price session can be Friday while the research
+    # snapshot is built on Saturday/Sunday. Freshness is relative to when the
+    # scan is observed, not to the OHLCV session label. Using session_date here
+    # incorrectly rejects valid weekend snapshots as if they were future data.
+    age = (pd.Timestamp(observed_at).date() - pd.Timestamp(snapshot.effective_at).date()).days
     return 0 <= age <= MAX_QUANT_AGE_DAYS
 
 
@@ -274,7 +278,7 @@ def build_full_lq45_scan(
     repository.record_completed_market_session(session_date, observed_at=observed.isoformat())
 
     quant_snapshot = repository.latest_approved_quant_snapshot()
-    quant_fresh = _quant_is_fresh(quant_snapshot, session_date)
+    quant_fresh = _quant_is_fresh(quant_snapshot, observed)
     quant_map = quant_snapshot.rankings if quant_fresh else {}
     quant_hits = sum(
         1 for base in same_session
