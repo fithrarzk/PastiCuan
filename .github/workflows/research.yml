@@ -194,6 +194,12 @@ jobs:
           fi
           python -m operations.research_cli check-candidate \
             --snapshot data/snapshots/candidate.json.gz
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && inputs.build_snapshot && hashFiles('data/snapshots/candidate.json.gz') != '' }}
+        with:
+          name: candidate-diagnostic-${{ github.run_id }}
+          path: data/snapshots/candidate.json.gz
+          retention-days: 14
       - name: Open review pull request
         if: ${{ inputs.build_snapshot && hashFiles('data/snapshots/candidate.json.gz') != '' }}
         env:

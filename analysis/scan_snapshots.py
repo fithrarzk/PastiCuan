@@ -24,7 +24,8 @@ JAKARTA = ZoneInfo("Asia/Jakarta")
 
 
 def _canonical(value: dict[str, Any]) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    return json.dumps(value, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=True, allow_nan=False).encode()
 
 
 def _ticker(value: str) -> str:

@@ -44,10 +44,10 @@ def build_snapshot(input_path: str, output_path: str, effective_at: str, model_v
     if business["status"] == "AVAILABLE":
         business_map = {
             str(row["ticker"]).upper().replace(".JK", ""): row
-            for row in business["scores"].where(pd.notna(business["scores"]), None).to_dict("records")
+            for row in json.loads(business["scores"].to_json(orient="records"))
         }
     rankings = {}
-    for row in result["scores"].where(pd.notna(result["scores"]), None).to_dict("records"):
+    for row in json.loads(result["scores"].to_json(orient="records")):
         ticker = str(row.pop("ticker")).upper().replace(".JK", "")
         rankings[ticker] = {**row, **{key: value for key, value in business_map.get(ticker, {}).items()
                                      if key != "ticker"}}
@@ -194,10 +194,20 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
     snapshot.validate(approved_only=False)
     expected = 45
 
+    def finite_value(row: dict, key: str, fallback: str | None = None) -> float | None:
+        value = row.get(key)
+        if value is None and fallback:
+            value = row.get(fallback)
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
     def row_eligible(row: dict) -> bool:
-        factor_coverage = float(row.get("factor_coverage_pct", row.get("coverage_pct")) or 0)
-        raw_coverage = float(row.get("raw_component_coverage_pct", row.get("coverage_pct")) or 0)
-        return (row.get("composite_percentile") is not None
+        factor_coverage = finite_value(row, "factor_coverage_pct", "coverage_pct") or 0
+        raw_coverage = finite_value(row, "raw_component_coverage_pct", "coverage_pct") or 0
+        return (finite_value(row, "composite_percentile") is not None
                 and factor_coverage >= 75.0 and raw_coverage >= 70.0)
 
     eligible = [
@@ -205,11 +215,23 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
         if row_eligible(row)
     ]
     scored = [ticker for ticker, row in snapshot.rankings.items()
-              if row.get("composite_percentile") is not None]
+              if finite_value(row, "composite_percentile") is not None]
     factor_covered = [ticker for ticker, row in snapshot.rankings.items()
-                      if float(row.get("factor_coverage_pct", row.get("coverage_pct")) or 0) >= 75.0]
+                      if (finite_value(row, "factor_coverage_pct", "coverage_pct") or 0) >= 75.0]
     raw_covered = [ticker for ticker, row in snapshot.rankings.items()
-                   if float(row.get("raw_component_coverage_pct", row.get("coverage_pct")) or 0) >= 70.0]
+                   if (finite_value(row, "raw_component_coverage_pct", "coverage_pct") or 0) >= 70.0]
+    factor_score_counts = {
+        factor: sum(finite_value(row, factor) is not None for row in snapshot.rankings.values())
+        for factor in ("value", "quality", "momentum", "low_volatility")
+    }
+    factor_coverage_values = sorted({
+        value for row in snapshot.rankings.values()
+        if (value := finite_value(row, "factor_coverage_pct", "coverage_pct")) is not None
+    })
+    raw_coverage_values = sorted({
+        value for row in snapshot.rankings.values()
+        if (value := finite_value(row, "raw_component_coverage_pct", "coverage_pct")) is not None
+    })
     required_eligible = math.ceil(expected * 0.90)
     checks = {
         "candidate_status": snapshot.model_status == "CANDIDATE",
@@ -222,6 +244,9 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
         "constituent_count": len(snapshot.constituents), "eligible_count": len(eligible),
         "scored_count": len(scored), "factor_coverage_75_count": len(factor_covered),
         "raw_coverage_70_count": len(raw_covered),
+        "factor_score_counts": factor_score_counts,
+        "factor_coverage_values": factor_coverage_values,
+        "raw_coverage_values": raw_coverage_values,
         "required_eligible_count": required_eligible,
     }
 
