@@ -306,6 +306,17 @@ def build_full_lq45_scan(
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
 
+    # Persist every usable retrieval before publication freshness gates. This
+    # is essential for a first-run bootstrap: a stale latest session must block
+    # publication, but it must not discard valid historical bars that were
+    # observed now and can support a later point-in-time candidate build.
+    usable_bases = [base for base in bases if base.get("data_usable")]
+    if usable_bases:
+        repository.import_yahoo_market_histories(
+            {base["ticker"]: base["_history"] for base in usable_bases},
+            available_at=observed.isoformat(),
+        )
+
     coverage = len(bases) / 45 * 100
     session_counts = pd.Series([base["session_date"] for base in bases]).value_counts() if bases else pd.Series(dtype=int)
     session_date = str(session_counts.index[0]) if not session_counts.empty else on_date
@@ -337,10 +348,6 @@ def build_full_lq45_scan(
             source_summary={"membership": "Supabase point-in-time", "price": "Yahoo Finance fallback"},
         )
 
-    repository.import_yahoo_market_histories(
-        {base["ticker"]: base["_history"] for base in same_session},
-        available_at=observed.isoformat(),
-    )
     repository.record_completed_market_session(session_date, observed_at=observed.isoformat())
 
     quant_snapshot = repository.latest_approved_quant_snapshot()

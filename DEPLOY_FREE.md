@@ -232,16 +232,21 @@ For the point-in-time data pipeline:
 6. Run the workflow with `ingest_idx_filings` enabled. It downloads the files
    and archives them to R2; you do not upload them manually. Unknown schemas,
    wrong tickers, and unsafe archives are quarantined. Review the
-   uploaded `idx-xbrl-review-*` artifact. Then run it with `build_snapshot`
-   enabled; this opens a candidate-only pull request.
-7. Review and merge that candidate PR. Run the workflow again with
+   uploaded `idx-xbrl-review-*` artifact.
+7. On a new database, run the workflow once with `build_scan` enabled before
+   building the first candidate. This bootstrap may exit as UNAVAILABLE or
+   publish DEGRADED, but it persists usable three-year OHLCV with retrieval-time
+   availability so momentum and volatility are not silently absent. It never
+   publishes an unavailable snapshot.
+8. Run the workflow with `build_snapshot` enabled; this opens a candidate-only
+   pull request. Review and merge that candidate PR. Run the workflow again with
    `publish_reviewed_shadow` enabled. Publication fails unless all 45 members
    are present and at least 41 have 75% quant-factor coverage.
-8. Confirm Supabase contains exactly 45 effective LQ45 constituents, then run
+9. Confirm Supabase contains exactly 45 effective LQ45 constituents, then run
    **Actions → research-core → Run workflow** with `build_scan` enabled. A
    PRIMARY result additionally requires a fresh approved quant snapshot;
    otherwise the bot correctly displays a scoreless DEGRADED watchlist.
-9. Keep the model in `SHADOW` while history accumulates. The workflow records
+10. Keep the model in `SHADOW` while history accumulates. The workflow records
    each candidate in `scan_signals` and evaluates matured 5/20/60/252-session
    outcomes. Run validation only after at least five years of point-in-time
    history and 24 holdout months exist; a deterministic rebuild, costs, delayed

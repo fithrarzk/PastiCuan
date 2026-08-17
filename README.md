@@ -112,6 +112,11 @@ replacing the last good snapshot. Railway caches the latest database result for
 5 minutes (bounded to 15) and performs no Yahoo, R2, backtest, or full-universe calculation in
 the `/scan` request path.
 
+For a new database, run one scan before building the first quant candidate. Even
+when freshness prevents that bootstrap scan from publishing, usable retrieved
+history is persisted with its real availability timestamp. Then rebuild the
+candidate, review it, publish SHADOW, and run the final scan.
+
 ## Narrative policy
 
 Version 4 produces its report deterministically from the versioned evidence

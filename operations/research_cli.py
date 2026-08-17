@@ -492,7 +492,16 @@ def main(argv=None) -> int:
         print(json.dumps(result, sort_keys=True))
     elif args.command == "build-daily-scan":
         result = build_daily_scan(args.output, use_r2=args.r2)
-        print(json.dumps({key: value for key, value in result.items() if key != "snapshot"}, sort_keys=True))
+        snapshot = result.get("snapshot") or {}
+        summary = {key: value for key, value in result.items() if key != "snapshot"}
+        summary.update({
+            "mode": snapshot.get("mode"),
+            "session_date": snapshot.get("session_date"),
+            "universe_coverage_pct": snapshot.get("universe_coverage_pct"),
+            "warnings": snapshot.get("warnings", []),
+            "excluded_count": len(snapshot.get("excluded", [])),
+        })
+        print(json.dumps(summary, sort_keys=True))
         if not result["published"]:
             return 2
     elif args.command == "rebuild-monthly-panel":

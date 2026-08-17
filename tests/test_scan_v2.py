@@ -215,17 +215,23 @@ class ScanSnapshotTests(unittest.TestCase):
         )
 
         class Repository:
+            imported = None
             def constituent_issuers_as_of(self, *_):
                 return [{"ticker": ticker, "sector": "Test", "legal_name": ticker} for ticker in tickers]
             def completed_session_age(self, *_): return 0
+            def import_yahoo_market_histories(self, values, *, available_at):
+                self.imported = (values, available_at)
+                return len(values)
 
         bases = {ticker: base_record(ticker=ticker, _history=history) for ticker in tickers}
+        repository = Repository()
         with patch("analysis.scan_v2._fetch_base", side_effect=lambda ticker, *_: bases[ticker]):
             snapshot = build_full_lq45_scan(
-                Repository(), now=datetime(2026, 8, 18, 10, 30, tzinfo=timezone.utc),
+                repository, now=datetime(2026, 8, 18, 10, 30, tzinfo=timezone.utc),
                 loader=lambda *_args, **_kwargs: None,
             )
         self.assertEqual(snapshot.mode, "UNAVAILABLE")
+        self.assertEqual(len(repository.imported[0]), 45)
         self.assertIn("2 completed-session", snapshot.warnings[0])
 
 
