@@ -242,7 +242,7 @@ class ScannerTests(unittest.TestCase):
             "quant_inputs": {
                 "earnings_yield": 1 / (10 + i), "book_yield": 1 / (1 + i / 10),
                 "dividend_yield": .02, "roe": .15, "roic": .12,
-                "cash_conversion": 1.1, "leverage": 50,
+                "cash_conversion": 1.1, "leverage": 50, "accrual_ratio": .05,
                 "return_6m_skip_1m": .1 - i / 100,
                 "return_12m_skip_1m": .2 - i / 100,
                 "realized_volatility": .2 + i / 100,

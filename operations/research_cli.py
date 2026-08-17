@@ -198,6 +198,10 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
         if row.get("composite_percentile") is not None
         and float(row.get("coverage_pct") or 0) >= 75.0
     ]
+    scored = [ticker for ticker, row in snapshot.rankings.items()
+              if row.get("composite_percentile") is not None]
+    covered = [ticker for ticker, row in snapshot.rankings.items()
+               if float(row.get("coverage_pct") or 0) >= 75.0]
     required_eligible = math.ceil(expected * 0.90)
     checks = {
         "candidate_status": snapshot.model_status == "CANDIDATE",
@@ -208,8 +212,22 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
     return {
         "ready": all(checks.values()), "checks": checks,
         "constituent_count": len(snapshot.constituents), "eligible_count": len(eligible),
+        "scored_count": len(scored), "coverage_75_count": len(covered),
         "required_eligible_count": required_eligible,
     }
+
+
+def check_candidate(path: str) -> dict:
+    raw = Path(path).read_bytes()
+    if path.endswith(".gz"):
+        import gzip
+        raw = gzip.decompress(raw)
+    snapshot = ResearchSnapshot(**json.loads(raw))
+    readiness = candidate_readiness(snapshot)
+    if not readiness["ready"]:
+        failed = ", ".join(key for key, passed in readiness["checks"].items() if not passed)
+        raise ValueError(f"Candidate readiness failed: {failed}. Details: {json.dumps(readiness, sort_keys=True)}")
+    return readiness
 
 
 def publish_reviewed_shadow(candidate_path: str, output_path: str) -> dict:
@@ -439,6 +457,8 @@ def main(argv=None) -> int:
     publish.add_argument("--snapshot", required=True)
     publish_shadow = sub.add_parser("publish-reviewed-shadow")
     publish_shadow.add_argument("--candidate", required=True); publish_shadow.add_argument("--output", required=True)
+    check = sub.add_parser("check-candidate")
+    check.add_argument("--snapshot", required=True)
     validate = sub.add_parser("validate-quant")
     validate.add_argument("--scores", required=True); validate.add_argument("--bars", required=True)
     validate.add_argument("--output", required=True)
@@ -485,6 +505,8 @@ def main(argv=None) -> int:
         print(publish_snapshot(args.snapshot))
     elif args.command == "publish-reviewed-shadow":
         print(json.dumps(publish_reviewed_shadow(args.candidate, args.output), sort_keys=True))
+    elif args.command == "check-candidate":
+        print(json.dumps(check_candidate(args.snapshot), sort_keys=True))
     elif args.command == "validate-quant":
         result = validate_quant(args.scores, args.bars, args.output, persist=args.persist,
                                 model_version=args.model_version,

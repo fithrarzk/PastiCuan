@@ -37,11 +37,15 @@ def compute_cross_sectional_factors(
     df = universe.copy()
     definitions = {
         "value": {"earnings_yield": 1, "book_yield": 1, "dividend_yield": 1},
-        "quality": {"roe": 1, "roic": 1, "cash_conversion": 1, "leverage": -1},
+        # These three can be derived from the reviewed IDX concepts. ROIC needs
+        # a normalized tax policy and leverage needs a reviewed total-debt
+        # concept, so counting either would make maximum attainable coverage
+        # lower than the publication gate for every issuer.
+        "quality": {"roe": 1, "cash_conversion": 1, "accrual_ratio": -1},
         "momentum": {"return_6m_skip_1m": 1, "return_12m_skip_1m": 1},
         "low_volatility": {"realized_volatility": -1, "downside_deviation": -1},
     }
-    minimum_inputs = {"value": 2, "quality": 2, "momentum": 2, "low_volatility": 2}
+    minimum_inputs = {"value": 2, "quality": 3, "momentum": 2, "low_volatility": 2}
     factor_scores: dict[str, pd.Series] = {}
     availability: dict[str, list[str]] = {}
     ranking_scopes = pd.DataFrame(index=df.index)

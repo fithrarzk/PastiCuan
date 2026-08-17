@@ -178,7 +178,9 @@ jobs:
       - name: Build candidate
         if: ${{ inputs.build_snapshot }}
         run: |
-          effective_at="$(date -u +%Y-%m-%dT00:00:00+00:00)"
+          # Use the actual build time. Midnight would causally exclude market
+          # bars retrieved by an earlier bootstrap job on the same UTC day.
+          effective_at="$(date -u +%Y-%m-%dT%H:%M:%S+00:00)"
           if [ -n "$SUPABASE_WRITER_DATABASE_URL" ]; then
             python -m operations.research_cli build-snapshot-from-database \
               --output data/snapshots/candidate.json.gz --effective-at "$effective_at"
@@ -190,6 +192,8 @@ jobs:
             echo "No Supabase writer URL or reviewed factor input file is available." >&2
             exit 1
           fi
+          python -m operations.research_cli check-candidate \
+            --snapshot data/snapshots/candidate.json.gz
       - name: Open review pull request
         if: ${{ inputs.build_snapshot && hashFiles('data/snapshots/candidate.json.gz') != '' }}
         env:
