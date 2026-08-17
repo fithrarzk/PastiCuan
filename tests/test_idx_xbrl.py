@@ -106,7 +106,9 @@ class IdxDiscoveryTests(unittest.TestCase):
 class CandidateReadinessTests(unittest.TestCase):
     def test_requires_45_members_and_90_percent_coverage(self):
         tickers = [f"T{index:02d}" for index in range(45)]
-        rankings = {ticker: {"composite_percentile": 50, "coverage_pct": 75}
+        rankings = {ticker: {"composite_percentile": 50, "coverage_pct": 70,
+                             "raw_component_coverage_pct": 70,
+                             "factor_coverage_pct": 75}
                     for ticker in tickers}
         base = ResearchSnapshot(
             snapshot_id="candidate", effective_at="2026-08-16T00:00:00+00:00",
@@ -115,13 +117,13 @@ class CandidateReadinessTests(unittest.TestCase):
         )
         snapshot = ResearchSnapshot(**{**base.unsigned_dict(), "checksum": base.calculated_checksum()})
         self.assertTrue(candidate_readiness(snapshot)["ready"])
-        rankings[tickers[0]]["coverage_pct"] = 50
+        rankings[tickers[0]]["factor_coverage_pct"] = 50
         broken = ResearchSnapshot(**{**base.unsigned_dict(), "rankings": rankings})
         broken = ResearchSnapshot(**{**broken.unsigned_dict(), "checksum": broken.calculated_checksum()})
         # One missing row still passes the >=90% universe threshold.
         self.assertTrue(candidate_readiness(broken)["ready"])
         for ticker in tickers[:5]:
-            rankings[ticker]["coverage_pct"] = 50
+            rankings[ticker]["factor_coverage_pct"] = 50
         broken = ResearchSnapshot(**{**base.unsigned_dict(), "rankings": rankings})
         broken = ResearchSnapshot(**{**broken.unsigned_dict(), "checksum": broken.calculated_checksum()})
         self.assertFalse(candidate_readiness(broken)["ready"])

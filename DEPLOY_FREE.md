@@ -241,7 +241,8 @@ For the point-in-time data pipeline:
 8. Run the workflow with `build_snapshot` enabled; this opens a candidate-only
    pull request. Review and merge that candidate PR. Run the workflow again with
    `publish_reviewed_shadow` enabled. Publication fails unless all 45 members
-   are present and at least 41 have 75% quant-factor coverage.
+   are present and at least 41 have three of four factor pillars (75%) plus at
+   least 70% coverage of the raw inputs used by those pillars.
 9. Confirm Supabase contains exactly 45 effective LQ45 constituents, then run
    **Actions → research-core → Run workflow** with `build_scan` enabled. A
    PRIMARY result additionally requires a fresh approved quant snapshot;

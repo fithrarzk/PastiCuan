@@ -193,15 +193,23 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
     """Enforce the scan's quant gate before a reviewed candidate can publish."""
     snapshot.validate(approved_only=False)
     expected = 45
+
+    def row_eligible(row: dict) -> bool:
+        factor_coverage = float(row.get("factor_coverage_pct", row.get("coverage_pct")) or 0)
+        raw_coverage = float(row.get("raw_component_coverage_pct", row.get("coverage_pct")) or 0)
+        return (row.get("composite_percentile") is not None
+                and factor_coverage >= 75.0 and raw_coverage >= 70.0)
+
     eligible = [
         ticker for ticker, row in snapshot.rankings.items()
-        if row.get("composite_percentile") is not None
-        and float(row.get("coverage_pct") or 0) >= 75.0
+        if row_eligible(row)
     ]
     scored = [ticker for ticker, row in snapshot.rankings.items()
               if row.get("composite_percentile") is not None]
-    covered = [ticker for ticker, row in snapshot.rankings.items()
-               if float(row.get("coverage_pct") or 0) >= 75.0]
+    factor_covered = [ticker for ticker, row in snapshot.rankings.items()
+                      if float(row.get("factor_coverage_pct", row.get("coverage_pct")) or 0) >= 75.0]
+    raw_covered = [ticker for ticker, row in snapshot.rankings.items()
+                   if float(row.get("raw_component_coverage_pct", row.get("coverage_pct")) or 0) >= 70.0]
     required_eligible = math.ceil(expected * 0.90)
     checks = {
         "candidate_status": snapshot.model_status == "CANDIDATE",
@@ -212,7 +220,8 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
     return {
         "ready": all(checks.values()), "checks": checks,
         "constituent_count": len(snapshot.constituents), "eligible_count": len(eligible),
-        "scored_count": len(scored), "coverage_75_count": len(covered),
+        "scored_count": len(scored), "factor_coverage_75_count": len(factor_covered),
+        "raw_coverage_70_count": len(raw_covered),
         "required_eligible_count": required_eligible,
     }
 

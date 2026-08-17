@@ -49,7 +49,8 @@ class ScanScoringTests(unittest.TestCase):
         self.assertEqual(result["zone_type"], "technical_only")
 
     def test_primary_rank_is_business_only_and_technical_only_is_not_ready(self):
-        quant = {"composite_percentile": 70, "coverage_pct": 75,
+        quant = {"composite_percentile": 70, "coverage_pct": 70,
+                 "raw_component_coverage_pct": 70, "factor_coverage_pct": 75,
                  "value": 60, "quality": 70, "momentum": 80, "low_volatility": 70,
                  "business_score": 76, "business_state": "QUALITY_CANDIDATE",
                  "raw_fundamental_coverage_pct": 88}

@@ -130,6 +130,14 @@ def _quant_is_fresh(snapshot, observed_at: datetime) -> bool:
     return age <= MAX_QUANT_AGE_COMPLETED_BUSINESS_DAYS
 
 
+def _quant_row_eligible(row: dict | None) -> bool:
+    value = row or {}
+    factor_coverage = _finite(value.get("factor_coverage_pct", value.get("coverage_pct"))) or 0
+    raw_coverage = _finite(value.get("raw_component_coverage_pct", value.get("coverage_pct"))) or 0
+    return (_finite(value.get("composite_percentile")) is not None
+            and factor_coverage >= MIN_QUANT_COVERAGE and raw_coverage >= 70.0)
+
+
 def score_candidate(base: dict, quant_row: dict | None, *, primary: bool) -> tuple[dict | None, str | None]:
     ticker = base["ticker"]
     if not base.get("data_usable"):
@@ -145,9 +153,14 @@ def score_candidate(base: dict, quant_row: dict | None, *, primary: bool) -> tup
     rr = _finite(setup.get("planned_rr"))
 
     quant = _finite((quant_row or {}).get("composite_percentile"))
-    quant_coverage = _finite((quant_row or {}).get("coverage_pct")) or 0
-    if primary and (quant is None or quant_coverage < MIN_QUANT_COVERAGE):
-        return None, f"Approved quant coverage {quant_coverage:.0f}% is below {MIN_QUANT_COVERAGE:.0f}%."
+    quant_coverage = _finite((quant_row or {}).get(
+        "factor_coverage_pct", (quant_row or {}).get("coverage_pct"))) or 0
+    raw_quant_coverage = _finite((quant_row or {}).get(
+        "raw_component_coverage_pct", (quant_row or {}).get("coverage_pct"))) or 0
+    if primary and not _quant_row_eligible(quant_row):
+        return None, (f"Approved quant coverage is incomplete: factors {quant_coverage:.0f}% "
+                      f"(minimum {MIN_QUANT_COVERAGE:.0f}%), raw inputs {raw_quant_coverage:.0f}% "
+                      "(minimum 70%).")
 
     business_score = _finite((quant_row or {}).get("business_score"))
     business_state = (quant_row or {}).get("business_state") or "LIMITED_HISTORY"
@@ -227,6 +240,7 @@ def score_candidate(base: dict, quant_row: dict | None, *, primary: bool) -> tup
         "raw_fundamental_coverage_pct": fundamental_coverage,
         "component_coverage": {
             "technical": technical_coverage, "quant": quant_coverage if quant is not None else 0,
+            "quant_raw": raw_quant_coverage if quant is not None else 0,
             "fundamental": fundamental_coverage,
         },
         "source": "Yahoo Finance OHLCV fallback + approved point-in-time quant" if primary else "Yahoo Finance OHLCV fallback",
@@ -353,12 +367,7 @@ def build_full_lq45_scan(
     quant_snapshot = repository.latest_approved_quant_snapshot()
     quant_fresh = _quant_is_fresh(quant_snapshot, observed)
     quant_map = quant_snapshot.rankings if quant_fresh else {}
-    quant_hits = sum(
-        1 for base in same_session
-        if _finite((quant_map.get(base["ticker"]) or {}).get("composite_percentile")) is not None
-        and (_finite((quant_map.get(base["ticker"]) or {}).get("coverage_pct")) or 0)
-        >= MIN_QUANT_COVERAGE
-    )
+    quant_hits = sum(1 for base in same_session if _quant_row_eligible(quant_map.get(base["ticker"])))
     primary = quant_fresh and quant_hits / 45 * 100 >= MIN_UNIVERSE_COVERAGE
     mode = "PRIMARY" if primary else "DEGRADED"
     candidates = []
