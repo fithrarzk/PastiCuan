@@ -17,7 +17,8 @@ import pandas as pd
 from analysis.contracts import ScanBundle
 
 
-SCAN_SCHEMA_VERSION = "2.0"
+SCAN_SCHEMA_VERSION = "3.0"
+SUPPORTED_SCAN_SCHEMA_VERSIONS = {"2.0", "3.0"}
 SCAN_MODES = {"PRIMARY", "DEGRADED", "UNAVAILABLE"}
 JAKARTA = ZoneInfo("Asia/Jakarta")
 
@@ -53,23 +54,28 @@ class ScanResearchSnapshot:
     quant_snapshot_id: str | None = None
     model_status: str = "SHADOW"
     source_summary: dict[str, Any] = field(default_factory=dict)
-    formula_version: str = "research-scan-v2"
+    formula_version: str = "quality-first-scan-v4"
     schema_version: str = SCAN_SCHEMA_VERSION
+    signature: str | None = None
+    signing_key_id: str | None = None
     checksum: str = ""
 
     def unsigned_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload.pop("checksum", None)
+        payload.pop("signature", None)
+        payload.pop("signing_key_id", None)
         return payload
 
     def calculated_checksum(self) -> str:
         return hashlib.sha256(_canonical(self.unsigned_dict())).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
-        return {**self.unsigned_dict(), "checksum": self.checksum or self.calculated_checksum()}
+        return {**self.unsigned_dict(), "signature": self.signature, "signing_key_id": self.signing_key_id,
+                "checksum": self.checksum or self.calculated_checksum()}
 
     def validate(self) -> None:
-        if self.schema_version != SCAN_SCHEMA_VERSION:
+        if self.schema_version not in SUPPORTED_SCAN_SCHEMA_VERSIONS:
             raise ValueError(f"Unsupported scan snapshot schema {self.schema_version}.")
         if self.mode not in SCAN_MODES:
             raise ValueError(f"Unsupported scan mode {self.mode}.")
@@ -81,6 +87,9 @@ class ScanResearchSnapshot:
             raise ValueError("PRIMARY scans require an approved quant snapshot.")
         if not self.checksum or self.checksum != self.calculated_checksum():
             raise ValueError("Scan snapshot checksum is missing or invalid.")
+        from analysis.signing import verify_checksum
+        if not verify_checksum(self.checksum, self.signature):
+            raise ValueError("Scan snapshot Ed25519 signature is missing or invalid.")
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any] | str) -> "ScanResearchSnapshot":
@@ -134,7 +143,11 @@ class ScanResearchSnapshot:
 
 def signed_scan_snapshot(**values) -> ScanResearchSnapshot:
     base = ScanResearchSnapshot(**values)
-    return ScanResearchSnapshot(**{**base.unsigned_dict(), "checksum": base.calculated_checksum()})
+    checksum = base.calculated_checksum()
+    from analysis.signing import sign_checksum
+    signature, key_id = sign_checksum(checksum)
+    return ScanResearchSnapshot(**{**base.unsigned_dict(), "checksum": checksum,
+                                   "signature": signature, "signing_key_id": key_id})
 
 
 def unavailable_scan_snapshot(reason: str) -> ScanResearchSnapshot:
@@ -153,7 +166,8 @@ class ScanSnapshotManager:
     """Lazy 15-minute Supabase cache with a last-good in-process fallback."""
 
     def __init__(self, ttl_seconds: int | None = None):
-        self.ttl_seconds = ttl_seconds or int(os.getenv("SCAN_SNAPSHOT_TTL_SECONDS", "900"))
+        configured = ttl_seconds or int(os.getenv("SCAN_SNAPSHOT_TTL_SECONDS", "300"))
+        self.ttl_seconds = max(30, min(900, configured))
         self._snapshot: ScanResearchSnapshot | None = None
         self._loaded_at = 0.0
         self._lock = Lock()

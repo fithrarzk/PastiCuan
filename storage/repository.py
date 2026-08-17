@@ -157,6 +157,7 @@ class SnapshotRepository:
                     SELECT DISTINCT ON (sf.normalized_concept, sf.period_start, sf.period_end)
                       sf.normalized_concept, sf.period_start, sf.period_end, sf.value,
                       sf.currency, sf.scale, sf.unit, sf.available_at,
+                      sf.period_type, sf.duration_class, sf.fiscal_year, sf.fiscal_quarter,
                       sf.restatement_version, sf.source_url, sf.document_checksum
                     FROM statement_facts sf
                     JOIN filings f ON f.id = sf.filing_id
@@ -203,6 +204,152 @@ class SnapshotRepository:
                 row = cursor.fetchone()
                 return ScanResearchSnapshot.from_dict(row[0]) if row else None
 
+    def ticker_snapshot_history(self, ticker: str, *, limit: int = 8) -> list[dict]:
+        ticker = ticker.upper().replace(".JK", "")
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT session_date,payload->'candidates',formula_version,checksum
+                       FROM scan_research_snapshots
+                       WHERE payload->'candidates' @> %s::jsonb
+                       ORDER BY session_date DESC,published_at DESC LIMIT %s""",
+                    (json.dumps([{"ticker": ticker}]), int(max(1, min(limit, 20)))),
+                )
+                result = []
+                for session_date, candidates, formula_version, checksum in cursor.fetchall():
+                    candidate = next((item for item in candidates or [] if item.get("ticker") == ticker), None)
+                    if candidate:
+                        result.append({"session_date": str(session_date), "formula_version": formula_version,
+                                       "checksum": checksum, "candidate": candidate})
+                return result
+
+    def disclosure_events_for_ticker(self, ticker: str, *, limit: int = 10) -> list[dict]:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT de.event_type,de.published_at,de.title,de.source_url,de.metadata
+                       FROM disclosure_events de JOIN issuers i ON i.id=de.issuer_id
+                       WHERE i.ticker=%s ORDER BY de.published_at DESC LIMIT %s""",
+                    (ticker.upper().replace(".JK", ""), int(max(1, min(limit, 20)))),
+                )
+                names = [column.name for column in cursor.description]
+                return [dict(zip(names, row)) for row in cursor.fetchall()]
+
+    def operational_status(self) -> dict:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT max(session_date) FROM market_sessions WHERE exchange='IDX' AND status='COMPLETED'")
+                session = cursor.fetchone()[0]
+                cursor.execute("SELECT count(*) FROM ingestion_issues WHERE status='OPEN'")
+                issues = int(cursor.fetchone()[0])
+                cursor.execute("SELECT max(started_at) FROM research_job_runs WHERE status='SUCCEEDED'")
+                job = cursor.fetchone()[0]
+                cursor.execute("SELECT count(*) FROM provider_runs WHERE status='FAILED' AND started_at>now()-interval '24 hours'")
+                failures = int(cursor.fetchone()[0])
+                return {"latest_session": str(session) if session else None, "open_issues": issues,
+                        "last_successful_job": job.isoformat() if job else None,
+                        "provider_failures_24h": failures}
+
+    def record_provider_run(self, run: dict) -> None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO provider_runs
+                         (id,provider,capability,source_class,started_at,completed_at,status,attempts,
+                          latency_ms,coverage_pct,fallback_from,error_type,metadata)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)""",
+                    (run["id"], run["provider"], run["capability"], run["source_class"],
+                     run["started_at"], run.get("completed_at"), run["status"], run.get("attempts", 1),
+                     run.get("latency_ms"), run.get("coverage_pct"), run.get("fallback_from"),
+                     run.get("error_type"), json.dumps(run.get("metadata") or {})),
+                )
+
+    def record_research_job(self, run: dict) -> None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO research_job_runs
+                         (id,job_type,workflow_run_id,started_at,completed_at,status,
+                          input_checksum,output_checksum,metrics,error_type)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
+                       ON CONFLICT (id) DO UPDATE SET completed_at=EXCLUDED.completed_at,
+                         status=EXCLUDED.status,output_checksum=EXCLUDED.output_checksum,
+                         metrics=EXCLUDED.metrics,error_type=EXCLUDED.error_type""",
+                    (run["id"], run["job_type"], run.get("workflow_run_id"), run["started_at"],
+                     run.get("completed_at"), run["status"], run.get("input_checksum"),
+                     run.get("output_checksum"), json.dumps(run.get("metrics") or {}),
+                     run.get("error_type")),
+                )
+
+    def reserve_alert(self, *, ticker: str, signal_date: str, horizon: str,
+                      model_version: str, channel: str = "telegram") -> bool:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO alert_deliveries
+                         (ticker,signal_date,horizon,model_version,channel,status)
+                       VALUES (%s,%s,%s,%s,%s,'RESERVED')
+                       ON CONFLICT DO NOTHING RETURNING ticker""",
+                    (ticker.upper().replace(".JK", ""), signal_date, horizon, model_version, channel),
+                )
+                return cursor.fetchone() is not None
+
+    def complete_alert(self, *, ticker: str, signal_date: str, horizon: str,
+                       model_version: str, status: str, error: str | None = None,
+                       channel: str = "telegram") -> None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE alert_deliveries SET status=%s,sent_at=CASE WHEN %s='SENT' THEN now() END,error=%s
+                       WHERE ticker=%s AND signal_date=%s AND horizon=%s AND model_version=%s AND channel=%s""",
+                    (status, status, error, ticker.upper().replace(".JK", ""), signal_date,
+                     horizon, model_version, channel),
+                )
+
+    def completed_month_ends(self, start: str, end: str) -> list[str]:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT max(session_date) FROM market_sessions
+                       WHERE exchange='IDX' AND status='COMPLETED' AND session_date BETWEEN %s AND %s
+                       GROUP BY date_trunc('month',session_date) ORDER BY max(session_date)""",
+                    (start, end),
+                )
+                return [str(row[0]) for row in cursor.fetchall()]
+
+    def validation_bars(self, start: str, end: str) -> list[dict]:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT DISTINCT ON (i.ticker,mb.session_date)
+                              mb.session_date AS date,i.ticker,mb.open,mb.high,mb.low,mb.close,mb.volume
+                       FROM market_bars mb JOIN issuers i ON i.id=mb.issuer_id
+                       WHERE mb.session_date BETWEEN %s AND %s AND mb.quarantined_at IS NULL
+                       ORDER BY i.ticker,mb.session_date,mb.version DESC""",
+                    (start, end),
+                )
+                names = [column.name for column in cursor.description]
+                return [dict(zip(names, row)) for row in cursor.fetchall()]
+
+    def portfolio_price_history(self, tickers: list[str], as_of: str, *, sessions: int = 756):
+        import pandas as pd
+        from analysis.factor_dataset import _adjusted_close
+        series = {}
+        for ticker in dict.fromkeys(value.upper().replace(".JK", "") for value in tickers):
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT id FROM issuers WHERE ticker=%s", (ticker,))
+                    found = cursor.fetchone()
+            if not found:
+                continue
+            issuer_id = found[0]
+            bars = self.market_bars_as_of(issuer_id, as_of)[-sessions:]
+            actions = self.corporate_actions_as_of(issuer_id, as_of)
+            adjusted = _adjusted_close(bars, actions)
+            if not adjusted.empty:
+                series[f"{ticker}.JK"] = adjusted
+        return pd.DataFrame(series).sort_index()
+
     def publish_scan_snapshot(self, snapshot: ScanResearchSnapshot) -> str:
         snapshot.validate()
         with self._connect() as connection:
@@ -221,7 +368,101 @@ class SnapshotRepository:
                      json.dumps(snapshot.to_dict()), snapshot.created_at),
                 )
                 row = cursor.fetchone()
-                return str(row[0]) if row else snapshot.snapshot_id
+                if row:
+                    published_id = str(row[0])
+                else:
+                    cursor.execute("SELECT id FROM scan_research_snapshots WHERE checksum=%s", (snapshot.checksum,))
+                    published_id = str(cursor.fetchone()[0])
+                for candidate in snapshot.candidates:
+                    ticker = str(candidate.get("ticker") or "").upper().replace(".JK", "")
+                    cursor.execute("SELECT id FROM issuers WHERE ticker=%s", (ticker,))
+                    issuer = cursor.fetchone()
+                    if not issuer:
+                        continue
+                    evidence = {
+                        "formula_version": snapshot.formula_version,
+                        "ranking_score": candidate.get("ranking_score"),
+                        "technical_score": candidate.get("technical_score"),
+                        "risk_reward": candidate.get("risk_reward"),
+                        "coverage_pct": candidate.get("coverage_pct"),
+                    }
+                    cursor.execute(
+                        """INSERT INTO scan_signals
+                             (snapshot_id,issuer_id,signal_session,business_state,entry_state,
+                              business_score,entry_reference,stop_loss,target,evidence)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                           ON CONFLICT (snapshot_id,issuer_id) DO NOTHING""",
+                        (published_id, issuer[0], snapshot.session_date,
+                         candidate.get("business_state") or "LIMITED_HISTORY",
+                         candidate.get("entry_state") or "NO_RELIABLE_SETUP",
+                         candidate.get("business_score"), candidate.get("entry_reference"),
+                         candidate.get("stop_loss"), candidate.get("target"),
+                         json.dumps(evidence)),
+                    )
+                return published_id
+
+    def pending_signal_windows(self, *, horizons: tuple[int, ...] = (5, 20, 60, 252)) -> list[dict]:
+        """Return immutable signals and subsequent prices for missing outcomes."""
+        rows = []
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT ss.snapshot_id,ss.issuer_id,ss.signal_session,i.ticker,
+                              ss.business_state,ss.entry_state,ss.business_score
+                       FROM scan_signals ss JOIN issuers i ON i.id=ss.issuer_id
+                       ORDER BY ss.signal_session,ss.issuer_id"""
+                )
+                names = [column.name for column in cursor.description]
+                signals = [dict(zip(names, row)) for row in cursor.fetchall()]
+                for signal in signals:
+                    cursor.execute(
+                        """SELECT DISTINCT ON (session_date) session_date,close
+                           FROM market_bars WHERE issuer_id=%s AND session_date>%s
+                             AND quarantined_at IS NULL
+                           ORDER BY session_date,version DESC""",
+                        (signal["issuer_id"], signal["signal_session"]),
+                    )
+                    raw_prices = [{"session_date": row[0], "close": row[1]} for row in cursor.fetchall()]
+                    cursor.execute(
+                        """SELECT action_type,ex_date,ratio FROM corporate_actions
+                           WHERE issuer_id=%s AND ex_date>%s AND available_at<=now()
+                             AND quarantined_at IS NULL AND validation_status='ACCEPTED'
+                           ORDER BY ex_date,version""",
+                        (signal["issuer_id"], signal["signal_session"]),
+                    )
+                    actions = [{"action_type": row[0], "ex_date": row[1], "ratio": row[2]}
+                               for row in cursor.fetchall()]
+                    from analysis.factor_dataset import _adjusted_close
+                    adjusted = _adjusted_close(raw_prices, actions)
+                    prices = [{"session_date": index.date(), "close": value}
+                              for index, value in adjusted.items()]
+                    cursor.execute(
+                        """SELECT horizon_sessions FROM signal_outcomes
+                           WHERE snapshot_id=%s AND issuer_id=%s""",
+                        (signal["snapshot_id"], signal["issuer_id"]),
+                    )
+                    completed = {int(row[0]) for row in cursor.fetchall()}
+                    rows.append({**signal, "prices": prices,
+                                 "horizons": [value for value in horizons if value not in completed]})
+        return rows
+
+    def save_signal_outcome(self, outcome: dict) -> None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO signal_outcomes
+                         (snapshot_id,issuer_id,horizon_sessions,evaluated_session,absolute_return,
+                          benchmark_return,excess_return,maximum_favorable_excursion,
+                          maximum_adverse_excursion,status,adjustment_version,evidence)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                       ON CONFLICT (snapshot_id,issuer_id,horizon_sessions) DO NOTHING""",
+                    (outcome["snapshot_id"], outcome["issuer_id"], outcome["horizon_sessions"],
+                     outcome["evaluated_session"], outcome.get("absolute_return"),
+                     outcome.get("benchmark_return"), outcome.get("excess_return"),
+                     outcome.get("maximum_favorable_excursion"),
+                     outcome.get("maximum_adverse_excursion"), outcome["status"],
+                     outcome["adjustment_version"], json.dumps(outcome.get("evidence") or {})),
+                )
 
     def shares_as_of(self, issuer_id: int, as_of: str) -> dict | None:
         on_date = str(as_of).split("T", 1)[0].split(" ", 1)[0]
@@ -246,8 +487,10 @@ class SnapshotRepository:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT action_type,ex_date,ratio,cash_amount,currency,available_at
+                    """SELECT action_type,ex_date,ratio,cash_amount,currency,available_at,
+                              subscription_price,source_class,validation_status
                        FROM corporate_actions WHERE issuer_id=%s AND available_at<=%s
+                         AND quarantined_at IS NULL
                        ORDER BY ex_date,version""", (issuer_id, as_of),
                 )
                 names = [column.name for column in cursor.description]
@@ -327,6 +570,30 @@ class SnapshotRepository:
             with connection.cursor() as cursor:
                 imported = 0
                 for row in records:
+                    if artifact_type == "fx_rates_csv":
+                        cursor.execute(
+                            """INSERT INTO fx_rates(rate_date,base_currency,quote_currency,rate,rate_type,
+                                      available_at,source_url,checksum)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                               ON CONFLICT (rate_date,base_currency,quote_currency,rate_type)
+                               DO UPDATE SET rate=EXCLUDED.rate,available_at=EXCLUDED.available_at,
+                                             source_url=EXCLUDED.source_url,checksum=EXCLUDED.checksum""",
+                            (row["rate_date"], row["base_currency"], row["quote_currency"], row["rate"],
+                             row["rate_type"], row["available_at"], row["source_url"], row["checksum"]),
+                        )
+                        imported += 1
+                        continue
+                    if artifact_type == "market_sessions_csv":
+                        cursor.execute(
+                            """INSERT INTO market_sessions(exchange,session_date,opens_at,closes_at,status)
+                               VALUES (%s,%s,%s,%s,%s)
+                               ON CONFLICT (exchange,session_date) DO UPDATE SET
+                                 opens_at=EXCLUDED.opens_at,closes_at=EXCLUDED.closes_at,status=EXCLUDED.status""",
+                            (row.get("exchange") or "IDX", row["session_date"], row.get("opens_at"),
+                             row.get("closes_at"), row["status"]),
+                        )
+                        imported += 1
+                        continue
                     ticker = str(row["ticker"]).upper().replace(".JK", "")
                     if artifact_type == "lq45_constituents_csv":
                         cursor.execute(
@@ -399,19 +666,74 @@ class SnapshotRepository:
                                 """INSERT INTO statement_facts
                                      (filing_id,taxonomy,concept,normalized_concept,period_start,period_end,
                                       published_at,available_at,value,currency,scale,unit,consolidated,
-                                      audit_status,source_url,document_checksum,restatement_version)
-                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                      audit_status,source_url,document_checksum,restatement_version,
+                                      period_type,duration_class,fiscal_year,fiscal_quarter)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                                    ON CONFLICT (filing_id,concept,period_start,period_end,unit) DO NOTHING""",
                                 (filing_id, row["taxonomy"], row["concept"], row["normalized_concept"],
                                  row.get("period_start"), row["period_end"], row.get("published_at"),
                                  row["available_at"], row["value"], row.get("currency"), int(row["scale"]),
                                  row["unit"], consolidated, row["audit_status"], row["source_url"],
-                                 row["document_checksum"], int(row["restatement_version"])),
+                                 row["document_checksum"], int(row["restatement_version"]),
+                                 row.get("period_type"), row.get("duration_class"),
+                                 row.get("fiscal_year"), row.get("fiscal_quarter")),
+                            )
+                        elif artifact_type == "corporate_actions_csv":
+                            action = str(row["action_type"]).upper()
+                            validation = "QUARANTINED" if (
+                                action == "RIGHTS" and (not row.get("ratio") or not row.get("subscription_price"))
+                            ) else "ACCEPTED"
+                            cursor.execute(
+                                """INSERT INTO corporate_actions
+                                     (issuer_id,action_type,ex_date,payable_date,ratio,cash_amount,currency,
+                                      published_at,available_at,source_class,subscription_price,
+                                      validation_status,source_url,checksum,quarantined_at,quarantine_reason)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                                      CASE WHEN %s='QUARANTINED' THEN now() END,
+                                      CASE WHEN %s='QUARANTINED' THEN 'Rights terms are incomplete.' END)
+                                   ON CONFLICT (issuer_id,action_type,ex_date,version) DO NOTHING""",
+                                (issuer_id, action, row["ex_date"], row.get("payable_date"), row.get("ratio"),
+                                 row.get("cash_amount"), row.get("currency"), row.get("published_at"),
+                                 row["available_at"], source_class, row.get("subscription_price"), validation,
+                                 row["source_url"], row["checksum"], validation, validation),
                             )
                         else:
                             raise ValueError(f"Unsupported canonical artifact type {artifact_type}.")
                     imported += 1
                 return imported
+
+    def fx_rate_as_of(self, base: str, quote: str, rate_date: str, as_of: str,
+                      *, rate_type: str = "SPOT") -> dict | None:
+        if base == quote:
+            return {"rate": 1.0, "rate_date": rate_date, "rate_type": "IDENTITY", "available_at": as_of}
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT rate,rate_date,rate_type,available_at,source_url,checksum
+                       FROM fx_rates WHERE base_currency=%s AND quote_currency=%s
+                         AND rate_date<=%s AND available_at<=%s AND rate_type=%s
+                       ORDER BY rate_date DESC,available_at DESC LIMIT 1""",
+                    (base, quote, rate_date, as_of, rate_type),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    cursor.execute(
+                        """SELECT rate,rate_date,rate_type,available_at,source_url,checksum
+                           FROM fx_rates WHERE base_currency=%s AND quote_currency=%s
+                             AND rate_date<=%s AND available_at<=%s AND rate_type=%s
+                           ORDER BY rate_date DESC,available_at DESC LIMIT 1""",
+                        (quote, base, rate_date, as_of, rate_type),
+                    )
+                    row = cursor.fetchone()
+                    if not row or float(row[0]) == 0:
+                        return None
+                    names = [column.name for column in cursor.description]
+                    result = dict(zip(names, row))
+                    result["rate"] = 1 / float(result["rate"])
+                    result["inverted"] = True
+                    return result
+                names = [column.name for column in cursor.description]
+                return dict(zip(names, row))
 
     def publish_quant_snapshot(self, snapshot: ResearchSnapshot) -> str:
         snapshot.validate()

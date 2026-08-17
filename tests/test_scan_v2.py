@@ -27,7 +27,7 @@ def base_record(**overrides):
             "preferred_range": None,
             "technical_range": {"low": 95, "high": 100},
         },
-        "stop_loss": 90, "take_profit": 120,
+        "stop_loss": 90, "take_profit": 120, "atr": 10, "resistance": 120,
     }
     value.update(overrides)
     return value
@@ -48,31 +48,34 @@ class ScanScoringTests(unittest.TestCase):
         self.assertEqual(result["price_state"], "IN_ZONE")
         self.assertEqual(result["zone_type"], "technical_only")
 
-    def test_primary_score_uses_fixed_weights_without_renormalizing_coverage(self):
+    def test_primary_rank_is_business_only_and_technical_only_is_not_ready(self):
         quant = {"composite_percentile": 70, "coverage_pct": 75,
-                 "value": 60, "quality": 70, "momentum": 80, "low_volatility": 70}
+                 "value": 60, "quality": 70, "momentum": 80, "low_volatility": 70,
+                 "business_score": 76, "business_state": "QUALITY_CANDIDATE",
+                 "raw_fundamental_coverage_pct": 88}
         candidate, reason = score_candidate(base_record(), quant, primary=True)
         self.assertIsNone(reason)
-        self.assertAlmostEqual(candidate["ranking_score"], 81.0)
-        self.assertAlmostEqual(candidate["coverage_pct"], 90.0)
-        self.assertEqual(candidate["eligibility"], "SHORTLIST")
+        self.assertEqual(candidate["ranking_score"], 76)
+        self.assertEqual(candidate["coverage_pct"], 88)
+        self.assertEqual(candidate["entry_state"], "NO_RELIABLE_SETUP")
 
     def test_degraded_mode_never_publishes_an_overall_score(self):
         candidate, reason = score_candidate(base_record(), None, primary=False)
         self.assertIsNone(reason)
         self.assertIsNone(candidate["ranking_score"])
         self.assertIsNone(candidate["composite_score"])
-        self.assertEqual(candidate["eligibility"], "WATCH")
+        self.assertEqual(candidate["entry_state"], "NO_RELIABLE_SETUP")
 
-    def test_sub_one_rr_is_excluded(self):
-        low_rr = base_record(stop_loss=80, take_profit=110)
+    def test_missing_or_weak_setup_does_not_remove_business_observation(self):
+        low_rr = base_record(resistance=105)
         candidate, reason = score_candidate(low_rr, None, primary=False)
-        self.assertIsNone(candidate)
-        self.assertIn("below 1.0R", reason)
+        self.assertIsNotNone(candidate)
+        self.assertIsNone(reason)
+        self.assertEqual(candidate["entry_state"], "NO_RELIABLE_SETUP")
         self.assertIsNone(risk_reward_score(.99))
 
     def test_invalid_price_order_is_rejected(self):
-        result = planned_entry_risk_reward(base_record(stop_loss=101))
+        result = planned_entry_risk_reward(base_record(resistance=99))
         self.assertEqual(result["status"], "INVALID")
 
 
@@ -126,7 +129,9 @@ class ScanSnapshotTests(unittest.TestCase):
         )
         quant = {
             ticker: {"composite_percentile": 70, "coverage_pct": 100,
-                     "value": 60, "quality": 70, "momentum": 80, "low_volatility": 70}
+                     "value": 60, "quality": 70, "momentum": 80, "low_volatility": 70,
+                     "business_score": 75, "business_state": "QUALITY_CANDIDATE",
+                     "raw_fundamental_coverage_pct": 90}
             for ticker in tickers
         }
 
@@ -149,7 +154,7 @@ class ScanSnapshotTests(unittest.TestCase):
             def latest_approved_quant_snapshot(self):
                 return SimpleNamespace(
                     snapshot_id="22222222-2222-2222-2222-222222222222",
-                    effective_at="2026-08-01T16:00:00+07:00", rankings=quant,
+                    effective_at="2026-08-14T08:00:00+07:00", rankings=quant,
                 )
 
         repository = Repository()

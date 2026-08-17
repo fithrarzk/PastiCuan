@@ -30,6 +30,16 @@ SCHEMAS = {
         "ticker", "effective_from", "period_end_shares", "available_at",
         "source_url", "checksum",
     },
+    "corporate_actions_csv": {
+        "ticker", "action_type", "ex_date", "available_at", "source_url", "checksum",
+    },
+    "fx_rates_csv": {
+        "rate_date", "base_currency", "quote_currency", "rate", "rate_type",
+        "available_at", "source_url", "checksum",
+    },
+    "market_sessions_csv": {
+        "exchange", "session_date", "status",
+    },
 }
 
 

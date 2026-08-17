@@ -194,7 +194,9 @@ class CrossSectionTests(unittest.TestCase):
         for sector in ("Bank", "Energy"):
             for i in range(6):
                 rows.append({"ticker": f"{sector[0]}{i}", "sector": sector,
-                             "earnings_yield": i + 1, "realized_volatility": 30 - i})
+                             "earnings_yield": i + 1, "book_yield": i + 2,
+                             "return_6m_skip_1m": i + 1, "return_12m_skip_1m": i + 2,
+                             "realized_volatility": 30 - i, "downside_deviation": 25 - i})
         first = compute_cross_sectional_factors(pd.DataFrame(rows))
         second = compute_cross_sectional_factors(pd.DataFrame(rows))
         pd.testing.assert_frame_equal(first["scores"], second["scores"])
@@ -203,14 +205,16 @@ class CrossSectionTests(unittest.TestCase):
     def test_small_sector_samples_use_disclosed_global_fallback(self):
         rows = [
             {"ticker": f"T{i}", "sector": f"S{i}", "earnings_yield": i + 1,
-             "realized_volatility": 10 - i}
+             "book_yield": i + 2, "return_6m_skip_1m": i + 1,
+             "return_12m_skip_1m": i + 2, "realized_volatility": 10 - i,
+             "downside_deviation": 9 - i}
             for i in range(5)
         ]
         result = compute_cross_sectional_factors(
             pd.DataFrame(rows), min_universe=5, allow_global_fallback=True,
         )
         self.assertEqual(result["status"], "AVAILABLE")
-        self.assertTrue((result["scores"]["ranking_scope"] == "global_fallback").all())
+        self.assertTrue((result["scores"]["ranking_scope"] == "global_lq45").all())
         self.assertTrue(result["warnings"])
 
     def test_lot_allocation_never_overspends(self):

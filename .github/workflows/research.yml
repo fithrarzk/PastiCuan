@@ -1,5 +1,9 @@
 name: research-core
 
+concurrency:
+  group: research-core-${{ github.ref }}
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
     inputs:
@@ -36,6 +40,18 @@ on:
         description: Build and publish the full-LQ45 EOD scan
         type: boolean
         default: false
+      validate_model:
+        description: Rebuild the PIT monthly panel twice and run holdout validation
+        type: boolean
+        default: false
+      validation_start:
+        description: Historical validation start date
+        type: string
+        default: "2021-01-01"
+      validation_end:
+        description: Historical validation end date
+        type: string
+        default: "2026-08-01"
   schedule:
     - cron: "17 2 * * 1"
     - cron: "30 10 * * 1-5"
@@ -55,6 +71,8 @@ jobs:
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+      SNAPSHOT_ED25519_PRIVATE_KEY: ${{ secrets.SNAPSHOT_ED25519_PRIVATE_KEY }}
+      SNAPSHOT_SIGNING_KEY_ID: ${{ vars.SNAPSHOT_SIGNING_KEY_ID || 'primary' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -75,6 +93,29 @@ jobs:
           name: ingestion-review-${{ github.run_id }}
           path: /tmp/ingestion-report.json
           retention-days: 14
+      - name: Rebuild point-in-time validation panel twice
+        if: ${{ inputs.validate_model }}
+        run: |
+          python -m operations.research_cli rebuild-monthly-panel \
+            --start "${{ inputs.validation_start }}" --end "${{ inputs.validation_end }}" \
+            --scores-output /tmp/scores-a.csv --bars-output /tmp/bars-a.csv
+          python -m operations.research_cli rebuild-monthly-panel \
+            --start "${{ inputs.validation_start }}" --end "${{ inputs.validation_end }}" \
+            --scores-output /tmp/scores-b.csv --bars-output /tmp/bars-b.csv
+          cmp /tmp/scores-a.csv /tmp/scores-b.csv
+          cmp /tmp/bars-a.csv /tmp/bars-b.csv
+          python -m operations.research_cli validate-quant \
+            --scores /tmp/scores-a.csv --bars /tmp/bars-a.csv \
+            --output /tmp/validation-v4.json --persist --model-version idx-eod-v4-shadow \
+            --deterministic-rebuild
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && inputs.validate_model }}
+        with:
+          name: validation-v4-${{ github.run_id }}
+          path: |
+            /tmp/validation-v4.json
+            /tmp/scores-a.csv
+          retention-days: 30
       - name: Acquire official IDX XBRL filings
         if: ${{ (github.event_name == 'schedule' && github.event.schedule == '17 2 * * 1') || inputs.ingest_idx_filings }}
         run: |
@@ -125,6 +166,9 @@ jobs:
           if [ -n "$R2_BUCKET" ]; then r2_flag="--r2"; fi
           python -m operations.research_cli build-daily-scan \
             --output /tmp/scan-report.json $r2_flag
+      - name: Evaluate matured signal horizons
+        if: ${{ (github.event_name == 'schedule' && github.event.schedule == '30 10 * * 1-5') || inputs.build_scan }}
+        run: python -m operations.research_cli evaluate-signal-outcomes
       - uses: actions/upload-artifact@v4
         if: ${{ always() && ((github.event_name == 'schedule' && github.event.schedule == '30 10 * * 1-5') || inputs.build_scan) }}
         with:

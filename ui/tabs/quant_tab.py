@@ -1,5 +1,4 @@
 import streamlit as st
-import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 from analysis.quant import compute_quant_factors
@@ -91,35 +90,33 @@ def render_quant_tab(data: dict, tech: dict, fund: dict, ticker: str) -> None:
 
     st.divider()
 
-    # SECTION 2: MARKOWITZ MEAN-VARIANCE PORTFOLIO OPTIMIZER
-    st.markdown("### 🧮 Markowitz Mean-Variance Portfolio Optimizer")
-    st.caption("Computes mathematically optimal capital allocation weights (%) to maximize Sharpe Ratio for a custom basket of stocks.")
+    # SECTION 2: covariance-only risk allocation
+    st.markdown("### 🧮 Covariance Portfolio Risk Lab")
+    st.caption("Estimates minimum-volatility weights. It does not forecast return or recommend an allocation.")
 
     default_basket = f"{ticker}, BBRI, TLKM, ICBP, ASII"
     basket_input = st.text_input("Enter Ticker Basket (comma-separated)", value=default_basket, help="Enter 2 to 10 ticker symbols")
 
-    opt_period = st.selectbox("Historical Lookback Period for Covariance & Returns", options=["6 Months", "1 Year", "2 Years", "3 Years"], index=1)
-    period_map = {"6 Months": "6m", "1 Year": "1y", "2 Years": "2y", "3 Years": "3y"}
+    opt_period = st.selectbox("Historical covariance lookback", options=["3 Years", "5 Years", "Maximum"], index=0)
+    period_map = {"3 Years": "3y", "5 Years": "5y", "Maximum": "max"}
 
     if st.button("🚀 Optimize Portfolio Allocation", type="primary", use_container_width=True):
         tickers_list = [t.strip() for t in basket_input.split(",") if t.strip()]
 
-        with st.spinner("Computing optimal portfolio weights & Efficient Frontier..."):
+        with st.spinner("Estimating shrinkage covariance and minimum-volatility weights..."):
             res = optimize_portfolio(tickers_list, period=period_map[opt_period])
 
         if res.get("error"):
             st.error(res["error"])
         else:
-            max_s = res["max_sharpe"]
             min_v = res["min_volatility"]
-            eq_w = res["equal_weight"]
 
-            st.success("✅ Portfolio Optimization Complete!")
+            st.success("✅ Risk estimate complete")
 
             c1, c2, c3 = st.columns(3)
-            c1.metric("Min-Vol Expected Return", f"{min_v['expected_return']:.2f}%")
-            c2.metric("Min-Vol Annual Volatility", f"{min_v['volatility']:.2f}%")
-            c3.metric("Sharpe Ratio", f"{min_v['sharpe_ratio']:.2f}" if min_v['sharpe_ratio'] is not None else "N/A — policy rate required")
+            c1.metric("Expected Return", "N/A")
+            c2.metric("Annualized Volatility", f"{min_v['volatility']:.2f}%")
+            c3.metric("Overlapping Sessions", str(res.get("observations", 0)))
 
             p_col1, p_col2 = st.columns(2)
 
@@ -144,29 +141,8 @@ def render_quant_tab(data: dict, tech: dict, fund: dict, ticker: str) -> None:
                 st.dataframe(w_df, use_container_width=True, hide_index=True)
 
             with p_col2:
-                st.markdown("#### 📉 Efficient Frontier Risk / Return Curve")
-                ef_data = res.get("efficient_frontier", [])
-                if ef_data:
-                    ef_df = pd.DataFrame(ef_data)
-                    fig_ef = px.line(ef_df, x="volatility", y="return", labels={"volatility": "Volatility (%)", "return": "Expected Return (%)"})
-                    if max_s["sharpe_ratio"] is not None:
-                        fig_ef.add_trace(go.Scatter(
-                            x=[max_s["volatility"]], y=[max_s["expected_return"]],
-                            mode="markers+text", name="Experimental Max Sharpe",
-                            text=["Experimental Max Sharpe"], textposition="top center",
-                            marker=dict(size=14, color="#30D158")
-                        ))
-                    fig_ef.add_trace(go.Scatter(
-                        x=[min_v["volatility"]], y=[min_v["expected_return"]],
-                        mode="markers+text", name="Min Volatility",
-                        text=["🛡️ Min Vol"], textposition="bottom center",
-                        marker=dict(size=12, color="#64748B")
-                    ))
-                    fig_ef.update_layout(
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        font=dict(color="#F5F5F7"),
-                        height=300,
-                        margin=dict(l=20, r=20, t=20, b=20)
-                    )
-                    st.plotly_chart(fig_ef, use_container_width=True)
+                st.markdown("#### Risk Contribution")
+                risk = min_v.get("risk_contributions") or {}
+                st.dataframe(pd.DataFrame({"Ticker": list(risk), "Risk Contribution (%)": list(risk.values())}),
+                             use_container_width=True, hide_index=True)
+                st.info("Historical mean return and an efficient frontier are intentionally not presented as forecasts.")

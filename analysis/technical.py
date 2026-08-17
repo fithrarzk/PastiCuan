@@ -569,15 +569,15 @@ def analyze_technical(df: pd.DataFrame, sector: str | None = None, info: dict | 
     vol_bearish = (mfi_val is not None and mfi_val < 50) and (obv_slope is not None and obv_slope < 0)
 
     if price_bullish and vol_bullish:
-        smart_money = "🟢 Accumulation — price rise supported by volume inflow"
+        smart_money = "Positive volume confirmation — price strength is accompanied by improving volume evidence"
     elif price_bullish and vol_bearish:
-        smart_money = "🟠 Distribution Warning — price rising while volume weakens"
+        smart_money = "Negative volume divergence — price strength is not confirmed by volume evidence"
     elif not price_bullish and vol_bullish:
-        smart_money = "🟢 Stealth Accumulation — weak price with improving volume"
+        smart_money = "Positive volume divergence — price is weak while volume evidence improves"
     elif not price_bullish and vol_bearish:
-        smart_money = "🔴 Distribution — weak price with volume outflow"
+        smart_money = "Negative volume confirmation — weak price and weakening volume evidence"
     else:
-        smart_money = "🟡 Inconclusive — mixed volume signals"
+        smart_money = "Inconclusive volume evidence"
 
     profile_reason = (
         f"Sector '{sector or 'N/A'}', ATR {atr_pct_val:.1f}%"
@@ -638,7 +638,7 @@ def analyze_technical(df: pd.DataFrame, sector: str | None = None, info: dict | 
         "smart_money": smart_money,
         "indicators": indicators,
         "coverage_pct": available_components / 5 * 100,
-        "formula_version": "idx-eod-v2",
+        "formula_version": "technical-setup-v4",
         "horizon_states": _horizon_states(close),
         "df": df,
     }

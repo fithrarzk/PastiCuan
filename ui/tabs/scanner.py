@@ -48,7 +48,7 @@ def render_scanner_tab(_period_yf: str) -> None:
             "Ticker": item["display_ticker"],
             "Price": item["current_price"],
             "Eligibility": item["eligibility"],
-            "Research Score": round(item["ranking_score"], 1) if item.get("ranking_score") is not None else None,
+            "Business Score": round(item["ranking_score"], 1) if item.get("ranking_score") is not None else None,
             "Technical": round(item["technical_score"], 1) if item.get("technical_score") is not None else None,
             "Quant Percentile": round(item["quant_percentile"], 1) if item.get("quant_percentile") is not None else None,
             "Entry Low": entry.get("low"),

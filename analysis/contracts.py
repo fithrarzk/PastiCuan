@@ -13,16 +13,18 @@ import json
 from typing import Any
 
 
-ANALYSIS_VERSION = "3.0.0-shadow"
-CONTRACT_VERSION = "3.0"
-FORMULA_VERSION = "idx-eod-v2"
+ANALYSIS_VERSION = "4.0.0-shadow"
+CONTRACT_VERSION = "4.0"
+FORMULA_VERSION = "idx-eod-v4-shadow"
 
 
 class Availability(str, Enum):
     AVAILABLE = "AVAILABLE"
     INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
     NOT_MEANINGFUL = "NOT_MEANINGFUL"
+    STALE = "STALE"
     QUARANTINED = "QUARANTINED"
+    UNSUPPORTED_PROFILE = "UNSUPPORTED_PROFILE"
 
 
 class DecisionLabel(str, Enum):
@@ -51,6 +53,13 @@ class Metric:
     formula_version: str = FORMULA_VERSION
     source: SourceRef | None = None
     inputs: dict[str, Any] = field(default_factory=dict)
+    as_of: str | None = None
+    available_at: str | None = None
+    source_class: str | None = None
+    source_ids: tuple[str, ...] = ()
+    coverage_pct: float = 0.0
+    freshness: str = "UNKNOWN"
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -112,7 +121,7 @@ class AnalysisBundle:
     def to_dict(self) -> dict[str, Any]:
         payload = _json_safe(asdict(self))
         # v2 compatibility aliases remain until Streamlit and Telegram have
-        # fully migrated to the v3 timing fields.
+        # fully migrated to the v4 timing fields.
         payload["as_of"] = payload.get("analysis_as_of") or payload["as_of"]
         return payload
 

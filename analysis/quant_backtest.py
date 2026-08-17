@@ -125,6 +125,8 @@ def backtest_monthly_quant(
                             if strategy["cagr"] is not None and benchmark["cagr"] is not None else None),
         "information_ratio": information_ratio,
         "average_rank_ic": float(ic_frame["ic"].mean()) if not ic_frame.empty else None,
+        "rank_ic_months": ic_frame["ic"].tolist() if not ic_frame.empty else [],
+        "median_eligible_universe": float(monthly["eligible"].median()),
         "cost_rate_round_trip": round_trip,
         "formula_version": "monthly-lq45-next-open-v1",
     }
@@ -134,14 +136,32 @@ def assess_holdout(metrics: dict, *, usable_years: float, holdout_months: int,
                    higher_cost_positive: bool, delayed_entry_positive: bool,
                    deterministic_rebuild: bool) -> dict:
     """Frozen VALIDATED_RESEARCH acceptance policy."""
+    ic_values = np.asarray(metrics.get("rank_ic_months") or [], dtype=float)
+    if len(ic_values):
+        rng = np.random.default_rng(20260818)
+        bootstrap = rng.choice(ic_values, size=(2000, len(ic_values)), replace=True).mean(axis=1)
+        ic_probability_positive = float((bootstrap > 0).mean())
+    else:
+        ic_probability_positive = 0.0
+    strategy_dd = ((metrics.get("strategy") or {}).get("max_drawdown"))
+    benchmark_dd = ((metrics.get("benchmark") or {}).get("max_drawdown"))
+    drawdown_pass = (
+        strategy_dd is not None and benchmark_dd is not None
+        and float(strategy_dd) >= float(benchmark_dd) - .05
+    )
     checks = {
         "history_years": usable_years >= 5,
         "holdout_months": holdout_months >= 24,
         "net_excess_return": (metrics.get("net_excess_cagr") or 0) > 0,
         "average_rank_ic": (metrics.get("average_rank_ic") or 0) > 0,
+        "rank_ic_confidence": ic_probability_positive >= .90,
+        "eligible_universe": (metrics.get("median_eligible_universe") or 0) >= 36,
         "information_ratio": (metrics.get("information_ratio") or 0) >= 0.30,
+        "drawdown": drawdown_pass,
         "higher_cost": bool(higher_cost_positive),
         "delayed_entry": bool(delayed_entry_positive),
         "deterministic_rebuild": bool(deterministic_rebuild),
     }
-    return {"passed": all(checks.values()), "checks": checks, "policy_version": "validated-research-v1"}
+    return {"passed": all(checks.values()), "checks": checks,
+            "rank_ic_probability_positive": ic_probability_positive,
+            "policy_version": "validated-research-v2"}

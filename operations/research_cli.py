@@ -15,6 +15,7 @@ from uuid import uuid4
 import pandas as pd
 
 from analysis.quant import compute_cross_sectional_factors
+from analysis.business import compute_business_scores
 from analysis.backtest import BrokerCostProfile
 from analysis.quant_backtest import assess_holdout, backtest_monthly_quant
 from analysis.factor_dataset import build_factor_inputs
@@ -38,10 +39,18 @@ def build_snapshot(input_path: str, output_path: str, effective_at: str, model_v
     )
     if result["status"] != "AVAILABLE":
         raise ValueError(result["reason"])
+    business = compute_business_scores(frame)
+    business_map = {}
+    if business["status"] == "AVAILABLE":
+        business_map = {
+            str(row["ticker"]).upper().replace(".JK", ""): row
+            for row in business["scores"].where(pd.notna(business["scores"]), None).to_dict("records")
+        }
     rankings = {}
     for row in result["scores"].where(pd.notna(result["scores"]), None).to_dict("records"):
         ticker = str(row.pop("ticker")).upper().replace(".JK", "")
-        rankings[ticker] = row
+        rankings[ticker] = {**row, **{key: value for key, value in business_map.get(ticker, {}).items()
+                                     if key != "ticker"}}
     warnings = list(result.get("warnings", []))
     if "share_count_source" in frame and (frame["share_count_source"] == "idx_xbrl_implied_weighted_average").any():
         warnings.append(
@@ -52,7 +61,7 @@ def build_snapshot(input_path: str, output_path: str, effective_at: str, model_v
         snapshot_id=str(uuid4()), effective_at=effective_at,
         created_at=datetime.now(timezone.utc).isoformat(), model_version=model_version,
         model_status="CANDIDATE", constituents=sorted(rankings), rankings=rankings,
-        warnings=warnings,
+        warnings=warnings, formula_version="lq45-cross-section-v4+business-quality-v1",
     )
     write_snapshot(snapshot, output_path, allow_candidate=True)
     return snapshot
@@ -250,18 +259,38 @@ def build_daily_scan(output_path: str, *, use_r2: bool = False) -> dict:
     from storage.database import connect_from_env
     from storage.repository import SnapshotRepository
     repository = SnapshotRepository(lambda: connect_from_env(writer=True))
+    run_id = str(uuid4())
+    started_at = datetime.now(timezone.utc).isoformat()
+    run = {"id": run_id, "job_type": "DAILY_SCAN",
+           "workflow_run_id": os.getenv("GITHUB_RUN_ID"), "started_at": started_at,
+           "status": "RUNNING", "metrics": {}}
+    repository.record_research_job(run)
 
     archive = None
     if use_r2:
         archive = lambda key, body: upload_to_r2(key, body, content_type="application/gzip")
-    snapshot = build_full_lq45_scan(repository, archive_callback=archive)
-    payload = snapshot.to_dict()
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(output_path).write_text(json.dumps(payload, indent=2, sort_keys=True))
-    if snapshot.mode == "UNAVAILABLE":
-        return {"published": False, "snapshot": payload}
-    snapshot_id = repository.publish_scan_snapshot(snapshot)
-    return {"published": True, "snapshot_id": snapshot_id, "snapshot": payload}
+    try:
+        snapshot = build_full_lq45_scan(repository, archive_callback=archive)
+        payload = snapshot.to_dict()
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_path).write_text(json.dumps(payload, indent=2, sort_keys=True))
+        if snapshot.mode == "UNAVAILABLE":
+            repository.record_research_job({**run, "completed_at": datetime.now(timezone.utc).isoformat(),
+                                              "status": "DEGRADED", "output_checksum": snapshot.checksum,
+                                              "metrics": {"mode": snapshot.mode,
+                                                          "coverage_pct": snapshot.universe_coverage_pct}})
+            return {"published": False, "snapshot": payload}
+        snapshot_id = repository.publish_scan_snapshot(snapshot)
+        repository.record_research_job({**run, "completed_at": datetime.now(timezone.utc).isoformat(),
+                                          "status": "SUCCEEDED", "output_checksum": snapshot.checksum,
+                                          "metrics": {"mode": snapshot.mode,
+                                                      "coverage_pct": snapshot.universe_coverage_pct,
+                                                      "candidate_count": len(snapshot.candidates)}})
+        return {"published": True, "snapshot_id": snapshot_id, "snapshot": payload}
+    except Exception as exc:
+        repository.record_research_job({**run, "completed_at": datetime.now(timezone.utc).isoformat(),
+                                          "status": "FAILED", "error_type": type(exc).__name__})
+        raise
 
 
 def build_snapshot_from_database(output_path: str, effective_at: str, model_version: str) -> ResearchSnapshot:
@@ -281,8 +310,40 @@ def build_snapshot_from_database(output_path: str, effective_at: str, model_vers
         temporary.unlink(missing_ok=True)
 
 
+def rebuild_monthly_panel(start: str, end: str, scores_output: str, bars_output: str) -> dict:
+    """Reconstruct month-end ranks exclusively from facts available at each cutoff."""
+    from storage.database import connect_from_env
+    from storage.repository import SnapshotRepository
+    repository = SnapshotRepository(lambda: connect_from_env(writer=True))
+    score_rows = []
+    month_ends = repository.completed_month_ends(start, end)
+    for session_date in month_ends:
+        as_of = f"{session_date}T16:15:00+07:00"
+        frame = build_factor_inputs(repository, as_of)
+        business = compute_business_scores(frame)
+        if business["status"] != "AVAILABLE":
+            continue
+        for row in business["scores"].where(pd.notna(business["scores"]), None).to_dict("records"):
+            if row.get("business_score") is not None:
+                score_rows.append({"rebalance_date": session_date, "ticker": row["ticker"],
+                                   "composite_percentile": row["business_score"],
+                                   "coverage_pct": row["raw_fundamental_coverage_pct"]})
+    scores = pd.DataFrame(score_rows)
+    bars = pd.DataFrame(repository.validation_bars(start, end))
+    if scores.empty or bars.empty:
+        raise ValueError("Historical point-in-time scores or bars are unavailable.")
+    Path(scores_output).parent.mkdir(parents=True, exist_ok=True)
+    Path(bars_output).parent.mkdir(parents=True, exist_ok=True)
+    scores.to_csv(scores_output, index=False)
+    bars.to_csv(bars_output, index=False)
+    return {"months": len(month_ends), "score_rows": len(scores), "bar_rows": len(bars),
+            "scores_checksum": hashlib.sha256(Path(scores_output).read_bytes()).hexdigest(),
+            "bars_checksum": hashlib.sha256(Path(bars_output).read_bytes()).hexdigest()}
+
+
 def validate_quant(scores_path: str, bars_path: str, output_path: str,
-                   *, persist: bool = False, model_version: str = "lq45-factor-v1") -> dict:
+                   *, persist: bool = False, model_version: str = "lq45-factor-v1",
+                   deterministic_rebuild: bool = False) -> dict:
     scores, bars = pd.read_csv(scores_path), pd.read_csv(bars_path)
     costs = BrokerCostProfile(
         os.getenv("BROKER_COST_PROFILE", "validation"),
@@ -309,7 +370,7 @@ def validate_quant(scores_path: str, bars_path: str, output_path: str,
         result, usable_years=usable_years, holdout_months=max(0, len(holdout_dates) - 1),
         higher_cost_positive=(stressed.get("net_excess_cagr") or 0) > 0,
         delayed_entry_positive=(delayed.get("net_excess_cagr") or 0) > 0,
-        deterministic_rebuild=True,
+        deterministic_rebuild=deterministic_rebuild,
     )
     summary = {key: value for key, value in result.items() if key not in {"monthly", "observations"}}
     payload = {"metrics": summary, "acceptance": acceptance}
@@ -329,6 +390,24 @@ def validate_quant(scores_path: str, bars_path: str, output_path: str,
         )
         payload["validation_run_id"] = persisted
     return payload
+
+
+def evaluate_signal_outcomes() -> dict:
+    from analysis.outcomes import evaluate_signal_window
+    from storage.database import connect_from_env
+    from storage.repository import SnapshotRepository
+    repository = SnapshotRepository(lambda: connect_from_env(writer=True))
+    saved = 0
+    pending = 0
+    for signal in repository.pending_signal_windows():
+        for horizon in signal["horizons"]:
+            outcome = evaluate_signal_window(signal, horizon)
+            if outcome is None:
+                pending += 1
+                continue
+            repository.save_signal_outcome(outcome)
+            saved += 1
+    return {"saved": saved, "pending": pending, "formula_version": "signal-outcomes-v1"}
 
 
 def main(argv=None) -> int:
@@ -365,9 +444,14 @@ def main(argv=None) -> int:
     validate.add_argument("--output", required=True)
     validate.add_argument("--persist", action="store_true")
     validate.add_argument("--model-version", default="lq45-factor-v1")
+    validate.add_argument("--deterministic-rebuild", action="store_true")
     daily_scan = sub.add_parser("build-daily-scan")
     daily_scan.add_argument("--output", required=True)
     daily_scan.add_argument("--r2", action="store_true")
+    rebuild = sub.add_parser("rebuild-monthly-panel")
+    rebuild.add_argument("--start", required=True); rebuild.add_argument("--end", required=True)
+    rebuild.add_argument("--scores-output", required=True); rebuild.add_argument("--bars-output", required=True)
+    sub.add_parser("evaluate-signal-outcomes")
     args = parser.parse_args(argv)
     if args.command == "build-snapshot":
         build_snapshot(args.input, args.output, args.effective_at, args.model_version)
@@ -403,13 +487,19 @@ def main(argv=None) -> int:
         print(json.dumps(publish_reviewed_shadow(args.candidate, args.output), sort_keys=True))
     elif args.command == "validate-quant":
         result = validate_quant(args.scores, args.bars, args.output, persist=args.persist,
-                                model_version=args.model_version)
+                                model_version=args.model_version,
+                                deterministic_rebuild=args.deterministic_rebuild)
         print(json.dumps(result, sort_keys=True))
     elif args.command == "build-daily-scan":
         result = build_daily_scan(args.output, use_r2=args.r2)
         print(json.dumps({key: value for key, value in result.items() if key != "snapshot"}, sort_keys=True))
         if not result["published"]:
             return 2
+    elif args.command == "rebuild-monthly-panel":
+        result = rebuild_monthly_panel(args.start, args.end, args.scores_output, args.bars_output)
+        print(json.dumps(result, sort_keys=True))
+    elif args.command == "evaluate-signal-outcomes":
+        print(json.dumps(evaluate_signal_outcomes(), sort_keys=True))
     return 0
 
 

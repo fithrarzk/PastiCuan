@@ -5,7 +5,7 @@
 The Telegram webhook does not require a database to start. To enable the
 point-in-time research core without adding another Railway service:
 
-1. Create one Supabase project and apply migrations `001`, `002`, then `003`.
+1. Create one Supabase project and apply migrations `001` through `004` in order.
 2. Apply or re-apply `storage/supabase_roles.sql`, create separate login users, and grant
    Railway only `pasticuan_bot` while GitHub receives an ingest/validator user.
    In pooler URLs, use the login names (`pasticuan_bot_login.PROJECT_REF` and
@@ -68,7 +68,9 @@ terms can change in the future.
    - `BOT_SCAN_LIMIT`: `10`
    - `YAHOO_REQUEST_TIMEOUT`: `12`
    - `RESEARCH_SNAPSHOT_PATH`: `data/snapshots/latest.json.gz`
-   - `SCAN_SNAPSHOT_TTL_SECONDS`: `900`
+   - `SCAN_SNAPSHOT_TTL_SECONDS`: `300` (maximum accepted value is `900`)
+   - `BOT_SNAPSHOT_ONLY`: `true`
+   - `SNAPSHOT_ED25519_PUBLIC_KEY`: the base64 Ed25519 public key used by GitHub
    - `SUPABASE_DATABASE_URL`: optional read-only session-pooler URL
    - `AI_PROVIDER`: `off`
 
@@ -239,6 +241,18 @@ For the point-in-time data pipeline:
    **Actions → research-core → Run workflow** with `build_scan` enabled. A
    PRIMARY result additionally requires a fresh approved quant snapshot;
    otherwise the bot correctly displays a scoreless DEGRADED watchlist.
+9. Keep the model in `SHADOW` while history accumulates. The workflow records
+   each candidate in `scan_signals` and evaluates matured 5/20/60/252-session
+   outcomes. Run validation only after at least five years of point-in-time
+   history and 24 holdout months exist; a deterministic rebuild, costs, delayed
+   execution, drawdown, breadth, rank-IC confidence, and information-ratio gates
+   must all pass before `VALIDATED_RESEARCH` is possible.
+
+Generate the Ed25519 key pair offline. Store the base64 private key only as the
+GitHub Actions secret `SNAPSHOT_ED25519_PRIVATE_KEY`, and configure its public
+counterpart plus a stable `SNAPSHOT_SIGNING_KEY_ID` in Railway. Never put the
+private key in Railway or the repository. With a public key configured, invalid
+or unsigned database snapshots fail closed.
 
 For the initial August 2026 bootstrap, the reviewed membership seed is
 `storage/seeds/2026-08-03_lq45_membership.sql`. Run it once in the Supabase SQL

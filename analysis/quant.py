@@ -29,10 +29,10 @@ def compute_cross_sectional_factors(
     required = {"ticker", "sector"}
     if universe is None or universe.empty or not required.issubset(universe.columns):
         return {"status": "INSUFFICIENT_DATA", "reason": "Eligible point-in-time universe is missing.",
-                "scores": pd.DataFrame(), "formula_version": "lq45-cross-section-v3", "warnings": []}
+                "scores": pd.DataFrame(), "formula_version": "lq45-cross-section-v4", "warnings": []}
     if len(universe) < min_universe:
         return {"status": "INSUFFICIENT_DATA", "reason": f"At least {min_universe} eligible issuers are required.",
-                "scores": pd.DataFrame(), "formula_version": "lq45-cross-section-v3", "warnings": []}
+                "scores": pd.DataFrame(), "formula_version": "lq45-cross-section-v4", "warnings": []}
 
     df = universe.copy()
     definitions = {
@@ -41,6 +41,7 @@ def compute_cross_sectional_factors(
         "momentum": {"return_6m_skip_1m": 1, "return_12m_skip_1m": 1},
         "low_volatility": {"realized_volatility": -1, "downside_deviation": -1},
     }
+    minimum_inputs = {"value": 2, "quality": 2, "momentum": 2, "low_volatility": 2}
     factor_scores: dict[str, pd.Series] = {}
     availability: dict[str, list[str]] = {}
     ranking_scopes = pd.DataFrame(index=df.index)
@@ -53,39 +54,42 @@ def compute_cross_sectional_factors(
             values = pd.to_numeric(df[column], errors="coerce")
             lo, hi = values.quantile(list(winsor_limits))
             values = values.clip(lo, hi)
-            # Sector-aware percentile. Groups with fewer than five observations
-            # cannot generate a factor component.
+            # LQ45 is too small for stable sector ranks in most sectors.  The
+            # global percentile is primary; sector ranks are supplemental only.
             counts = values.groupby(df["sector"]).transform("count")
             sector_ranks = values.groupby(df["sector"]).rank(pct=True, method="average") * 100
-            if allow_global_fallback:
-                global_ranks = values.rank(pct=True, method="average") * 100
-                ranks = sector_ranks.where(counts >= 5, global_ranks)
-                ranking_scopes[column] = counts.map(lambda count: "sector" if count >= 5 else "global_fallback")
-            else:
-                ranks = sector_ranks.where(counts >= 5)
-                ranking_scopes[column] = counts.map(lambda count: "sector" if count >= 5 else "unavailable")
+            global_ranks = values.rank(pct=True, method="average") * 100
+            ranks = global_ranks
+            ranking_scopes[column] = counts.map(lambda count: "global+sector" if count >= 5 else "global")
             ranked.append(ranks if direction > 0 else 100 - ranks)
             used.append(column)
-        factor_scores[factor] = pd.concat(ranked, axis=1).mean(axis=1, skipna=True) if ranked else pd.Series(np.nan, index=df.index)
+        components = pd.concat(ranked, axis=1) if ranked else pd.DataFrame(index=df.index)
+        scores = components.mean(axis=1, skipna=True) if ranked else pd.Series(np.nan, index=df.index)
+        if ranked:
+            scores = scores.where(components.notna().sum(axis=1) >= minimum_inputs[factor])
+        factor_scores[factor] = scores
         availability[factor] = used
         df[factor] = factor_scores[factor]
 
     factor_frame = df[list(definitions)].copy()
-    df["composite_percentile"] = factor_frame.mean(axis=1, skipna=True)
-    df["coverage_pct"] = factor_frame.notna().mean(axis=1) * 100
+    raw_columns = [column for columns in definitions.values() for column in columns]
+    raw = pd.DataFrame({column: pd.to_numeric(df.get(column), errors="coerce") for column in raw_columns}, index=df.index)
+    df["raw_component_coverage_pct"] = raw.notna().mean(axis=1) * 100
+    df["factor_coverage_pct"] = factor_frame.notna().mean(axis=1) * 100
+    eligible = (factor_frame.notna().sum(axis=1) >= 3) & (df["raw_component_coverage_pct"] >= 70)
+    df["composite_percentile"] = factor_frame.mean(axis=1, skipna=True).where(eligible)
+    df["coverage_pct"] = df["raw_component_coverage_pct"]
     df["ranking_scope"] = ranking_scopes.apply(
-        lambda row: "global_fallback" if "global_fallback" in set(row.dropna()) else (
-            "sector" if "sector" in set(row.dropna()) else "unavailable"
-        ), axis=1,
+        lambda row: "global_lq45", axis=1,
     )
     df.loc[df["coverage_pct"] == 0, "composite_percentile"] = np.nan
     return {
         "status": "AVAILABLE", "as_of": str(as_of) if as_of is not None else None,
-        "scores": df[["ticker", "sector", *definitions, "composite_percentile", "coverage_pct", "ranking_scope"]],
-        "available_inputs": availability, "formula_version": "lq45-cross-section-v3",
+        "scores": df[["ticker", "sector", *definitions, "composite_percentile", "coverage_pct",
+                      "raw_component_coverage_pct", "factor_coverage_pct", "ranking_scope"]],
+        "available_inputs": availability, "formula_version": "lq45-cross-section-v4",
         "interpretation": "Relative eligible-universe percentile; not absolute investment quality.",
-        "warnings": (["Sector samples below five use global scan-universe ranks."]
-                     if allow_global_fallback and (df["ranking_scope"] == "global_fallback").any() else []),
+        "warnings": ["Primary percentiles are global within the eligible point-in-time LQ45 universe."],
     }
 
 

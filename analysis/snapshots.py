@@ -15,10 +15,12 @@ import json
 import os
 from pathlib import Path
 from threading import Lock
+from time import monotonic
 from typing import Any
 
 
-SNAPSHOT_SCHEMA_VERSION = "1.0"
+SNAPSHOT_SCHEMA_VERSION = "2.0"
+SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS = {"1.0", "2.0"}
 APPROVED_STATUSES = {"SHADOW", "VALIDATED_RESEARCH"}
 
 
@@ -34,18 +36,22 @@ class ResearchSnapshot:
     model_version: str
     model_status: str
     universe: str = "LQ45"
-    formula_version: str = "lq45-cross-section-v3"
+    formula_version: str = "lq45-cross-section-v4+business-quality-v1"
     schema_version: str = SNAPSHOT_SCHEMA_VERSION
     validation_run_id: str | None = None
     constituents: list[str] = field(default_factory=list)
     rankings: dict[str, dict[str, Any]] = field(default_factory=dict)
     sources: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    signature: str | None = None
+    signing_key_id: str | None = None
     checksum: str = ""
 
     def unsigned_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload.pop("checksum", None)
+        payload.pop("signature", None)
+        payload.pop("signing_key_id", None)
         return payload
 
     def calculated_checksum(self) -> str:
@@ -53,6 +59,8 @@ class ResearchSnapshot:
 
     def to_dict(self) -> dict[str, Any]:
         payload = self.unsigned_dict()
+        payload["signature"] = self.signature
+        payload["signing_key_id"] = self.signing_key_id
         payload["checksum"] = self.checksum or self.calculated_checksum()
         return payload
 
@@ -60,7 +68,7 @@ class ResearchSnapshot:
         return self.rankings.get(ticker.upper().replace(".JK", ""))
 
     def validate(self, *, approved_only: bool = True) -> None:
-        if self.schema_version != SNAPSHOT_SCHEMA_VERSION:
+        if self.schema_version not in SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS:
             raise ValueError(f"Unsupported snapshot schema {self.schema_version}.")
         if approved_only and self.model_status not in APPROVED_STATUSES:
             raise ValueError("Only reviewed SHADOW or VALIDATED_RESEARCH snapshots may be loaded.")
@@ -71,6 +79,9 @@ class ResearchSnapshot:
         datetime.fromisoformat(self.effective_at.replace("Z", "+00:00"))
         if not self.checksum or self.checksum != self.calculated_checksum():
             raise ValueError("Snapshot checksum is missing or invalid.")
+        from analysis.signing import verify_checksum
+        if not verify_checksum(self.checksum, self.signature):
+            raise ValueError("Snapshot Ed25519 signature is missing or invalid.")
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "ResearchSnapshot":
@@ -85,9 +96,14 @@ class ResearchSnapshot:
 def write_snapshot(snapshot: ResearchSnapshot, path: str | Path, *, allow_candidate: bool = False) -> None:
     """Write deterministically; callers must explicitly approve the status."""
     resolved = snapshot
-    if not snapshot.checksum:
+    if not snapshot.checksum or not snapshot.signature:
+        checksum = snapshot.checksum or snapshot.calculated_checksum()
+        from analysis.signing import sign_checksum
+        signature, key_id = sign_checksum(checksum)
         resolved = ResearchSnapshot(**{
-            **snapshot.unsigned_dict(), "checksum": snapshot.calculated_checksum(),
+            **snapshot.unsigned_dict(), "checksum": checksum,
+            "signature": signature or snapshot.signature,
+            "signing_key_id": key_id or snapshot.signing_key_id,
         })
     resolved.validate(approved_only=not allow_candidate)
     payload = resolved.to_dict()
@@ -127,11 +143,13 @@ class SnapshotManager:
     def __init__(self, path: str | None = None):
         self.path = path or os.getenv("RESEARCH_SNAPSHOT_PATH", "data/snapshots/latest.json.gz")
         self._snapshot: ResearchSnapshot | None = None
+        self._loaded_at = 0.0
         self._lock = Lock()
 
     def get(self, *, refresh: bool = False) -> ResearchSnapshot:
         with self._lock:
-            if self._snapshot is not None and not refresh:
+            ttl = max(30.0, min(900.0, float(os.getenv("SNAPSHOT_CACHE_TTL_SECONDS", "300"))))
+            if self._snapshot is not None and not refresh and monotonic() - self._loaded_at < ttl:
                 return self._snapshot
             # Supabase is optional and never sits in the per-command hot path.
             # A bundled approved snapshot keeps Railway available when a Free
@@ -143,6 +161,7 @@ class SnapshotManager:
                     remote = SnapshotRepository(connect_from_env).latest_approved_quant_snapshot()
                     if remote is not None:
                         self._snapshot = remote
+                        self._loaded_at = monotonic()
                         return remote
                 except Exception as exc:
                     database_warning = f"Supabase snapshot unavailable ({type(exc).__name__}); using bundled fallback."
@@ -154,6 +173,7 @@ class SnapshotManager:
                 self._snapshot = load_snapshot(self.path)
             except (OSError, ValueError, json.JSONDecodeError, TypeError):
                 self._snapshot = empty_shadow_snapshot(database_warning)
+            self._loaded_at = monotonic()
             return self._snapshot
 
 

@@ -51,10 +51,11 @@ def allocate_lots(
 
 def optimize_portfolio(
     tickers: list[str],
-    period: str = "1y",
+    period: str = "3y",
     risk_free_rate: float | None = None,
-    max_position: float = 0.35,
+    max_position: float = 0.50,
     shrinkage: float = 0.25,
+    price_history: pd.DataFrame | None = None,
 ) -> dict:
     """
     Runs Markowitz Mean-Variance Portfolio Optimization on a basket of tickers.
@@ -66,14 +67,17 @@ def optimize_portfolio(
         return {"error": "Please provide at least 2 valid ticker symbols for portfolio optimization."}
 
     # Fetch historical daily prices
-    try:
-        data = yf.download(cleaned_tickers, period=period, progress=False, auto_adjust=False, actions=True)
-        if isinstance(data.columns, pd.MultiIndex):
-            prices = data["Adj Close"] if "Adj Close" in data.columns.get_level_values(0) else data["Close"]
-        else:
-            prices = data[["Close"]] if "Close" in data else data
-    except Exception as exc:
-        return {"error": f"Failed to download price history for tickers: {exc}"}
+    if price_history is not None:
+        prices = price_history.copy()
+    else:
+        try:
+            data = yf.download(cleaned_tickers, period=period, progress=False, auto_adjust=False, actions=True)
+            if isinstance(data.columns, pd.MultiIndex):
+                prices = data["Adj Close"] if "Adj Close" in data.columns.get_level_values(0) else data["Close"]
+            else:
+                prices = data[["Close"]] if "Close" in data else data
+        except Exception as exc:
+            return {"error": f"Failed to download price history for tickers: {exc}"}
 
     prices = prices.dropna(how="all").ffill().dropna()
 
@@ -87,6 +91,8 @@ def optimize_portfolio(
 
     # Daily Returns & Annualized Metrics
     daily_returns = prices.pct_change().dropna()
+    if len(daily_returns) < 504:
+        return {"error": "At least 504 overlapping completed sessions are required."}
     mean_returns = daily_returns.mean() * 252
     sample_cov = daily_returns.cov() * 252
     diagonal = pd.DataFrame(np.diag(np.diag(sample_cov)), index=sample_cov.index, columns=sample_cov.columns)
@@ -119,7 +125,9 @@ def optimize_portfolio(
         ret_max = vol_max = sharpe_max = None
     else:
         res_sharpe = minimize(neg_sharpe, init_weights, method='SLSQP', bounds=bounds, constraints=constraints)
-        max_sharpe_weights = res_sharpe.x if res_sharpe.success else init_weights
+        if not res_sharpe.success:
+            return {"error": f"Maximum-Sharpe optimization failed: {res_sharpe.message}"}
+        max_sharpe_weights = res_sharpe.x
         ret_max, vol_max, sharpe_max = portfolio_performance(max_sharpe_weights)
 
     # Optimization 2: Minimum Volatility
@@ -127,7 +135,9 @@ def optimize_portfolio(
         return portfolio_performance(weights)[1]
 
     res_vol = minimize(min_volatility, init_weights, method='SLSQP', bounds=bounds, constraints=constraints)
-    min_vol_weights = res_vol.x if res_vol.success else init_weights
+    if not res_vol.success:
+        return {"error": f"Minimum-volatility optimization failed: {res_vol.message}"}
+    min_vol_weights = res_vol.x
 
     ret_min_v, vol_min_v, sharpe_min_v = portfolio_performance(min_vol_weights)
 
@@ -155,6 +165,11 @@ def optimize_portfolio(
         ticker: round(float(weight * 100), 2)
         for ticker, weight in zip(display_tickers, min_vol_weights)
     }
+    portfolio_variance = float(np.dot(min_vol_weights.T, np.dot(cov_matrix, min_vol_weights)))
+    marginal = np.dot(cov_matrix, min_vol_weights)
+    risk_contributions = (
+        min_vol_weights * marginal / portfolio_variance if portfolio_variance > 0 else np.zeros(num_assets)
+    )
 
     eq_alloc = {
         ticker: round(100.0 / num_assets, 2)
@@ -172,13 +187,19 @@ def optimize_portfolio(
         },
         "min_volatility": {
             "weights": min_vol_alloc,
-            "expected_return": float(ret_min_v * 100),
+            "expected_return": None,
+            "historical_annualized_return": float(ret_min_v * 100),
             "volatility": float(vol_min_v * 100),
             "sharpe_ratio": float(sharpe_min_v) if sharpe_min_v is not None else None,
+            "risk_contributions": {
+                ticker: round(float(value * 100), 2)
+                for ticker, value in zip(display_tickers, risk_contributions)
+            },
         },
         "equal_weight": {
             "weights": eq_alloc,
-            "expected_return": float(portfolio_performance(init_weights)[0] * 100),
+            "expected_return": None,
+            "historical_annualized_return": float(portfolio_performance(init_weights)[0] * 100),
             "volatility": float(portfolio_performance(init_weights)[1] * 100),
             "sharpe_ratio": (float(portfolio_performance(init_weights)[2])
                              if portfolio_performance(init_weights)[2] is not None else None),
@@ -186,6 +207,8 @@ def optimize_portfolio(
         "efficient_frontier": efficient_frontier,
         "default_allocation": "min_volatility",
         "covariance_method": f"diagonal shrinkage ({shrinkage:.2f})",
+        "observations": int(len(daily_returns)),
         "constraints": {"long_only": True, "leverage": False, "max_position": max_position},
         "risk_free_rate": risk_free_rate,
+        "return_model_status": "UNAVAILABLE",
     }

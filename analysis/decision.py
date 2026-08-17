@@ -68,8 +68,9 @@ def build_decision_report(
 ) -> dict:
     """Return a policy label only after every mandatory gate passes.
 
-    ``final_score`` is retained as a compatibility display field, but it is a
-    coverage-weighted evidence summary and cannot override any gate.
+    ``final_score`` is retained as a compatibility field but deliberately stays
+    unavailable: long-horizon business evidence and short-horizon setup evidence
+    are not commensurate quantities.
     """
     tech_score = tech.get("technical_score")
     fund_score = fund.get("fundamental_score")
@@ -87,7 +88,10 @@ def build_decision_report(
                "risk_reward": .12, "liquidity": .08}
     present = {k: v for k, v in components.items() if v is not None}
     denominator = sum(weights[k] for k in present)
-    final_score = sum(present[k] * weights[k] for k in present) / denominator if denominator else None
+    # v4 does not blend business quality and short-horizon timing into one
+    # number.  Retain components for display while the legacy final score is
+    # deliberately unavailable.
+    final_score = None
     coverage_pct = denominator * 100
 
     dq = data_quality
@@ -112,7 +116,7 @@ def build_decision_report(
     elif failed:
         label = DecisionLabel.RESEARCH_ONLY
     else:
-        # v3 is a research system. Preserve evidence labels without exposing a
+        # v4 is a research system. Preserve evidence labels without exposing a
         # code path that can be enabled into a trading action by configuration.
         label = DecisionLabel.RESEARCH_ONLY
 
@@ -125,7 +129,7 @@ def build_decision_report(
 
     strongest = max(present, key=present.get) if present else None
     primary = (
-        f"{_evidence_description(final_score)}. Strongest available section: "
+        f"Separate business and setup evidence. Strongest available section: "
         f"{strongest.replace('_', ' ')} ({present[strongest]:.0f}/100)."
         if strongest else "No sufficient evidence sections are available."
     )

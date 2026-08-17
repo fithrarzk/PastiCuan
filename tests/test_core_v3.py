@@ -192,14 +192,18 @@ class QuantValidationTests(unittest.TestCase):
 
     def test_acceptance_requires_every_frozen_gate(self):
         passed = assess_holdout(
-            {"net_excess_cagr": .03, "average_rank_ic": .05, "information_ratio": .4},
+            {"net_excess_cagr": .03, "average_rank_ic": .05, "information_ratio": .4,
+             "rank_ic_months": [.03] * 24, "median_eligible_universe": 40,
+             "strategy": {"max_drawdown": -.20}, "benchmark": {"max_drawdown": -.18}},
             usable_years=6, holdout_months=24, higher_cost_positive=True,
             delayed_entry_positive=True, deterministic_rebuild=True,
         )
         self.assertTrue(passed["passed"])
         passed["checks"]["holdout_months"] = False
         failed = assess_holdout(
-            {"net_excess_cagr": .03, "average_rank_ic": .05, "information_ratio": .2},
+            {"net_excess_cagr": .03, "average_rank_ic": .05, "information_ratio": .2,
+             "rank_ic_months": [.03] * 24, "median_eligible_universe": 40,
+             "strategy": {"max_drawdown": -.20}, "benchmark": {"max_drawdown": -.18}},
             usable_years=6, holdout_months=24, higher_cost_positive=True,
             delayed_entry_positive=True, deterministic_rebuild=True,
         )
@@ -214,7 +218,9 @@ class FactorDatasetTests(unittest.TestCase):
             start = period - pd.offsets.Day(89)
             for concept, value in (("net_income", 10), ("operating_cash_flow", 12)):
                 facts.append({"normalized_concept": concept, "period_start": start.date(),
-                              "period_end": period.date(), "value": value, "scale": 0})
+                              "period_end": period.date(), "value": value, "scale": 0,
+                              "duration_class": "QTD", "fiscal_year": period.year,
+                              "fiscal_quarter": period.quarter})
         facts.extend([
             {"normalized_concept": "stockholders_equity", "period_start": None,
              "period_end": periods[-1].date(), "value": 100, "scale": 0},
@@ -226,7 +232,7 @@ class FactorDatasetTests(unittest.TestCase):
 
         class Repository:
             def constituent_issuers_as_of(self, *_):
-                return [{"id": 1, "ticker": "TEST", "sector": "Industrials"}]
+                return [{"id": 1, "ticker": "TEST", "sector": "Industrials", "currency": "IDR"}]
             def facts_as_of(self, *_): return facts
             def market_bars_as_of(self, *_): return bars
             def corporate_actions_as_of(self, *_):
@@ -246,9 +252,9 @@ class FactorDatasetTests(unittest.TestCase):
 
 class PortfolioSemanticsTests(unittest.TestCase):
     def test_max_sharpe_is_unavailable_without_policy_rate(self):
-        dates = pd.bdate_range("2025-01-01", periods=100)
+        dates = pd.bdate_range("2023-01-01", periods=600)
         columns = pd.MultiIndex.from_product([["Adj Close"], ["A.JK", "B.JK", "C.JK"]])
-        prices = pd.DataFrame(np.linspace(100, 120, 300).reshape(100, 3), index=dates, columns=columns)
+        prices = pd.DataFrame(np.linspace(100, 180, 1800).reshape(600, 3), index=dates, columns=columns)
         with patch("analysis.portfolio.yf.download", return_value=prices):
             result = optimize_portfolio(["A", "B", "C"], risk_free_rate=None)
         self.assertEqual(result["max_sharpe"]["status"], "UNAVAILABLE_WITHOUT_POLICY_RATE")

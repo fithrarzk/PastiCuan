@@ -46,7 +46,7 @@ def _http_json(method: str, url: str, payload: dict | None = None, timeout: int 
 
 def get_ai_provider_status() -> dict:
     """Return the configured AI provider and whether it is ready."""
-    # v3 keeps narrative output deterministic even after research validation;
+    # v4 keeps narrative output deterministic even after research validation;
     # validation is not authorization for an LLM to derive an action label.
     return {
         "provider": "deterministic",
@@ -124,7 +124,7 @@ def _build_prompt(
         f"  MFI(14): {f'{mfi_v:.1f}' if mfi_v is not None else 'N/A'} "
         f"— {technical_data.get('mfi_signal', 'N/A')}\n"
         f"  OBV Trend: {technical_data.get('obv_signal', 'N/A')}\n"
-        f"  Smart Money Verdict: {technical_data.get('smart_money', 'N/A')}"
+        f"  Volume Evidence: {technical_data.get('smart_money', 'N/A')}"
     )
 
     # ── Valuation Bands section ───────────────────────────────────────────────

@@ -57,7 +57,35 @@ def _clean_ticker(text: str) -> str:
         return ""
     ticker = text.strip().split()[0].upper()
     ticker = ticker.replace(".JK", "")
-    return ticker
+    return ticker if ticker and len(ticker) <= 12 and ticker.replace("-", "").isalnum() else ""
+
+
+def _readonly_repository():
+    if not os.getenv("SUPABASE_DATABASE_URL"):
+        return None
+    from storage.database import connect_from_env
+    from storage.repository import SnapshotRepository
+    return SnapshotRepository(connect_from_env)
+
+
+def _snapshot_only() -> bool:
+    return os.getenv("BOT_SNAPSHOT_ONLY", "true").lower() == "true"
+
+
+def _v4_evidence(ticker: str) -> tuple[dict | None, dict | None, object, object]:
+    quant = get_research_snapshot()
+    scan = get_scan_snapshot()
+    quant_row = quant.ticker(ticker)
+    bundle = scan.to_bundle([ticker]).to_dict()
+    scan_row = next((row for row in bundle.get("candidates", []) if row.get("ticker") == ticker), None)
+    return quant_row, scan_row, quant, scan
+
+
+async def _snapshot_unavailable(update: Update, ticker: str, section: str) -> None:
+    await update.message.reply_text(
+        f"⚪ {section} for {ticker} is unavailable in the latest verified snapshot. "
+        "The bot will not substitute a live provider calculation."
+    )
 
 
 def _escape_markdown_text(value: str) -> str:
@@ -111,15 +139,20 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Replies to /start and /help with the main menu and instructions."""
     msg = (
         "📈 *PastiCuan — IDX Equity Research Bot*\n\n"
-        "Welcome! Get instant technical analysis, decision scores, charts, and stock scans for Indonesian equities directly in Telegram.\n\n"
+        "Welcome! Get snapshot-based business evidence, technical setups, and stock scans for Indonesian equities directly in Telegram.\n\n"
         "*Available Commands:*\n"
-        "• `/ta <ticker>` — Adaptive Technical Analysis (e.g. `/ta BBCA`)\n"
-        "• `/fund <ticker>` — Detailed Fundamental & Valuation Report (e.g. `/fund TLKM`)\n"
-        "• `/quant <ticker>` — Level 2 Multi-Factor Quant Model (e.g. `/quant BBCA`)\n"
-        "• `/portfolio <t1> <t2> ...` — Markowitz Portfolio Optimizer (e.g. `/portfolio BBCA TLKM BMRI ICBP`)\n"
-        "• `/decision <ticker>` — Multi-factor Decision Matrix (e.g. `/decision BMRI`)\n"
-        "• `/range <ticker>` — Technical + valuation buy-range research (e.g. `/range BBCA`)\n"
-        "• `/chart <ticker>` — Technical Candlestick & Indicator Chart (e.g. `/chart ASII`)\n"
+        "• `/ta <ticker>` — Stored technical setup evidence (e.g. `/ta BBCA`)\n"
+        "• `/fund <ticker>` — Point-in-time business evidence (e.g. `/fund TLKM`)\n"
+        "• `/quant <ticker>` — Approved LQ45 factor percentile (e.g. `/quant BBCA`)\n"
+        "• `/portfolio <t1> <t2> ...` — Minimum-volatility risk research (e.g. `/portfolio BBCA TLKM BMRI ICBP`)\n"
+        "• `/decision <ticker>` — Business and setup states, kept separate (e.g. `/decision BMRI`)\n"
+        "• `/evidence <ticker>` — Point-in-time sources and calculation coverage\n"
+        "• `/history <ticker>` — Previous immutable research snapshots\n"
+        "• `/status` — Data, provider, and model health\n"
+        "• `/market` — Latest LQ45 research breadth\n"
+        "• `/events <ticker>` — Official stored disclosure events\n"
+        "• `/range <ticker>` — Stored entry, stop, target, and R/R evidence (e.g. `/range BBCA`)\n"
+        "• `/chart <ticker>` — Unavailable in strict snapshot-only production mode\n"
         "• `/scan [ticker ...]` — Latest full-LQ45 EOD snapshot; optional filter\n"
         "• `/help` — Display this command menu\n\n"
 
@@ -140,6 +173,19 @@ async def ta_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ticker_symbol = _clean_ticker(context.args[0])
+    if _snapshot_only():
+        _quant, row, _qs, scan = _v4_evidence(ticker_symbol)
+        if not row:
+            await _snapshot_unavailable(update, ticker_symbol, "Technical evidence")
+            return
+        components = row.get("technical_components") or {}
+        lines = [f"📈 <b>{ticker_symbol} Technical Setup</b>",
+                 f"Session <code>{html.escape(scan.session_date)}</code> · <code>{html.escape(scan.model_status)}</code>",
+                 f"Setup score <code>{display_number(row.get('technical_score'))}</code> · coverage <code>{float((row.get('component_coverage') or {}).get('technical') or 0):.0f}%</code>"]
+        lines.extend(f"{html.escape(name.title())}: <code>{display_number(value)}</code>" for name, value in components.items())
+        lines.append(f"Entry state <code>{html.escape(row.get('entry_state', 'NO_RELIABLE_SETUP'))}</code> · RESEARCH_ONLY")
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+        return
     await update.message.reply_text(f"⏳ Analyzing technicals for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
 
     results, error = await asyncio.to_thread(_run_full_analysis, ticker_symbol)
@@ -188,7 +234,7 @@ async def ta_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• *Trend:* {tech.get('sma_signal', '')}\n"
         f"• *MACD:* {tech.get('macd_signal', '')}\n"
         f"• *Support/Res:* {tech.get('sr_signal', '')}\n"
-        f"• *Smart Money:* {tech.get('smart_money', '')}\n\n"
+        f"• *Volume Evidence:* {tech.get('smart_money', '')}\n\n"
         f"💡 _Send `/chart {ticker_symbol}` to get the visual candlestick chart!_"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
@@ -201,6 +247,19 @@ async def decision_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ticker_symbol = _clean_ticker(context.args[0])
+    if _snapshot_only():
+        quant_row, row, quant, scan = _v4_evidence(ticker_symbol)
+        if not quant_row and not row:
+            await _snapshot_unavailable(update, ticker_symbol, "Decision evidence")
+            return
+        lines = [f"🏛️ <b>{ticker_symbol} Research Decision</b>",
+                 f"Business <code>{display_number((quant_row or {}).get('business_score'))}</code> · <code>{html.escape((quant_row or {}).get('business_state', 'LIMITED_HISTORY'))}</code>",
+                 f"Technical <code>{display_number((row or {}).get('technical_score'))}</code> · entry <code>{html.escape((row or {}).get('entry_state', 'NO_RELIABLE_SETUP'))}</code>",
+                 f"Quant <code>{display_number((quant_row or {}).get('composite_percentile'))}</code>",
+                 f"Effective <code>{html.escape(quant.effective_at)}</code> · scan <code>{html.escape(scan.session_date)}</code>",
+                 "Action <code>None</code> · Policy <code>RESEARCH_ONLY</code>"]
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+        return
     await update.message.reply_text(f"⏳ Generating Decision Report for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
 
     include_backtest = os.getenv("BOT_ENABLE_BACKTEST", "false").lower() == "true"
@@ -255,11 +314,11 @@ def _render_scan_message(bundle: dict) -> str:
     escape = lambda value: html.escape(str(value), quote=False)
     mode = bundle.get("mode", "UNAVAILABLE")
     title = {
-        "PRIMARY": "🔎 <b>LQ45 Research Scanner — Full-Universe EOD</b>",
-        "DEGRADED": "⚠️ <b>LQ45 Degraded Watchlist — No Overall Score</b>",
+        "PRIMARY": "🏛️ <b>LQ45 Quality Research — Point-in-Time</b>",
+        "DEGRADED": "⚠️ <b>LQ45 Quality Research — Limited Evidence</b>",
         "UNAVAILABLE": "⚪ <b>LQ45 Scanner Unavailable</b>",
     }.get(mode, "⚪ <b>LQ45 Scanner Unavailable</b>")
-    lines = [title, "<i>Policy: RESEARCH_ONLY · Swing horizon 5–20 sessions</i>"]
+    lines = [title, "<i>Business horizon 12–36+ months · Entry timing 5–20 sessions · RESEARCH_ONLY</i>"]
     lines.append(
         f"Session <code>{escape(bundle.get('session_date') or 'N/A')}</code> · "
         f"Universe coverage <code>{float(bundle.get('universe_coverage_pct') or 0):.0f}%</code>"
@@ -270,31 +329,41 @@ def _render_scan_message(bundle: dict) -> str:
     def candidate_line(item: dict) -> str:
         rank = f"#{int(item['rank'])} " if item.get("rank") is not None else ""
         score = (
-            f" · Score <code>{item['ranking_score']:.1f}/100</code>"
+            f" · Business <code>{item['ranking_score']:.1f}/100</code>"
             if item.get("ranking_score") is not None else ""
         )
         rr = f"{item['risk_reward']:.2f}R" if item.get("risk_reward") is not None else "N/A"
         return (
             f"• {rank}<b>{escape(item['ticker'])}</b>{score} · Rp {float(item['current_price']):,.0f}\n"
+            f"  State <code>{escape(item.get('business_state', 'LIMITED_HISTORY'))}</code> · "
+            f"Entry <code>{escape(item.get('entry_state', 'NO_RELIABLE_SETUP'))}</code>\n"
             f"  T <code>{escape(display_number(item.get('technical_score')))}</code> · "
-            f"Q <code>{escape(display_number(item.get('quant_percentile')))}</code> · "
+            f"Quant <code>{escape(display_number(item.get('quant_percentile')))}</code> · "
             f"R/R <code>{escape(rr)}</code>\n"
             f"  Entry <code>{escape(_format_range(item.get('entry_zone')))}</code> "
             f"({escape(item.get('entry_zone_type', 'unavailable'))}) · "
-            f"Coverage <code>{float(item.get('coverage_pct') or 0):.0f}%</code>"
+            f"Fund coverage <code>{float(item.get('raw_fundamental_coverage_pct') or 0):.0f}%</code>"
         )
 
-    shortlist = [row for row in bundle["candidates"] if row.get("eligibility") == "SHORTLIST"]
-    watch = [row for row in bundle["candidates"] if row.get("eligibility") == "WATCH"]
-    if mode == "PRIMARY" and shortlist:
-        lines.append("\n✅ <b>SHORTLIST — ≥1.5R and in entry zone</b>")
-        lines.extend(candidate_line(item) for item in shortlist[:5])
-    remaining = max(0, 5 - min(5, len(shortlist) if mode == "PRIMARY" else 0))
-    if watch and remaining:
-        label = "WATCH — not entry-ready" if mode == "PRIMARY" else "MARKET OBSERVATIONS — quant unavailable"
-        lines.append(f"\n👀 <b>{label}</b>")
-        lines.extend(candidate_line(item) for item in watch[:remaining])
-    if not shortlist and not watch:
+    ready = [row for row in bundle["candidates"] if row.get("entry_state") == "FAVORABLE_ENTRY"]
+    ranked = [row for row in bundle["candidates"] if row.get("ranking_score") is not None]
+    limited = [row for row in bundle["candidates"] if row.get("ranking_score") is None]
+    lines.append(
+        f"\nCoverage detail: <code>{len(ranked)}/45</code> business-scored · "
+        f"<code>{len(ready)}</code> favorable entries"
+    )
+    if ready:
+        lines.append("\n✅ <b>FAVORABLE ENTRY — quality gates also pass</b>")
+        lines.extend(candidate_line(item) for item in ready[:3])
+    shown = {item["ticker"] for item in ready[:3]}
+    remaining = [item for item in ranked if item["ticker"] not in shown][:max(0, 5 - len(shown))]
+    if remaining:
+        lines.append("\n🏛️ <b>BUSINESS RANK — entry may still require patience</b>")
+        lines.extend(candidate_line(item) for item in remaining)
+    if not ranked and limited:
+        lines.append("\n⚪ No issuer has enough point-in-time business history for a v4 Business Score.")
+        lines.extend(candidate_line(item) for item in limited[:3])
+    if not ready and not ranked and not limited:
         lines.append("\nNo ticker passed the current evidence and risk/reward gates.")
     if bundle["excluded"]:
         excluded = "; ".join(
@@ -322,6 +391,20 @@ async def range_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ticker_symbol = _clean_ticker(context.args[0])
+    if _snapshot_only():
+        _quant, row, _qs, scan = _v4_evidence(ticker_symbol)
+        if not row:
+            await _snapshot_unavailable(update, ticker_symbol, "Price-range evidence")
+            return
+        rr_text = f"{row['risk_reward']:.2f}R" if row.get("risk_reward") is not None else "N/A"
+        await update.message.reply_text(
+            f"🎯 <b>{ticker_symbol} Verified Range</b>\nSession <code>{html.escape(scan.session_date)}</code>\n"
+            f"Entry <code>{html.escape(_format_range(row.get('entry_zone')))}</code> · <code>{html.escape(row.get('entry_zone_type', 'unavailable'))}</code>\n"
+            f"Stop <code>{html.escape(_format_price(row.get('stop_loss')))}</code> · Target <code>{html.escape(_format_price(row.get('target')))}</code>\n"
+            f"R/R <code>{rr_text}</code>\nRESEARCH_ONLY",
+            parse_mode=ParseMode.HTML,
+        )
+        return
     await update.message.reply_text(
         f"⏳ Calculating price ranges for *{ticker_symbol}.JK*...",
         parse_mode=ParseMode.MARKDOWN,
@@ -368,6 +451,19 @@ async def fund_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ticker_symbol = _clean_ticker(context.args[0])
+    if _snapshot_only():
+        row, _scan_row, snapshot, _scan = _v4_evidence(ticker_symbol)
+        if not row:
+            await _snapshot_unavailable(update, ticker_symbol, "Fundamental evidence")
+            return
+        lines = [f"🏛️ <b>{ticker_symbol} Business Evidence</b>",
+                 f"Business <code>{display_number(row.get('business_score'))}</code> · <code>{html.escape(row.get('business_state', 'LIMITED_HISTORY'))}</code>"]
+        for name in ("quality", "valuation", "durability", "resilience"):
+            lines.append(f"{name.title()} <code>{display_number(row.get(name + '_score'))}</code>")
+        lines.extend([f"Raw fundamental coverage <code>{float(row.get('raw_fundamental_coverage_pct') or 0):.0f}%</code>",
+                      f"Effective <code>{html.escape(snapshot.effective_at)}</code> · <code>{html.escape(snapshot.formula_version)}</code>"])
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+        return
     await update.message.reply_text(f"⏳ Evaluating fundamentals for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
 
     results, error = await asyncio.to_thread(_run_full_analysis, ticker_symbol)
@@ -443,6 +539,9 @@ async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ticker_symbol = _clean_ticker(context.args[0])
+    if _snapshot_only():
+        await _snapshot_unavailable(update, ticker_symbol, "Chart")
+        return
     await update.message.reply_text(f"📊 Rendering technical chart for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
 
     results, error = await asyncio.to_thread(_run_full_analysis, ticker_symbol)
@@ -459,7 +558,7 @@ async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     caption = (
         f"📈 *{results['data']['ticker']}* Chart\n"
-        f"Signal: {results['tech'].get('recommendation', 'N/A')}"
+        f"Technical evidence: {results['tech'].get('recommendation', 'N/A')}"
     )
     await update.message.reply_photo(photo=buf, caption=caption, parse_mode=ParseMode.MARKDOWN)
 
@@ -467,16 +566,125 @@ async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Read the immutable full-LQ45 scan; never call a provider here."""
     scan_limit = max(5, min(10, int(os.getenv("BOT_SCAN_LIMIT", "10"))))
-    requested = [_clean_ticker(value) for value in context.args[:scan_limit]] if context.args else None
+    mode_filter = context.args[0].lower() if context.args and context.args[0].lower() in {"ready", "value", "defensive"} else None
+    ticker_args = context.args[1:] if mode_filter else context.args
+    requested = [_clean_ticker(value) for value in ticker_args[:scan_limit]] if ticker_args else None
     await update.message.reply_text(
         "🔎 Loading the latest full-LQ45 end-of-day research snapshot...",
         parse_mode=ParseMode.MARKDOWN,
     )
     snapshot = await asyncio.to_thread(get_scan_snapshot)
     bundle = scan_view(snapshot.to_bundle(requested))
+    if mode_filter == "ready":
+        bundle["candidates"] = [row for row in bundle["candidates"] if row.get("entry_state") == "FAVORABLE_ENTRY"]
+    elif mode_filter == "value":
+        bundle["candidates"].sort(key=lambda row: (-(row.get("business_components", {}).get("valuation") or -1), row["ticker"]))
+    elif mode_filter == "defensive":
+        bundle["candidates"].sort(key=lambda row: (-(row.get("business_components", {}).get("resilience") or -1), row["ticker"]))
     if len(context.args) > scan_limit:
         bundle["warnings"].insert(0, f"Only the first {scan_limit} ticker filters were used.")
     await update.message.reply_text(_render_scan_message(bundle), parse_mode=ParseMode.HTML)
+
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    quant, scan = get_research_snapshot(refresh=True), get_scan_snapshot(refresh=True)
+    operational = None
+    repository = _readonly_repository()
+    if repository:
+        try:
+            operational = await asyncio.to_thread(repository.operational_status)
+        except Exception as exc:
+            logger.warning("Status database query failed: %s", type(exc).__name__)
+    lines = [
+        "🩺 <b>PastiCuan Research Status</b>",
+        f"Model <code>{html.escape(quant.model_version)}</code> · <code>{html.escape(quant.model_status)}</code>",
+        f"Quant effective <code>{html.escape(quant.effective_at)}</code>",
+        f"Scan session <code>{html.escape(scan.session_date)}</code> · mode <code>{html.escape(scan.mode)}</code>",
+        f"Market coverage <code>{scan.universe_coverage_pct:.0f}%</code>",
+    ]
+    if operational:
+        lines.extend([
+            f"Latest completed session <code>{html.escape(str(operational['latest_session']))}</code>",
+            f"Open ingestion issues <code>{operational['open_issues']}</code>",
+            f"Provider failures (24h) <code>{operational['provider_failures_24h']}</code>",
+        ])
+    for warning in [*quant.warnings[:1], *scan.warnings[:1]]:
+        lines.append(f"⚠️ {html.escape(str(warning)[:180])}")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def evidence_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ticker = _clean_ticker(context.args[0]) if context.args else ""
+    if not ticker:
+        await update.message.reply_text("Use /evidence <ticker>.")
+        return
+    quant = get_research_snapshot()
+    row = quant.ticker(ticker)
+    if not row:
+        await update.message.reply_text(f"No approved point-in-time evidence exists for {ticker}.")
+        return
+    fields = ("business_state", "business_score", "quality_score", "valuation_score",
+              "durability_score", "resilience_score", "composite_percentile",
+              "raw_fundamental_coverage_pct", "raw_component_coverage_pct", "ranking_scope")
+    lines = [f"🔎 <b>{ticker} Evidence</b>",
+             f"Effective <code>{html.escape(quant.effective_at)}</code>",
+             f"Formula <code>{html.escape(quant.formula_version)}</code>"]
+    lines.extend(f"{html.escape(name)}: <code>{html.escape(display_number(row.get(name)))}</code>" for name in fields)
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ticker = _clean_ticker(context.args[0]) if context.args else ""
+    repository = _readonly_repository()
+    if not ticker or not repository:
+        await update.message.reply_text("History requires /history <ticker> and configured read-only Supabase access.")
+        return
+    try:
+        rows = await asyncio.to_thread(repository.ticker_snapshot_history, ticker)
+    except Exception:
+        logger.exception("History query failed")
+        rows = []
+    if not rows:
+        await update.message.reply_text(f"No immutable scan history is available for {ticker}.")
+        return
+    lines = [f"🕰️ <b>{ticker} Research History</b>"]
+    for row in rows:
+        item = row["candidate"]
+        lines.append(f"<code>{row['session_date']}</code> · Business {html.escape(display_number(item.get('business_score')))} · {html.escape(item.get('entry_state', 'N/A'))}")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def market_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bundle = get_scan_snapshot().to_bundle().to_dict()
+    candidates = bundle.get("candidates", [])
+    quality = sum(row.get("business_state") == "QUALITY_CANDIDATE" for row in candidates)
+    ready = sum(row.get("entry_state") == "FAVORABLE_ENTRY" for row in candidates)
+    await update.message.reply_text(
+        f"🌐 <b>LQ45 Research Breadth</b>\nSession <code>{html.escape(str(bundle.get('session_date')))}</code>\n"
+        f"Market coverage <code>{float(bundle.get('universe_coverage_pct') or 0):.0f}%</code>\n"
+        f"Quality candidates <code>{quality}</code> · Favorable entries <code>{ready}</code>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def events_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ticker = _clean_ticker(context.args[0]) if context.args else ""
+    repository = _readonly_repository()
+    if not ticker or not repository:
+        await update.message.reply_text("Events require /events <ticker> and configured read-only Supabase access.")
+        return
+    try:
+        rows = await asyncio.to_thread(repository.disclosure_events_for_ticker, ticker)
+    except Exception:
+        logger.exception("Event query failed")
+        rows = []
+    if not rows:
+        await update.message.reply_text(f"No stored official events are available for {ticker}.")
+        return
+    lines = [f"📣 <b>{ticker} Official Events</b>"]
+    for row in rows:
+        lines.append(f"• <code>{html.escape(str(row['published_at'])[:10])}</code> {html.escape(row['event_type'])}: {html.escape(row['title'][:100])}")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
 async def quant_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -546,8 +754,16 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # SciPy is intentionally lazy-loaded to keep webhook cold-start memory low.
     from analysis.portfolio import optimize_portfolio
-
-    res = await asyncio.to_thread(optimize_portfolio, tickers_list, period="1y")
+    price_history = None
+    if _snapshot_only():
+        repository = _readonly_repository()
+        if not repository:
+            await update.message.reply_text("Portfolio research requires configured read-only Supabase history.")
+            return
+        price_history = await asyncio.to_thread(
+            repository.portfolio_price_history, tickers_list, pd.Timestamp.now(tz="UTC").isoformat(),
+        )
+    res = await asyncio.to_thread(optimize_portfolio, tickers_list, period="3y", price_history=price_history)
     if res.get("error"):
         await update.message.reply_text(f"❌ *Portfolio Optimization Error:*\n{res['error']}", parse_mode=ParseMode.MARKDOWN)
         return
@@ -567,10 +783,9 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"• *{tk}*: `0.00%` (Excluded for risk optimization)")
 
     lines.append(
-        f"\n📊 *Expected Performance metrics:*\n"
-        f"• *Expected Annual Return:* `{allocation['expected_return']:+.2f}%`\n"
+        f"\n📊 *Risk estimates ({res.get('observations', 0)} sessions):*\n"
         f"• *Annualized Volatility:* `{allocation['volatility']:.2f}%`\n"
-        f"• *Sharpe Ratio:* `N/A — dated BI rate required`"
+        f"• *Expected Return / Sharpe:* `N/A — not estimated without a validated return model`"
     )
 
     msg = "\n".join(lines)
@@ -626,6 +841,11 @@ def build_application():
     app.add_handler(CommandHandler(["range", "buyrange"], range_command))
     app.add_handler(CommandHandler(["chart"], chart_command))
     app.add_handler(CommandHandler(["scan"], scan_command))
+    app.add_handler(CommandHandler(["status"], status_command))
+    app.add_handler(CommandHandler(["evidence"], evidence_command))
+    app.add_handler(CommandHandler(["history"], history_command))
+    app.add_handler(CommandHandler(["market"], market_command))
+    app.add_handler(CommandHandler(["events"], events_command))
     app.add_error_handler(telegram_error_handler)
     return app
 

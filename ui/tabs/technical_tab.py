@@ -39,13 +39,13 @@ def render_technical_tab(tech: dict, ticker: str, history) -> None:
     rr = tech.get("risk_reward")
     plan4.metric("Risk / Reward", f"{rr:.2f}R" if rr is not None else "N/A")
 
-    # ── Smart Money Flow ────────────────────────────────────────────────────
+    # ── Observable volume evidence ──────────────────────────────────────────
     st.divider()
-    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:4px;'>Smart Money Flow</h3>",
+    st.markdown("<h3 style='font-size:1rem;font-weight:600;color:#F5F5F7;margin-bottom:4px;'>Volume Evidence</h3>",
                 unsafe_allow_html=True)
     st.caption(
         "Combines Money Flow Index (MFI) and On-Balance Volume (OBV) to assess "
-        "whether price moves are supported by institutional volume."
+        "whether price moves are confirmed by observed volume; it does not identify investor type."
     )
 
     mfi_val    = tech.get("mfi")

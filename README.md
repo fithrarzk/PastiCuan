@@ -1,6 +1,6 @@
 # PastiCuan
 
-PastiCuan is an end-of-session IDX research system. Version 3 runs in **shadow
+PastiCuan is an end-of-session IDX research system. Version 4 runs in **shadow
 mode**: it publishes reproducible evidence and paper alerts, but no Buy/Sell
 label is eligible until the source, freshness, liquidity, broker-cost,
 walk-forward validation, and 60-completed-session gates all pass. No model can
@@ -36,17 +36,17 @@ How to run
   authoritative fundamental data, so the action gate remains closed.
 - Canonical structured research data uses Supabase PostgreSQL; original filing
   documents and logical backups use optional S3-compatible R2 storage. Apply
-  migrations `001`, `002`, and `003`, followed by `storage/supabase_roles.sql`.
+  migrations `001` through `004`, followed by `storage/supabase_roles.sql`.
 - Railway runs only the Telegram webhook. GitHub Actions performs source
   acquisition, candidate snapshot construction and backups outside the request
   path. The bot caches approved, checksummed database snapshots; a transient
   database failure keeps the last in-process scan, while a cold start fails
   closed as UNAVAILABLE. The separate quant command can use a bundled fallback.
-- `/scan` reads an immutable full-LQ45 EOD scan from Supabase. Its primary score
-  is fixed at 30% technical, 40% approved point-in-time quant, 20% planned-entry
-  risk/reward and 10% liquidity. Missing quant produces a scoreless DEGRADED
-  watchlist; sub-1.0R setups are excluded and only in-zone setups at 1.5R or
-  better enter the shortlist.
+- `/scan` is quality-first: the long-horizon Business Score ranks point-in-time
+  quality, valuation, durability, and resilience. Technical evidence, liquidity,
+  executable IDX tick geometry, and 1.5R–5R planned risk/reward only decide entry
+  readiness; they cannot raise the Business Score. Missing or incomplete official
+  evidence produces a scoreless DEGRADED/LIMITED result instead of an estimate.
 - Financial facts carry their period, publication/availability timestamps,
   currency, scale, consolidation/audit status, source, checksum and restatement
   version. Point-in-time queries must filter `available_at <= as_of`.
@@ -82,12 +82,13 @@ python -m operations.research_cli build-snapshot-from-database \
   --effective-at 2026-08-31T16:15:00+07:00
 python -m operations.research_cli validate-quant \
   --scores reviewed/monthly_scores.csv --bars reviewed/market_bars.csv \
-  --output validation-report.json --persist
+  --output validation-report.json --persist --deterministic-rebuild
 python -m operations.research_cli publish-reviewed-shadow \
   --candidate data/snapshots/candidate.json.gz \
   --output data/snapshots/latest.json.gz
 python -m operations.research_cli build-daily-scan \
   --output scan-report.json --r2
+python -m operations.research_cli evaluate-signal-outcomes
 ```
 
 Candidate snapshots cannot be loaded by the bot. Approval changes the status
@@ -108,11 +109,11 @@ The daily scan command requires exactly 45 effective LQ45 constituents in
 Supabase. GitHub Actions runs it after the weekday IDX close and publishes only
 PRIMARY or DEGRADED SHADOW snapshots. An UNAVAILABLE build fails without
 replacing the last good snapshot. Railway caches the latest database result for
-15 minutes and performs no Yahoo, R2, backtest, or full-universe calculation in
+5 minutes (bounded to 15) and performs no Yahoo, R2, backtest, or full-universe calculation in
 the `/scan` request path.
 
 ## Narrative policy
 
-Version 3 produces its report deterministically from the versioned evidence
+Version 4 produces its report deterministically from the versioned evidence
 bundle. Generative providers are outside the validated core: they cannot alter
 facts, factor scores, gates, or verdicts. Keep `AI_PROVIDER=off` in production.

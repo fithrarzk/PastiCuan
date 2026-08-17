@@ -117,6 +117,30 @@ def _numeric(text: str | None, scale: int) -> Decimal | None:
     return value if value.is_finite() else None
 
 
+def _period_classification(period_start: str | None, period_end: str, filing_type: str) -> dict:
+    """Classify a fact from explicit filing semantics, never from row order."""
+    if not period_start:
+        return {"period_type": "INSTANT", "duration_class": None,
+                "fiscal_year": date.fromisoformat(period_end).year, "fiscal_quarter": None}
+    kind = str(filing_type or "").upper()
+    end = date.fromisoformat(period_end)
+    duration = (end - date.fromisoformat(period_start)).days
+    if kind in {"ANNUAL", "FY", "AUDITED"} or 330 <= duration <= 380:
+        duration_class, quarter = "FY", 4
+    elif "QTD" in kind or "DISCRETE" in kind:
+        duration_class, quarter = "QTD", max(1, min(4, (end.month - 1) // 3 + 1))
+    elif kind in {"Q1", "TW1"}:
+        duration_class, quarter = "YTD", 1
+    elif kind in {"Q2", "TW2", "HY", "HALF_YEAR"}:
+        duration_class, quarter = "YTD", 2
+    elif kind in {"Q3", "TW3", "9M"}:
+        duration_class, quarter = "YTD", 3
+    else:
+        duration_class, quarter = "OTHER", None
+    return {"period_type": "DURATION", "duration_class": duration_class,
+            "fiscal_year": end.year, "fiscal_quarter": quarter}
+
+
 def parse_idx_xbrl(body: bytes, *, ticker: str, source_url: str, published_at: str,
                    filing_type: str, filing_period_end: str, document_checksum: str,
                    object_key: str, audit_status: str = "UNAUDITED",
@@ -193,6 +217,7 @@ def parse_idx_xbrl(body: bytes, *, ticker: str, source_url: str, published_at: s
                 "audit_status": audit_status,
                 "object_key": object_key,
                 "scale": 0,
+                **_period_classification(context["period_start"], context["period_end"], filing_type),
             })
     expected = ticker.upper().replace(".JK", "")
     if entity_code and entity_code != expected:
