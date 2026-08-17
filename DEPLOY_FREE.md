@@ -5,7 +5,7 @@
 The Telegram webhook does not require a database to start. To enable the
 point-in-time research core without adding another Railway service:
 
-1. Create one Supabase project and apply migrations `001` through `004` in order.
+1. Create one Supabase project and apply migrations `001` through `005` in order.
 2. Apply or re-apply `storage/supabase_roles.sql`, create separate login users, and grant
    Railway only `pasticuan_bot` while GitHub receives an ingest/validator user.
    In pooler URLs, use the login names (`pasticuan_bot_login.PROJECT_REF` and

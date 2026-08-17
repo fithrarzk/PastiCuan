@@ -669,7 +669,11 @@ class SnapshotRepository:
                                       audit_status,source_url,document_checksum,restatement_version,
                                       period_type,duration_class,fiscal_year,fiscal_quarter)
                                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                                   ON CONFLICT (filing_id,concept,period_start,period_end,unit) DO NOTHING""",
+                                   ON CONFLICT (filing_id,concept,period_start,period_end,unit) DO UPDATE SET
+                                     period_type=COALESCE(statement_facts.period_type,EXCLUDED.period_type),
+                                     duration_class=COALESCE(statement_facts.duration_class,EXCLUDED.duration_class),
+                                     fiscal_year=COALESCE(statement_facts.fiscal_year,EXCLUDED.fiscal_year),
+                                     fiscal_quarter=COALESCE(statement_facts.fiscal_quarter,EXCLUDED.fiscal_quarter)""",
                                 (filing_id, row["taxonomy"], row["concept"], row["normalized_concept"],
                                  row.get("period_start"), row["period_end"], row.get("published_at"),
                                  row["available_at"], row["value"], row.get("currency"), int(row["scale"]),

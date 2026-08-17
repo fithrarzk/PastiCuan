@@ -36,7 +36,7 @@ How to run
   authoritative fundamental data, so the action gate remains closed.
 - Canonical structured research data uses Supabase PostgreSQL; original filing
   documents and logical backups use optional S3-compatible R2 storage. Apply
-  migrations `001` through `004`, followed by `storage/supabase_roles.sql`.
+  migrations `001` through `005`, followed by `storage/supabase_roles.sql`.
 - Railway runs only the Telegram webhook. GitHub Actions performs source
   acquisition, candidate snapshot construction and backups outside the request
   path. The bot caches approved, checksummed database snapshots; a transient
