@@ -237,6 +237,16 @@ def automatic_idx_period(as_of: str) -> tuple[int, str]:
     return year - 1, "tw3"
 
 
+def discovery_blockers(discovery: dict) -> list[str]:
+    """Only missing current evidence blocks discovery.
+
+    Historical manifests intentionally use today's LQ45 universe. Newer IPOs
+    and spin-offs may have no filing in an earlier year, so annual gaps remain
+    visible for human review but must not prevent creation of the review PR.
+    """
+    return list(discovery.get("current_period_missing") or [])
+
+
 def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
     """Enforce the scan's quant gate before a reviewed candidate can publish."""
     snapshot.validate(approved_only=False)
@@ -775,7 +785,7 @@ def main(argv=None) -> int:
             annual_start_year=args.annual_start_year,
             annual_end_year=args.annual_end_year,
         )
-        missing = manifest["discovery"]["current_period_missing"] + manifest["discovery"]["prior_annual_missing"]
+        missing = discovery_blockers(manifest["discovery"])
         print(json.dumps(manifest["discovery"], sort_keys=True))
         if missing:
             return 2
