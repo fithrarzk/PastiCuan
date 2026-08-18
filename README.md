@@ -72,6 +72,9 @@ The first two attempts may finish as `WAITING`; the final attempt fails closed.
 Formula changes must bump `data/research_release.json`, while unrelated bot or
 presentation changes reuse the current release. Railway deploys `main` in
 parallel and reads the newly signed Supabase snapshots within five minutes.
+This assumes the Railway bot service has **Settings → Source** connected to this
+repository, tracks `main`, and has automatic deployments enabled; Railway Free
+does not use a special deployment time window.
 
 Install the job-only dependencies locally with
 `pip install -r requirements-jobs.txt`. Core commands are:

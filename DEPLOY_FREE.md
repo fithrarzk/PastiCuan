@@ -111,6 +111,26 @@ terms can change in the future.
    `last_error_message`. Then send `/start`, `/ta BBCA`, and `/decision BBCA` to
    the bot.
 
+### Normal deployment after initial setup
+
+In Railway, open the bot service and verify **Settings → Source** points to this
+GitHub repository, the deployment branch is `main`, and automatic deployments
+are enabled. Railway Free does not require a scheduled deployment window.
+
+For every later update, push a feature branch, open a pull request, wait for the
+required `core-tests / test` check, and merge into `main`. The merge has two
+independent automatic effects:
+
+- Railway detects the new `main` commit and rebuilds/redeploys the Telegram bot.
+- GitHub Actions starts `research-daily`; it publishes only verified signed
+  snapshots and otherwise preserves the last valid production data.
+
+Railway may become active before research finishes. This is safe because the bot
+continues reading the last verified Supabase snapshot and refreshes its cache
+within five minutes after a newer snapshot is published. Check Railway's
+**Deployments** page, GitHub's **Actions → research-daily**, and then `/ready`,
+`/status`, `/scan`, and `/ta BBCA`.
+
 If Railway gives the account a **Limited Trial**, outbound calls to Telegram or
 market-data providers may be blocked. Railway verification is automatic; the
 practical no-card fallback in that case is to run `bot.py` on a computer you can
