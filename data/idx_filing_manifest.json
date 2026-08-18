@@ -15,19 +15,11 @@
         "CUAN",
         "MBMA",
         "NCKL"
-      ],
-      "2023": [
-        "AADI"
-      ],
-      "2024": [],
-      "2025": []
+      ]
     },
     "annual_years": [
       2021,
-      2022,
-      2023,
-      2024,
-      2025
+      2022
     ],
     "current_period_missing": [],
     "period": "tw2",
@@ -36,30 +28,18 @@
       "Q2": 34,
       "Q3": 0
     },
-    "prior_annual_missing": [],
+    "prior_annual_missing": [
+      "AADI",
+      "AMMN",
+      "CUAN",
+      "MBMA",
+      "NCKL"
+    ],
     "requested_tickers": 45,
     "review_required": true,
     "year": 2026
   },
   "filings": [
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-04T18:44:28.883000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/AADI/instance.zip",
-      "ticker": "AADI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-06T15:57:00.003000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/AADI/instance.zip",
-      "ticker": "AADI"
-    },
     {
       "audit_status": "UNAUDITED",
       "filing_type": "Q1",
@@ -85,33 +65,6 @@
       "published_at": "2023-03-01T21:54:22.053000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/ADMR/instance.zip",
-      "ticker": "ADMR"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-02-29T19:41:40.713000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/ADMR/instance.zip",
-      "ticker": "ADMR"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-03T16:10:11.097000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/ADMR/instance.zip",
-      "ticker": "ADMR"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-06T19:35:20.037000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/ADMR/instance.zip",
       "ticker": "ADMR"
     },
     {
@@ -142,33 +95,6 @@
       "ticker": "ADRO"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-01T15:45:20.903000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/ADRO/instance.zip",
-      "ticker": "ADRO"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-04T18:30:42.003000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/ADRO/instance.zip",
-      "ticker": "ADRO"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-06T22:03:52.897000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/ADRO/instance.zip",
-      "ticker": "ADRO"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q1",
       "period_end": "2026-03-31",
@@ -196,33 +122,6 @@
       "ticker": "AKRA"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-21T00:17:05.587000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/AKRA/instance.zip",
-      "ticker": "AKRA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-19T01:10:59.347000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/AKRA/instance.zip",
-      "ticker": "AKRA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-18T08:26:26.063000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/AKRA/instance.zip",
-      "ticker": "AKRA"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -230,33 +129,6 @@
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202026/TW2/AKRA/instance.zip",
       "ticker": "AKRA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-27T09:34:39.097000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/AMMN/instance.zip",
-      "ticker": "AMMN"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-20T14:28:26.063000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/AMMN/instance.zip",
-      "ticker": "AMMN"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-26T10:56:59.467000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/AMMN/instance.zip",
-      "ticker": "AMMN"
     },
     {
       "audit_status": "UNAUDITED",
@@ -283,33 +155,6 @@
       "published_at": "2023-03-31T15:19:08.697000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/AMRT/instance.zip",
-      "ticker": "AMRT"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-04-22T09:36:22.907000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/AMRT/instance.zip",
-      "ticker": "AMRT"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-21T13:26:06.037000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/AMRT/instance.zip",
-      "ticker": "AMRT"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-27T09:36:44.987000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/AMRT/instance.zip",
       "ticker": "AMRT"
     },
     {
@@ -340,33 +185,6 @@
       "ticker": "ANTM"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-29T09:53:25.767000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/ANTM/instance.zip",
-      "ticker": "ANTM"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-04-08T19:11:27.713000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/ANTM/instance.zip",
-      "ticker": "ANTM"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-31T21:33:28.083000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/ANTM/instance.zip",
-      "ticker": "ANTM"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q1",
       "period_end": "2026-03-31",
@@ -391,33 +209,6 @@
       "published_at": "2023-02-27T17:56:11.097000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/ASII/instance.zip",
-      "ticker": "ASII"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-02-27T19:15:43.113000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/ASII/instance.zip",
-      "ticker": "ASII"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-02-27T16:27:21.737000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/ASII/instance.zip",
-      "ticker": "ASII"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-02-27T00:22:09.663000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/ASII/instance.zip",
       "ticker": "ASII"
     },
     {
@@ -448,33 +239,6 @@
       "ticker": "BBCA"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-01-25T17:15:26.333000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/BBCA/instance.zip",
-      "ticker": "BBCA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-01-23T17:30:34.603000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/BBCA/instance.zip",
-      "ticker": "BBCA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-01-27T16:39:15.333000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/BBCA/instance.zip",
-      "ticker": "BBCA"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -499,33 +263,6 @@
       "published_at": "2023-01-24T19:22:05.327000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/BBNI/instance.zip",
-      "ticker": "BBNI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-02-21T16:32:39.020000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/BBNI/instance.zip",
-      "ticker": "BBNI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-01-22T19:52:13.833000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/BBNI/instance.zip",
-      "ticker": "BBNI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-02-03T20:08:05.427000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/BBNI/instance.zip",
       "ticker": "BBNI"
     },
     {
@@ -556,33 +293,6 @@
       "ticker": "BBRI"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-02-23T20:40:58.033000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/BBRI/instance.zip",
-      "ticker": "BBRI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-02-12T18:00:23.397000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/BBRI/instance.zip",
-      "ticker": "BBRI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-02-26T23:51:34.097000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/BBRI/instance.zip",
-      "ticker": "BBRI"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q1",
       "period_end": "2026-03-31",
@@ -607,33 +317,6 @@
       "published_at": "2023-02-18T09:03:02.677000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/BBTN/instance.zip",
-      "ticker": "BBTN"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-05T23:23:10.557000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/BBTN/instance.zip",
-      "ticker": "BBTN"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-02-13T10:42:23.557000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/BBTN/instance.zip",
-      "ticker": "BBTN"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-02-11T08:53:58.767000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/BBTN/instance.zip",
       "ticker": "BBTN"
     },
     {
@@ -664,33 +347,6 @@
       "ticker": "BMRI"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-02-22T10:29:04.197000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/BMRI/instance.zip",
-      "ticker": "BMRI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-02-06T18:26:31.877000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/BMRI/instance.zip",
-      "ticker": "BMRI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-02-20T11:52:18.117000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/BMRI/instance.zip",
-      "ticker": "BMRI"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -715,33 +371,6 @@
       "published_at": "2023-03-31T16:27:54.227000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/BRPT/instance.zip",
-      "ticker": "BRPT"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-04-01T13:54:40.273000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/BRPT/instance.zip",
-      "ticker": "BRPT"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-17T07:17:46.737000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/BRPT/instance.zip",
-      "ticker": "BRPT"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-31T10:30:08.077000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/BRPT/instance.zip",
       "ticker": "BRPT"
     },
     {
@@ -772,33 +401,6 @@
       "ticker": "BUMI"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-28T15:54:20.337000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/BUMI/instance.zip",
-      "ticker": "BUMI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-27T14:54:08.087000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/BUMI/instance.zip",
-      "ticker": "BUMI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-30T10:02:22.203000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/BUMI/instance.zip",
-      "ticker": "BUMI"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -826,33 +428,6 @@
       "ticker": "CPIN"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-26T05:02:50.693000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/CPIN/instance.zip",
-      "ticker": "CPIN"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-18T21:13:18.393000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/CPIN/instance.zip",
-      "ticker": "CPIN"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-17T16:00:29.063000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/CPIN/instance.zip",
-      "ticker": "CPIN"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -860,33 +435,6 @@
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202026/TW2/CPIN/instance.zip",
       "ticker": "CPIN"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-05-17T11:01:23.207000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/CUAN/instance.zip",
-      "ticker": "CUAN"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-07T15:03:21.137000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/CUAN/instance.zip",
-      "ticker": "CUAN"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-30T20:32:13.393000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/CUAN/instance.zip",
-      "ticker": "CUAN"
     },
     {
       "audit_status": "UNAUDITED",
@@ -913,33 +461,6 @@
       "published_at": "2023-04-11T13:16:27.163000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/DEWA/instance.zip",
-      "ticker": "DEWA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-04-18T14:27:45.487000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/DEWA/instance.zip",
-      "ticker": "DEWA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-25T16:58:08.067000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/DEWA/instance.zip",
-      "ticker": "DEWA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-26T21:04:10.227000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/DEWA/instance.zip",
       "ticker": "DEWA"
     },
     {
@@ -970,33 +491,6 @@
       "ticker": "EMTK"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-04-03T20:34:24.457000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/EMTK/instance.zip",
-      "ticker": "EMTK"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-21T08:32:56.797000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/EMTK/instance.zip",
-      "ticker": "EMTK"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-25T22:20:56.563000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/EMTK/instance.zip",
-      "ticker": "EMTK"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -1021,33 +515,6 @@
       "published_at": "2023-02-20T12:05:03.933000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/ESSA/instance.zip",
-      "ticker": "ESSA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-02-27T19:12:18.057000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/ESSA/instance.zip",
-      "ticker": "ESSA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-02-21T15:33:51.057000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/ESSA/instance.zip",
-      "ticker": "ESSA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-06T17:32:08.523000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/ESSA/instance.zip",
       "ticker": "ESSA"
     },
     {
@@ -1078,33 +545,6 @@
       "ticker": "EXCL"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-02-29T20:24:29.377000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/EXCL/instance.zip",
-      "ticker": "EXCL"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-02-05T12:45:53.063000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/EXCL/instance.zip",
-      "ticker": "EXCL"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-02-13T08:56:45.227000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/EXCL/instance.zip",
-      "ticker": "EXCL"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -1129,33 +569,6 @@
       "published_at": "2023-04-01T01:58:16.027000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/GOTO/instance.zip",
-      "ticker": "GOTO"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-19T16:35:21.637000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/GOTO/instance.zip",
-      "ticker": "GOTO"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-12T16:46:04.167000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/GOTO/instance.zip",
-      "ticker": "GOTO"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-11T16:33:19.903000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/GOTO/instance.zip",
       "ticker": "GOTO"
     },
     {
@@ -1186,33 +599,6 @@
       "ticker": "HRTA"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-25T19:46:33.517000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/HRTA/instance.zip",
-      "ticker": "HRTA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-27T17:48:24.717000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/HRTA/instance.zip",
-      "ticker": "HRTA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-27T10:49:46.853000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/HRTA/instance.zip",
-      "ticker": "HRTA"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -1237,33 +623,6 @@
       "published_at": "2023-03-27T17:29:21.433000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/ICBP/instance.zip",
-      "ticker": "ICBP"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-25T16:32:25.873000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/ICBP/instance.zip",
-      "ticker": "ICBP"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-25T15:58:02.583000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/ICBP/instance.zip",
-      "ticker": "ICBP"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-30T19:03:59.633000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/ICBP/instance.zip",
       "ticker": "ICBP"
     },
     {
@@ -1294,33 +653,6 @@
       "ticker": "INCO"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-06-03T16:08:19.607000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/INCO/instance.zip",
-      "ticker": "INCO"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-04-09T21:14:41.417000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/INCO/instance.zip",
-      "ticker": "INCO"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-16T20:18:42.393000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/INCO/instance.zip",
-      "ticker": "INCO"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -1345,33 +677,6 @@
       "published_at": "2023-03-27T17:32:01.387000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/INDF/instance.zip",
-      "ticker": "INDF"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-25T16:30:22.907000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/INDF/instance.zip",
-      "ticker": "INDF"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-25T15:58:09.050000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/INDF/instance.zip",
-      "ticker": "INDF"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-30T19:08:23.037000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/INDF/instance.zip",
       "ticker": "INDF"
     },
     {
@@ -1402,33 +707,6 @@
       "ticker": "INDY"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-04-17T20:51:47.857000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/INDY/instance.zip",
-      "ticker": "INDY"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-27T23:12:51.087000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/INDY/instance.zip",
-      "ticker": "INDY"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-31T20:12:05.657000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/INDY/instance.zip",
-      "ticker": "INDY"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -1453,33 +731,6 @@
       "published_at": "2023-03-13T09:30:36.040000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/INKP/instance.zip",
-      "ticker": "INKP"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-04-01T17:43:28.023000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/INKP/instance.zip",
-      "ticker": "INKP"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-27T21:45:55.873000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/INKP/instance.zip",
-      "ticker": "INKP"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-17T23:33:07.263000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/INKP/instance.zip",
       "ticker": "INKP"
     },
     {
@@ -1510,33 +761,6 @@
       "ticker": "ISAT"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-02-23T17:35:59.013000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/ISAT/instance.zip",
-      "ticker": "ISAT"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-02-10T12:57:41.073000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/ISAT/instance.zip",
-      "ticker": "ISAT"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-02-09T11:28:03.027000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/ISAT/instance.zip",
-      "ticker": "ISAT"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -1561,33 +785,6 @@
       "published_at": "2023-02-22T21:58:38.167000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/ITMG/instance.zip",
-      "ticker": "ITMG"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-02-21T20:42:42.517000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/ITMG/instance.zip",
-      "ticker": "ITMG"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-02-26T21:09:56.837000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/ITMG/instance.zip",
-      "ticker": "ITMG"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-02-25T21:48:04.727000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/ITMG/instance.zip",
       "ticker": "ITMG"
     },
     {
@@ -1618,33 +815,6 @@
       "ticker": "JPFA"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-01T17:23:51.617000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/JPFA/instance.zip",
-      "ticker": "JPFA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-02-28T17:33:50.077000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/JPFA/instance.zip",
-      "ticker": "JPFA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-02-28T21:06:23.047000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/JPFA/instance.zip",
-      "ticker": "JPFA"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -1669,33 +839,6 @@
       "published_at": "2023-04-11T18:15:13.687000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/KLBF/instance.zip",
-      "ticker": "KLBF"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-28T21:51:14.027000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/KLBF/instance.zip",
-      "ticker": "KLBF"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-28T10:03:37.183000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/KLBF/instance.zip",
-      "ticker": "KLBF"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-30T16:15:59.653000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/KLBF/instance.zip",
       "ticker": "KLBF"
     },
     {
@@ -1726,33 +869,6 @@
       "ticker": "MAPI"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-28T19:53:12.957000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/MAPI/instance.zip",
-      "ticker": "MAPI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-26T20:56:48.157000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/MAPI/instance.zip",
-      "ticker": "MAPI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-30T18:10:41.677000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/MAPI/instance.zip",
-      "ticker": "MAPI"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -1760,33 +876,6 @@
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202026/TW2/MAPI/instance.zip",
       "ticker": "MAPI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-27T21:28:26.897000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/MBMA/instance.zip",
-      "ticker": "MBMA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-04-07T13:56:49.397000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/MBMA/instance.zip",
-      "ticker": "MBMA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-30T21:30:48.507000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/MBMA/instance.zip",
-      "ticker": "MBMA"
     },
     {
       "audit_status": "UNAUDITED",
@@ -1813,33 +902,6 @@
       "published_at": "2023-04-29T12:40:11.103000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/MDKA/instance.zip",
-      "ticker": "MDKA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-27T20:03:55.793000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/MDKA/instance.zip",
-      "ticker": "MDKA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-04-07T14:47:54.617000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/MDKA/instance.zip",
-      "ticker": "MDKA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-30T21:53:42.307000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/MDKA/instance.zip",
       "ticker": "MDKA"
     },
     {
@@ -1870,33 +932,6 @@
       "ticker": "MEDC"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-04-02T11:22:51.027000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/MEDC/instance.zip",
-      "ticker": "MEDC"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-28T17:24:59.060000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/MEDC/instance.zip",
-      "ticker": "MEDC"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-04-02T04:38:43.353000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/MEDC/instance.zip",
-      "ticker": "MEDC"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q1",
       "period_end": "2026-03-31",
@@ -1904,33 +939,6 @@
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202026/TW1/MEDC/instance.zip",
       "ticker": "MEDC"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-04-01T16:19:30.083000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/NCKL/instance.zip",
-      "ticker": "NCKL"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-25T16:28:11.057000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/NCKL/instance.zip",
-      "ticker": "NCKL"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-05-26T16:25:24.803000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/NCKL/instance.zip",
-      "ticker": "NCKL"
     },
     {
       "audit_status": "UNAUDITED",
@@ -1960,33 +968,6 @@
       "ticker": "PGAS"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-13T08:41:00.027000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/PGAS/instance.zip",
-      "ticker": "PGAS"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-26T10:41:56.483000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/PGAS/instance.zip",
-      "ticker": "PGAS"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-06T16:39:33.037000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/PGAS/instance.zip",
-      "ticker": "PGAS"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q1",
       "period_end": "2026-03-31",
@@ -2002,33 +983,6 @@
       "published_at": "2023-03-31T11:32:49.037000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/PGEO/instance.zip",
-      "ticker": "PGEO"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-01T01:54:27.013000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/PGEO/instance.zip",
-      "ticker": "PGEO"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-25T13:53:29.033000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/PGEO/instance.zip",
-      "ticker": "PGEO"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-08T15:01:06.857000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/PGEO/instance.zip",
       "ticker": "PGEO"
     },
     {
@@ -2059,33 +1013,6 @@
       "ticker": "PTBA"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-04T23:50:24.007000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/PTBA/instance.zip",
-      "ticker": "PTBA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-30T09:24:03.033000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/PTBA/instance.zip",
-      "ticker": "PTBA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-31T21:56:24.007000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/PTBA/instance.zip",
-      "ticker": "PTBA"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q1",
       "period_end": "2026-03-31",
@@ -2110,33 +1037,6 @@
       "published_at": "2023-03-31T17:01:03.033000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/SCMA/instance.zip",
-      "ticker": "SCMA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-29T11:23:26.043000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/SCMA/instance.zip",
-      "ticker": "SCMA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-03-17T18:05:34.060000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/SCMA/instance.zip",
-      "ticker": "SCMA"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-25T16:36:43.157000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/SCMA/instance.zip",
       "ticker": "SCMA"
     },
     {
@@ -2167,33 +1067,6 @@
       "ticker": "TLKM"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-25T10:40:42.797000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/TLKM/instance.zip",
-      "ticker": "TLKM"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-04-18T05:14:52.547000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/TLKM/instance.zip",
-      "ticker": "TLKM"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-05-12T06:54:14.927000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/TLKM/instance.zip",
-      "ticker": "TLKM"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -2218,33 +1091,6 @@
       "published_at": "2023-02-27T16:40:21.067000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/UNTR/instance.zip",
-      "ticker": "UNTR"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-02-27T15:00:02.097000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/UNTR/instance.zip",
-      "ticker": "UNTR"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-02-27T16:15:53.513000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/UNTR/instance.zip",
-      "ticker": "UNTR"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-02-27T00:11:55.827000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/UNTR/instance.zip",
       "ticker": "UNTR"
     },
     {
@@ -2275,33 +1121,6 @@
       "ticker": "UNVR"
     },
     {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-03-01T13:05:09.657000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/UNVR/instance.zip",
-      "ticker": "UNVR"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-02-13T07:43:26.247000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/UNVR/instance.zip",
-      "ticker": "UNVR"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-02-26T07:35:37.217000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/UNVR/instance.zip",
-      "ticker": "UNVR"
-    },
-    {
       "audit_status": "UNAUDITED",
       "filing_type": "Q2",
       "period_end": "2026-06-30",
@@ -2326,33 +1145,6 @@
       "published_at": "2023-05-26T16:01:43.027000+07:00",
       "restatement_version": 1,
       "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202022/Audit/WIFI/instance.zip",
-      "ticker": "WIFI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2023-12-31",
-      "published_at": "2024-04-16T11:29:04.090000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202023/Audit/WIFI/instance.zip",
-      "ticker": "WIFI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2024-12-31",
-      "published_at": "2025-07-10T10:48:10.683000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202024/Audit/WIFI/instance.zip",
-      "ticker": "WIFI"
-    },
-    {
-      "audit_status": "AUDITED",
-      "filing_type": "ANNUAL",
-      "period_end": "2025-12-31",
-      "published_at": "2026-03-25T11:00:49.137000+07:00",
-      "restatement_version": 1,
-      "source_url": "https://www.idx.id/Portals/0/StaticData/ListedCompanies/Corporate_Actions/New_Info_JSX/Jenis_Informasi/01_Laporan_Keuangan/02_Soft_Copy_Laporan_Keuangan//Laporan%20Keuangan%20Tahun%202025/Audit/WIFI/instance.zip",
       "ticker": "WIFI"
     },
     {
