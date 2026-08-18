@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from analysis.scan_v2 import _quant_is_fresh
-from operations.research_cli import automatic_idx_period, run_daily_research
+from operations.research_cli import automatic_idx_period, discovery_blockers, run_daily_research
 from operations.research_release import calculation_digest, load_release
 
 
@@ -59,6 +59,16 @@ class CalendarPolicyTests(unittest.TestCase):
     def test_idx_period_is_derived_without_manual_inputs(self):
         self.assertEqual(automatic_idx_period("2026-08-18T00:00:00Z"), (2026, "tw2"))
         self.assertEqual(automatic_idx_period("2026-02-01T00:00:00Z"), (2025, "tw3"))
+
+    def test_historical_ipo_gaps_do_not_block_manifest_review(self):
+        discovery = {
+            "current_period_missing": [],
+            "annual_missing": {"2021": ["AADI", "AMMN"], "2022": ["AADI"]},
+            "prior_annual_missing": ["AADI"],
+        }
+        self.assertEqual(discovery_blockers(discovery), [])
+        discovery["current_period_missing"] = ["BBCA"]
+        self.assertEqual(discovery_blockers(discovery), ["BBCA"])
 
 
 class DailyOrchestrationTests(unittest.TestCase):
