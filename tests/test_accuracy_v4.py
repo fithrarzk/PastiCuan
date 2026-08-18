@@ -14,6 +14,7 @@ from analysis.business import compute_business_scores
 from analysis.factor_dataset import _ttm
 from analysis.outcomes import evaluate_signal_window
 from analysis.scan_snapshots import ScanResearchSnapshot, signed_scan_snapshot
+from analysis.snapshots import ResearchSnapshot
 from analysis.scan_v2 import planned_entry_risk_reward
 from analysis.seasonality import compute_seasonality
 from data.providers import ProviderResult, ProviderRouter
@@ -93,6 +94,20 @@ class ExecutionAccuracyTests(unittest.TestCase):
 
 
 class OperationalAccuracyTests(unittest.TestCase):
+    def test_signed_snapshot_converts_non_finite_metadata_to_json_null(self):
+        base = ResearchSnapshot(
+            snapshot_id="nan-regression", effective_at="2026-08-18T10:00:00+00:00",
+            created_at="2026-08-18T10:00:00+00:00", model_version="test",
+            model_status="CANDIDATE", constituents=["BBCA"],
+            rankings={"BBCA": {"issuer_profile_source": float("nan"),
+                                "business_score": np.float64("nan")}},
+        )
+        snapshot = ResearchSnapshot(**{**base.unsigned_dict(), "checksum": base.calculated_checksum()})
+        payload = snapshot.to_dict()
+        self.assertIsNone(payload["rankings"]["BBCA"]["issuer_profile_source"])
+        self.assertIsNone(payload["rankings"]["BBCA"]["business_score"])
+        snapshot.validate(approved_only=False)
+
     def test_provider_router_falls_back_and_opens_circuit(self):
         records = []
         calls = {"official": 0}

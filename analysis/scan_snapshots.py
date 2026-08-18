@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from analysis.contracts import ScanBundle
+from analysis.contracts import _json_safe
 
 
 SCAN_SCHEMA_VERSION = "4.0"
@@ -24,7 +25,7 @@ JAKARTA = ZoneInfo("Asia/Jakarta")
 
 
 def _canonical(value: dict[str, Any]) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"),
+    return json.dumps(_json_safe(value), sort_keys=True, separators=(",", ":"),
                       ensure_ascii=True, allow_nan=False).encode()
 
 
@@ -68,14 +69,15 @@ class ScanResearchSnapshot:
         payload.pop("signature", None)
         payload.pop("signing_key_id", None)
         payload.pop("verified_session_age", None)
-        return payload
+        return _json_safe(payload)
 
     def calculated_checksum(self) -> str:
         return hashlib.sha256(_canonical(self.unsigned_dict())).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
-        return {**self.unsigned_dict(), "signature": self.signature, "signing_key_id": self.signing_key_id,
-                "checksum": self.checksum or self.calculated_checksum()}
+        return _json_safe({**self.unsigned_dict(), "signature": self.signature,
+                           "signing_key_id": self.signing_key_id,
+                           "checksum": self.checksum or self.calculated_checksum()})
 
     def validate(self) -> None:
         if self.schema_version not in SUPPORTED_SCAN_SCHEMA_VERSIONS:
