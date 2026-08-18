@@ -55,10 +55,20 @@ def build_snapshot(input_path: str, output_path: str, effective_at: str, model_v
             for row in json.loads(business["scores"].to_json(orient="records"))
         }
     rankings = {}
+    evidence_columns = ("issuer_profile", "issuer_profile_source", "issuer_profile_checksum",
+                        "annual_history_years", "financial_periods",
+                        "source_documents", "source_urls", "share_count_source", "currency_status")
+    input_evidence = {
+        str(row["ticker"]).upper().replace(".JK", ""): {
+            key: row.get(key) for key in evidence_columns if key in frame.columns
+        }
+        for row in frame.to_dict("records")
+    }
     for row in json.loads(result["scores"].to_json(orient="records")):
         ticker = str(row.pop("ticker")).upper().replace(".JK", "")
-        rankings[ticker] = {**row, **{key: value for key, value in business_map.get(ticker, {}).items()
-                                     if key != "ticker"}}
+        rankings[ticker] = {**row, **input_evidence.get(ticker, {}),
+                            **{key: value for key, value in business_map.get(ticker, {}).items()
+                               if key != "ticker"}}
     warnings = list(result.get("warnings", []))
     if "share_count_source" in frame and (frame["share_count_source"] == "idx_xbrl_implied_weighted_average").any():
         warnings.append(
@@ -70,7 +80,7 @@ def build_snapshot(input_path: str, output_path: str, effective_at: str, model_v
         created_at=datetime.now(timezone.utc).isoformat(), model_version=model_version,
         model_status="CANDIDATE", constituents=sorted(rankings), rankings=rankings,
         warnings=warnings, sources=[provenance] if provenance else [],
-        formula_version=formula_version or "lq45-cross-section-v4+business-quality-v1",
+        formula_version=formula_version or "lq45-cross-section-v4+business-quality-v2",
     )
     write_snapshot(snapshot, output_path, allow_candidate=True)
     return snapshot
@@ -169,10 +179,24 @@ def ingest_idx_xbrl_manifest(path: str, *, archive_directory: str | None, use_r2
             imported = repository.import_canonical_records(
                 "statement_facts_csv", parsed["facts"], source_class="official",
             )
+            profile_status = "UNVERIFIED"
+            profile_label = parsed["diagnostics"].get("industry") or parsed["diagnostics"].get("sector")
+            if profile_label:
+                try:
+                    profile_status = repository.verify_issuer_profile(
+                        source["ticker"], sector=profile_label,
+                        source_url=source["source_url"], checksum=artifact.checksum,
+                        available_at=source["published_at"],
+                    ).upper()
+                except ValueError as profile_error:
+                    repository.record_ingestion_issue(
+                        artifact_id, "ISSUER_PROFILE_REVIEW_REQUIRED", str(profile_error),
+                    )
             repository.set_artifact_status(artifact_id, "ACCEPTED")
             report.append({
                 **artifact.to_dict(), "ticker": source["ticker"], "status": "ACCEPTED",
-                "record_count": imported, "diagnostics": parsed["diagnostics"],
+                "record_count": imported, "issuer_profile": profile_status,
+                "diagnostics": parsed["diagnostics"],
             })
         except Exception as exc:
             if artifact_id:
@@ -183,7 +207,9 @@ def ingest_idx_xbrl_manifest(path: str, *, archive_directory: str | None, use_r2
     return report
 
 
-def discover_idx_manifest(output_path: str, *, as_of: str, year: int, period: str) -> dict:
+def discover_idx_manifest(output_path: str, *, as_of: str, year: int, period: str,
+                          annual_start_year: int | None = None,
+                          annual_end_year: int | None = None) -> dict:
     from storage.database import connect_from_env
     from storage.repository import SnapshotRepository
     repository = SnapshotRepository(lambda: connect_from_env(writer=True))
@@ -192,6 +218,7 @@ def discover_idx_manifest(output_path: str, *, as_of: str, year: int, period: st
         raise ValueError(f"Official discovery requires exactly 45 effective LQ45 issuers; found {len(issuers)}.")
     manifest = discover_idx_xbrl_manifest(
         [issuer["ticker"] for issuer in issuers], year=year, period=period,
+        annual_start_year=annual_start_year, annual_end_year=annual_end_year,
     )
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(json.dumps(manifest, indent=2, sort_keys=True))
@@ -254,12 +281,21 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
         if (value := finite_value(row, "raw_component_coverage_pct", "coverage_pct")) is not None
     })
     required_eligible = math.ceil(expected * 0.90)
+    accuracy_v2 = "business-quality-v2" in str(snapshot.formula_version)
+    verified_profiles = [ticker for ticker, row in snapshot.rankings.items()
+                         if str(row.get("issuer_profile") or "").upper() in {"GENERAL", "BANK"}
+                         and row.get("issuer_profile_checksum")]
+    business_scored = [ticker for ticker, row in snapshot.rankings.items()
+                       if finite_value(row, "business_score") is not None]
     checks = {
         "candidate_status": snapshot.model_status == "CANDIDATE",
         "exact_lq45_universe": len(snapshot.constituents) == expected,
         "rankings_match_constituents": set(snapshot.rankings) == set(snapshot.constituents),
         "eligible_quant_rows": len(eligible) >= required_eligible,
     }
+    if accuracy_v2:
+        checks["verified_issuer_profiles"] = len(verified_profiles) == expected
+        checks["eligible_business_rows"] = len(business_scored) >= required_eligible
     return {
         "ready": all(checks.values()), "checks": checks,
         "constituent_count": len(snapshot.constituents), "eligible_count": len(eligible),
@@ -268,6 +304,8 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
         "factor_score_counts": factor_score_counts,
         "factor_coverage_values": factor_coverage_values,
         "raw_coverage_values": raw_coverage_values,
+        "verified_profile_count": len(verified_profiles),
+        "business_scored_count": len(business_scored),
         "required_eligible_count": required_eligible,
     }
 
@@ -677,6 +715,8 @@ def main(argv=None) -> int:
     discover_idx.add_argument("--output", required=True); discover_idx.add_argument("--as-of", required=True)
     discover_idx.add_argument("--year", type=int)
     discover_idx.add_argument("--period", default="auto", choices=["auto", "tw1", "tw2", "tw3"])
+    discover_idx.add_argument("--annual-start-year", type=int)
+    discover_idx.add_argument("--annual-end-year", type=int)
     backup = sub.add_parser("backup")
     backup.add_argument("--output", required=True); backup.add_argument("--r2", action="store_true")
     publish = sub.add_parser("publish-snapshot")
@@ -732,6 +772,8 @@ def main(argv=None) -> int:
                         else (args.year or pd.Timestamp(args.as_of).year, args.period))
         manifest = discover_idx_manifest(
             args.output, as_of=args.as_of, year=year, period=period,
+            annual_start_year=args.annual_start_year,
+            annual_end_year=args.annual_end_year,
         )
         missing = manifest["discovery"]["current_period_missing"] + manifest["discovery"]["prior_annual_missing"]
         print(json.dumps(manifest["discovery"], sort_keys=True))

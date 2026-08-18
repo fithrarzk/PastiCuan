@@ -19,8 +19,8 @@ from time import monotonic
 from typing import Any
 
 
-SNAPSHOT_SCHEMA_VERSION = "2.0"
-SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS = {"1.0", "2.0"}
+SNAPSHOT_SCHEMA_VERSION = "3.0"
+SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS = {"1.0", "2.0", "3.0"}
 APPROVED_STATUSES = {"SHADOW", "VALIDATED_RESEARCH"}
 
 
@@ -37,7 +37,7 @@ class ResearchSnapshot:
     model_version: str
     model_status: str
     universe: str = "LQ45"
-    formula_version: str = "lq45-cross-section-v4+business-quality-v1"
+    formula_version: str = "lq45-cross-section-v4+business-quality-v2"
     schema_version: str = SNAPSHOT_SCHEMA_VERSION
     validation_run_id: str | None = None
     constituents: list[str] = field(default_factory=list)

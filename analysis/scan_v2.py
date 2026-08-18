@@ -16,6 +16,7 @@ import pandas as pd
 
 from analysis.scan_snapshots import ScanResearchSnapshot, signed_scan_snapshot
 from analysis.scanner import _fetch_base, _liquidity_score
+from analysis.buy_range import build_buy_range
 from data.extended import get_extended_data
 
 
@@ -216,8 +217,15 @@ def score_candidate(base: dict, quant_row: dict | None, *, primary: bool) -> tup
         "composite_score": ranking_score,
         "business_score": business_score,
         "business_state": business_state,
-        "business_components": {name: (quant_row or {}).get(f"{name}_score")
-                                for name in ("quality", "valuation", "durability", "resilience")},
+        "issuer_profile": (quant_row or {}).get("issuer_profile", "UNVERIFIED"),
+        "business_model": (quant_row or {}).get("business_model", "NONE"),
+        "annual_history_years": (quant_row or {}).get("annual_history_years", 0),
+        "history_confidence": (quant_row or {}).get("history_confidence", "LIMITED"),
+        "business_components": {
+            name: (quant_row or {}).get(f"{name}_score") for name in
+            ("quality", "valuation", "durability", "resilience", "bank_profitability",
+             "bank_asset_quality", "bank_capital", "bank_funding", "bank_valuation")
+        },
         "technical_score": technical,
         "technical_components": base.get("technical_components", {}),
         "technical_indicators": base.get("technical_indicators", {}),
@@ -248,6 +256,11 @@ def score_candidate(base: dict, quant_row: dict | None, *, primary: bool) -> tup
             "quant_raw": raw_quant_coverage if quant is not None else 0,
             "fundamental": fundamental_coverage,
         },
+        "financial_periods": (quant_row or {}).get("financial_periods", []),
+        "source_documents": (quant_row or {}).get("source_documents", []),
+        "source_urls": (quant_row or {}).get("source_urls", []),
+        "issuer_profile_source": (quant_row or {}).get("issuer_profile_source"),
+        "issuer_profile_checksum": (quant_row or {}).get("issuer_profile_checksum"),
         "source": "Yahoo Finance OHLCV fallback + approved point-in-time quant" if primary else "Yahoo Finance OHLCV fallback",
         "policy_label": "RESEARCH_ONLY",
     }, None
@@ -418,6 +431,24 @@ def build_full_lq45_scan(
     mode = "PRIMARY" if primary else "DEGRADED"
     candidates = []
     for base in same_session:
+        try:
+            bands = repository.valuation_bands_for_ticker(
+                base["ticker"], base.get("_history"), observed.isoformat(),
+            )
+        except (AttributeError, KeyError, ValueError):
+            bands = {"status": "INSUFFICIENT_POINT_IN_TIME_DATA", "pe": None, "pbv": None}
+        if bands.get("status") == "AVAILABLE":
+            base["buy_range"] = build_buy_range(
+                {"current_price": base.get("current_price"), "support": base.get("support"),
+                 "atr": base.get("atr"), "stop_loss": base.get("stop_loss"),
+                 "take_profit": base.get("take_profit"), "risk_reward": base.get("risk_reward"),
+                 "technical_score": base.get("technical_score"),
+                 "rsi": (base.get("technical_indicators") or {}).get("rsi")},
+                {"pe_status": "AVAILABLE" if bands.get("pe") else "INSUFFICIENT_DATA",
+                 "pbv_status": "AVAILABLE" if bands.get("pbv") else "INSUFFICIENT_DATA",
+                 "authoritative_source": True, "source": "Official IDX XBRL point-in-time"},
+                bands, data_usable=bool(base.get("data_usable")),
+            )
         candidate, reason = score_candidate(base, quant_map.get(base["ticker"]), primary=primary)
         if candidate:
             candidates.append(candidate)

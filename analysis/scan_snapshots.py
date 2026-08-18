@@ -17,8 +17,8 @@ import pandas as pd
 from analysis.contracts import ScanBundle
 
 
-SCAN_SCHEMA_VERSION = "3.0"
-SUPPORTED_SCAN_SCHEMA_VERSIONS = {"2.0", "3.0"}
+SCAN_SCHEMA_VERSION = "4.0"
+SUPPORTED_SCAN_SCHEMA_VERSIONS = {"2.0", "3.0", "4.0"}
 SCAN_MODES = {"PRIMARY", "DEGRADED", "UNAVAILABLE"}
 JAKARTA = ZoneInfo("Asia/Jakarta")
 
@@ -55,7 +55,7 @@ class ScanResearchSnapshot:
     quant_snapshot_id: str | None = None
     model_status: str = "SHADOW"
     source_summary: dict[str, Any] = field(default_factory=dict)
-    formula_version: str = "quality-first-scan-v4"
+    formula_version: str = "quality-first-scan-v5"
     schema_version: str = SCAN_SCHEMA_VERSION
     signature: str | None = None
     signing_key_id: str | None = None

@@ -4,6 +4,7 @@ DO $$ BEGIN CREATE ROLE pasticuan_validator NOLOGIN; EXCEPTION WHEN duplicate_ob
 DO $$ BEGIN CREATE ROLE pasticuan_bot NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 GRANT USAGE ON SCHEMA public TO pasticuan_ingest, pasticuan_validator, pasticuan_bot;
+GRANT SELECT ON schema_migrations TO pasticuan_ingest, pasticuan_validator, pasticuan_bot;
 GRANT SELECT, INSERT, UPDATE ON source_artifacts, ingestion_issues, issuers, index_constituents,
   market_sessions, market_bars, corporate_actions, filings, statement_facts, shares_history,
   fx_rates, policy_rates, provider_runs, research_job_runs, disclosure_events TO pasticuan_ingest;

@@ -40,6 +40,18 @@ SCHEMAS = {
     "market_sessions_csv": {
         "exchange", "session_date", "status",
     },
+    "issuer_profiles_csv": {
+        "ticker", "legal_name", "sector", "issuer_type", "currency",
+        "available_at", "source_url", "checksum",
+    },
+    "disclosure_events_csv": {
+        "ticker", "event_type", "published_at", "available_at", "title",
+        "source_url", "checksum",
+    },
+    "policy_rates_csv": {
+        "observation_date", "rate_name", "annual_rate", "available_at",
+        "source_url", "checksum",
+    },
 }
 
 

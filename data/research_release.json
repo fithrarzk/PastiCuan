@@ -11,9 +11,9 @@
     "analysis/valuation_bands.py",
     "data/validation.py"
   ],
-  "calculation_revision": 1,
-  "formula_version": "lq45-cross-section-v4+business-quality-v1",
-  "model_version": "lq45-factor-v1-shadow",
-  "release_id": "idx-eod-v4-shadow-r1",
+  "calculation_revision": 2,
+  "formula_version": "lq45-cross-section-v4+business-quality-v2",
+  "model_version": "lq45-factor-v2-shadow",
+  "release_id": "idx-eod-v4-shadow-r2",
   "status": "SHADOW"
 }
