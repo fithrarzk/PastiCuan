@@ -60,12 +60,14 @@ class ScanResearchSnapshot:
     signature: str | None = None
     signing_key_id: str | None = None
     checksum: str = ""
+    verified_session_age: int | None = field(default=None, repr=False, compare=False)
 
     def unsigned_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload.pop("checksum", None)
         payload.pop("signature", None)
         payload.pop("signing_key_id", None)
+        payload.pop("verified_session_age", None)
         return payload
 
     def calculated_checksum(self) -> str:
@@ -122,7 +124,9 @@ class ScanResearchSnapshot:
 
         mode = self.mode
         warnings = list(self.warnings)
-        if _business_session_age(self.session_date, today) > 2:
+        session_age = (self.verified_session_age if self.verified_session_age is not None
+                       else _business_session_age(self.session_date, today))
+        if session_age > 2:
             mode = "UNAVAILABLE"
             candidates = []
             warnings.insert(0, "The latest scan is more than two completed business sessions old.")

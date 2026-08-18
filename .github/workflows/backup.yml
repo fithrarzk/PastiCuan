@@ -1,0 +1,40 @@
+name: supabase-backup
+
+on:
+  schedule:
+    - cron: "0 20 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_WRITER_DATABASE_URL: ${{ secrets.SUPABASE_WRITER_DATABASE_URL }}
+      R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-jobs.txt
+      - name: Check optional backup configuration
+        id: configured
+        run: |
+          if [[ -n "$SUPABASE_WRITER_DATABASE_URL" && -n "$R2_BUCKET" && -n "$BACKUP_ENCRYPTION_KEY" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Backup skipped because the optional Supabase/R2 encryption configuration is incomplete." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Export, encrypt and upload
+        if: steps.configured.outputs.enabled == 'true'
+        run: python -m operations.research_cli backup --output "/tmp/pasticuan-$(date -u +%Y-%m-%d).dump" --r2

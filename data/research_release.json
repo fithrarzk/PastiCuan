@@ -1,0 +1,19 @@
+{
+  "calculation_paths": [
+    "analysis/business.py",
+    "analysis/buy_range.py",
+    "analysis/factor_dataset.py",
+    "analysis/fundamental.py",
+    "analysis/quant.py",
+    "analysis/scan_v2.py",
+    "analysis/scanner.py",
+    "analysis/technical.py",
+    "analysis/valuation_bands.py",
+    "data/validation.py"
+  ],
+  "calculation_revision": 1,
+  "formula_version": "lq45-cross-section-v4+business-quality-v1",
+  "model_version": "lq45-factor-v1-shadow",
+  "release_id": "idx-eod-v4-shadow-r1",
+  "status": "SHADOW"
+}

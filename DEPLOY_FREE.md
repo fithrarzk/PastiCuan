@@ -13,9 +13,11 @@ point-in-time research core without adding another Railway service:
 3. Put the read-only session-pooler URL in Railway as
    `SUPABASE_DATABASE_URL`. Never add `SUPABASE_WRITER_DATABASE_URL` to Railway.
 4. Add the writer URL and optional `R2_*` values as GitHub Actions secrets.
-5. Configure `data/source_manifest.json`, run the research workflow manually,
-   inspect its quarantine report, and approve a SHADOW snapshot before deploy.
-6. Use `/ready` to verify which snapshot the bot cached.
+5. Configure `data/source_manifest.json`, including a reviewed official
+   `market_sessions_csv` when available. Merging it triggers ingestion.
+6. Push through a pull request. Tests, Railway deployment, signed SHADOW
+   publication, the LQ45 scan, and outcome evaluation then run automatically.
+7. Use `/ready` to verify which snapshot the bot cached.
 
 Supabase Free may pause an inactive project and does not provide downloadable
 automatic backups. The bot therefore falls back to its bundled approved
@@ -222,37 +224,29 @@ For the point-in-time data pipeline:
 3. Create a Cloudflare R2 Standard bucket for original filings.
 4. Put the read-only pooler URL in Railway. Put the writer database URL, R2
    credentials, and `BACKUP_ENCRYPTION_KEY` only in GitHub Actions secrets.
-5. Run **Actions → research-core** with `discover_idx_filings` enabled and choose
-   the latest filed interim period (`tw1`, `tw2`, or `tw3`). Discovery includes
-   that cumulative interim and the prior audited annual filing for every active
-   LQ45 member, then opens a manifest-only review PR. It never imports data.
-   Review and merge the PR. If IDX blocks the automated catalog, copy the
-   official `instance.zip` URLs from its Financial Statements page into
-   `data/idx_filing_manifest.json` using the example file as the schema.
-6. Run the workflow with `ingest_idx_filings` enabled. It downloads the files
-   and archives them to R2; you do not upload them manually. Unknown schemas,
-   wrong tickers, and unsafe archives are quarantined. Review the
-   uploaded `idx-xbrl-review-*` artifact.
-7. On a new database, run the workflow once with `build_scan` enabled before
-   building the first candidate. This bootstrap may exit as UNAVAILABLE or
-   publish DEGRADED, but it persists usable three-year OHLCV with retrieval-time
-   availability so momentum and volatility are not silently absent. It never
-   publishes an unavailable snapshot.
-8. Run the workflow with `build_snapshot` enabled; this opens a candidate-only
-   pull request. Review and merge that candidate PR. Run the workflow again with
-   `publish_reviewed_shadow` enabled. Publication fails unless all 45 members
-   are present and at least 41 have three of four factor pillars (75%) plus at
-   least 70% coverage of the raw inputs used by those pillars.
-9. Confirm Supabase contains exactly 45 effective LQ45 constituents, then run
-   **Actions → research-core → Run workflow** with `build_scan` enabled. A
-   PRIMARY result additionally requires a fresh approved quant snapshot;
-   otherwise the bot correctly displays a scoreless DEGRADED watchlist.
-10. Keep the model in `SHADOW` while history accumulates. The workflow records
+5. The weekly **idx-filings** workflow automatically selects the latest expected
+   interim period and opens a manifest-only review PR. Review the tickers,
+   timestamps, periods, and official URLs, then merge it. The merge downloads,
+   validates, archives, and imports XBRL before requesting a research refresh.
+   If IDX blocks discovery, copy the official `instance.zip` URLs into the same
+   manifest and open a normal PR.
+6. Add a reviewed official IDX session-calendar CSV to `data/source_manifest.json`.
+   `SCHEDULED`, `COMPLETED`, and `HOLIDAY` rows make freshness holiday-aware;
+   without it the pipeline deliberately uses a conservative weekday estimate.
+7. Merge the implementation into `main` or manually dispatch **research-daily**
+   once. It persists three-year OHLCV first, builds and gates a temporary
+   candidate, signs and publishes SHADOW, publishes only a PRIMARY scan, and
+   evaluates matured outcomes. Failed stages keep the last verified snapshots.
+8. Normal operation is now push-and-merge only. The workflow also retries at
+   19:00, 20:00, and 21:00 WIB. Formula changes must increment the checked-in
+   release revision; database migrations and secret rotation remain manual.
+9. Keep the model in `SHADOW` while history accumulates. The workflow records
    each candidate in `scan_signals` and evaluates matured 5/20/60/252-session
    outcomes. Run validation only after at least five years of point-in-time
    history and 24 holdout months exist; a deterministic rebuild, costs, delayed
    execution, drawdown, breadth, rank-IC confidence, and information-ratio gates
-   must all pass before `VALIDATED_RESEARCH` is possible.
+   must all pass before `VALIDATED_RESEARCH` is possible. Run the separate
+   **research-validation** workflow for that evidence; it never auto-promotes.
 
 Generate the Ed25519 key pair offline. Store the base64 private key only as the
 GitHub Actions secret `SNAPSHOT_ED25519_PRIVATE_KEY`, and configure its public
