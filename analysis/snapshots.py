@@ -18,6 +18,8 @@ from threading import Lock
 from time import monotonic
 from typing import Any
 
+from analysis.contracts import _json_safe
+
 
 SNAPSHOT_SCHEMA_VERSION = "3.0"
 SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS = {"1.0", "2.0", "3.0"}
@@ -25,7 +27,7 @@ APPROVED_STATUSES = {"SHADOW", "VALIDATED_RESEARCH"}
 
 
 def _canonical(value: dict[str, Any]) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"),
+    return json.dumps(_json_safe(value), sort_keys=True, separators=(",", ":"),
                       ensure_ascii=True, allow_nan=False).encode()
 
 
@@ -53,7 +55,7 @@ class ResearchSnapshot:
         payload.pop("checksum", None)
         payload.pop("signature", None)
         payload.pop("signing_key_id", None)
-        return payload
+        return _json_safe(payload)
 
     def calculated_checksum(self) -> str:
         return hashlib.sha256(_canonical(self.unsigned_dict())).hexdigest()
@@ -63,7 +65,7 @@ class ResearchSnapshot:
         payload["signature"] = self.signature
         payload["signing_key_id"] = self.signing_key_id
         payload["checksum"] = self.checksum or self.calculated_checksum()
-        return payload
+        return _json_safe(payload)
 
     def ticker(self, ticker: str) -> dict[str, Any] | None:
         return self.rankings.get(ticker.upper().replace(".JK", ""))
