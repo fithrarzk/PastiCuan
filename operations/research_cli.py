@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import subprocess
 import math
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import pandas as pd
@@ -19,12 +20,18 @@ from analysis.business import compute_business_scores
 from analysis.backtest import BrokerCostProfile
 from analysis.quant_backtest import assess_holdout, backtest_monthly_quant
 from analysis.factor_dataset import build_factor_inputs
-from analysis.scan_v2 import build_full_lq45_scan
+from analysis.scan_v2 import (
+    build_full_lq45_scan, market_refresh_summary, refresh_lq45_market_history,
+)
 from analysis.snapshots import ResearchSnapshot, load_snapshot, write_snapshot
 from data.ingestion import acquire_artifact, read_manifest, upload_to_r2
 from data.parsers import parse_canonical_csv
 from data.idx_xbrl import parse_idx_xbrl, validate_official_idx_url
 from data.idx_reports import discover_idx_xbrl_manifest
+from operations.research_release import (
+    DEFAULT_RELEASE_PATH, check_release_change, load_release, release_from_sources,
+    release_provenance,
+)
 
 
 def _signed_snapshot(**values) -> ResearchSnapshot:
@@ -32,7 +39,8 @@ def _signed_snapshot(**values) -> ResearchSnapshot:
     return ResearchSnapshot(**{**base.unsigned_dict(), "checksum": base.calculated_checksum()})
 
 
-def build_snapshot(input_path: str, output_path: str, effective_at: str, model_version: str) -> ResearchSnapshot:
+def build_snapshot(input_path: str, output_path: str, effective_at: str, model_version: str,
+                   *, provenance: dict | None = None, formula_version: str | None = None) -> ResearchSnapshot:
     frame = pd.read_csv(input_path)
     result = compute_cross_sectional_factors(
         frame, as_of=effective_at, min_universe=10, allow_global_fallback=True,
@@ -61,7 +69,8 @@ def build_snapshot(input_path: str, output_path: str, effective_at: str, model_v
         snapshot_id=str(uuid4()), effective_at=effective_at,
         created_at=datetime.now(timezone.utc).isoformat(), model_version=model_version,
         model_status="CANDIDATE", constituents=sorted(rankings), rankings=rankings,
-        warnings=warnings, formula_version="lq45-cross-section-v4+business-quality-v1",
+        warnings=warnings, sources=[provenance] if provenance else [],
+        formula_version=formula_version or "lq45-cross-section-v4+business-quality-v1",
     )
     write_snapshot(snapshot, output_path, allow_candidate=True)
     return snapshot
@@ -187,6 +196,18 @@ def discover_idx_manifest(output_path: str, *, as_of: str, year: int, period: st
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(json.dumps(manifest, indent=2, sort_keys=True))
     return manifest
+
+
+def automatic_idx_period(as_of: str) -> tuple[int, str]:
+    observed = pd.Timestamp(as_of)
+    year, month = int(observed.year), int(observed.month)
+    if month >= 11:
+        return year, "tw3"
+    if month >= 8:
+        return year, "tw2"
+    if month >= 5:
+        return year, "tw1"
+    return year - 1, "tw3"
 
 
 def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
@@ -345,7 +366,175 @@ def build_daily_scan(output_path: str, *, use_r2: bool = False) -> dict:
         raise
 
 
-def build_snapshot_from_database(output_path: str, effective_at: str, model_version: str) -> ResearchSnapshot:
+def _required_migrations() -> list[str]:
+    return sorted(path.name.removesuffix(".up.sql") for path in Path("storage/migrations").glob("*.up.sql"))
+
+
+def _write_job_report(path: str, report: dict) -> None:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(report, indent=2, sort_keys=True, default=str))
+
+
+def refresh_market_history(output_path: str, *, now: datetime | None = None) -> dict:
+    from storage.database import connect_from_env
+    from storage.repository import SnapshotRepository
+    repository = SnapshotRepository(lambda: connect_from_env(writer=True))
+    result = refresh_lq45_market_history(repository, now=now)
+    summary = market_refresh_summary(result)
+    _write_job_report(output_path, summary)
+    return summary
+
+
+def run_daily_research(
+    output_path: str, *, release_path: str = DEFAULT_RELEASE_PATH,
+    use_r2: bool = False, final_attempt: bool = False, now: datetime | None = None,
+) -> dict:
+    """Refresh, gate, sign and publish one approved SHADOW release."""
+    from storage.database import connect_from_env
+    from storage.repository import SnapshotRepository
+
+    observed = now or datetime.now(timezone.utc)
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=timezone.utc)
+    repository = SnapshotRepository(lambda: connect_from_env(writer=True))
+    run_id = str(uuid4())
+    started_at = observed.isoformat()
+    base_run = {
+        "id": run_id, "job_type": "DAILY_RESEARCH",
+        "workflow_run_id": os.getenv("GITHUB_RUN_ID"), "started_at": started_at,
+        "status": "RUNNING", "metrics": {},
+    }
+    report = {"status": "RUNNING", "started_at": started_at, "stages": {}}
+    try:
+        if not os.getenv("SUPABASE_WRITER_DATABASE_URL"):
+            raise RuntimeError("SUPABASE_WRITER_DATABASE_URL is required.")
+        if not os.getenv("SNAPSHOT_ED25519_PRIVATE_KEY"):
+            raise RuntimeError("SNAPSHOT_ED25519_PRIVATE_KEY is required for automatic publication.")
+        release = load_release(release_path)
+        provenance = release_provenance(release_path)
+        applied = set(repository.applied_schema_migrations())
+        missing = [name for name in _required_migrations() if name not in applied]
+        if missing:
+            raise RuntimeError(f"Required Supabase migration is missing: {', '.join(missing)}")
+        repository.record_research_job(base_run)
+        report.update({
+            "release_id": provenance["release_id"],
+            "calculation_digest": provenance["calculation_digest"],
+            "git_commit": provenance["git_commit"],
+        })
+        report["stages"]["preflight"] = {"status": "SUCCEEDED", "missing_migrations": []}
+
+        market = refresh_lq45_market_history(repository, now=observed)
+        market_summary = market_refresh_summary(market)
+        report["stages"]["market"] = market_summary
+        report["session_date"] = market_summary["session_date"]
+        if not market["ready"]:
+            report["status"] = "FAILED" if final_attempt else "WAITING"
+            report["reason"] = market["reason"]
+            _write_job_report(output_path, report)
+            repository.record_research_job({
+                **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
+                "status": "FAILED" if final_attempt else "DEGRADED",
+                "input_checksum": provenance["calculation_digest"],
+                "metrics": {"status": report["status"], "market": market_summary},
+                "error_type": "MARKET_NOT_READY",
+            })
+            return report
+
+        session_date = market["session_date"]
+        provenance = release_provenance(release_path, market_session=session_date)
+        latest_scan = repository.latest_scan_snapshot()
+        latest_scan_release = (
+            (latest_scan.source_summary or {}).get("research_release") if latest_scan else None
+        ) or {}
+        if (latest_scan and latest_scan.mode == "PRIMARY"
+                and latest_scan.session_date == session_date
+                and latest_scan_release.get("calculation_digest") == provenance["calculation_digest"]):
+            outcomes = evaluate_signal_outcomes()
+            report.update({"status": "NOOP", "quant_snapshot_id": latest_scan.quant_snapshot_id,
+                           "scan_snapshot_id": latest_scan.snapshot_id})
+            report["stages"]["outcomes"] = {"status": "SUCCEEDED", **outcomes}
+            _write_job_report(output_path, report)
+            repository.record_research_job({
+                **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
+                "status": "SUCCEEDED", "input_checksum": provenance["calculation_digest"],
+                "output_checksum": latest_scan.checksum,
+                "metrics": {"status": "NOOP", "session_date": session_date},
+            })
+            return report
+
+        latest_quant = repository.latest_approved_quant_snapshot()
+        latest_release = release_from_sources(latest_quant.sources if latest_quant else []) or {}
+        reuse_quant = bool(
+            latest_quant
+            and latest_release.get("calculation_digest") == provenance["calculation_digest"]
+            and latest_release.get("market_session") == session_date
+        )
+        if reuse_quant:
+            quant_snapshot_id = latest_quant.snapshot_id
+            report["stages"]["quant"] = {"status": "REUSED", "snapshot_id": quant_snapshot_id}
+        else:
+            with TemporaryDirectory(prefix="pasticuan-daily-") as temporary:
+                candidate_path = str(Path(temporary) / "candidate.json.gz")
+                approved_path = str(Path(temporary) / "approved-shadow.json.gz")
+                candidate = build_snapshot_from_database(
+                    candidate_path, observed.isoformat(), release["model_version"],
+                    provenance=provenance, formula_version=release["formula_version"],
+                )
+                readiness = candidate_readiness(candidate)
+                if not readiness["ready"]:
+                    failed = ", ".join(key for key, passed in readiness["checks"].items() if not passed)
+                    raise ValueError(f"Candidate readiness failed: {failed}. Details: {json.dumps(readiness, sort_keys=True)}")
+                approved = approve_snapshot(candidate_path, approved_path, "SHADOW", None)
+                quant_snapshot_id = repository.publish_quant_snapshot(approved)
+                report["stages"]["quant"] = {
+                    "status": "PUBLISHED", "snapshot_id": quant_snapshot_id,
+                    "checksum": approved.checksum, "readiness": readiness,
+                }
+
+        archive = None
+        if use_r2:
+            archive = lambda key, body: upload_to_r2(key, body, content_type="application/gzip")
+        scan = build_full_lq45_scan(repository, market_refresh=market, archive_callback=archive)
+        if scan.mode != "PRIMARY":
+            raise ValueError(f"Daily scan did not reach PRIMARY mode: {scan.mode}. Warnings: {scan.warnings}")
+        scan_snapshot_id = repository.publish_scan_snapshot(scan)
+        report["stages"]["scan"] = {
+            "status": "PUBLISHED", "snapshot_id": scan_snapshot_id,
+            "checksum": scan.checksum, "coverage_pct": scan.universe_coverage_pct,
+            "candidate_count": len(scan.candidates),
+        }
+        outcomes = evaluate_signal_outcomes()
+        report["stages"]["outcomes"] = {"status": "SUCCEEDED", **outcomes}
+        report.update({"status": "SUCCEEDED", "quant_snapshot_id": quant_snapshot_id,
+                       "scan_snapshot_id": scan_snapshot_id})
+        _write_job_report(output_path, report)
+        repository.record_research_job({
+            **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
+            "status": "SUCCEEDED", "input_checksum": provenance["calculation_digest"],
+            "output_checksum": scan.checksum,
+            "metrics": {"status": "SUCCEEDED", "session_date": session_date,
+                        "coverage_pct": scan.universe_coverage_pct},
+        })
+        return report
+    except Exception as exc:
+        report.update({"status": "FAILED", "error_type": type(exc).__name__, "reason": str(exc)})
+        _write_job_report(output_path, report)
+        try:
+            repository.record_research_job({
+                **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
+                "status": "FAILED", "metrics": {"status": "FAILED"},
+                "error_type": type(exc).__name__,
+            })
+        except Exception:
+            pass
+        return report
+
+
+def build_snapshot_from_database(output_path: str, effective_at: str, model_version: str,
+                                 *, provenance: dict | None = None,
+                                 formula_version: str | None = None) -> ResearchSnapshot:
     from storage.database import connect_from_env
     from storage.repository import SnapshotRepository
     repository = SnapshotRepository(lambda: connect_from_env(writer=True))
@@ -357,7 +546,10 @@ def build_snapshot_from_database(output_path: str, effective_at: str, model_vers
     temporary = destination.with_suffix(".factor-inputs.csv")
     frame.to_csv(temporary, index=False)
     try:
-        return build_snapshot(str(temporary), output_path, effective_at, model_version)
+        return build_snapshot(
+            str(temporary), output_path, effective_at, model_version,
+            provenance=provenance, formula_version=formula_version,
+        )
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -483,8 +675,8 @@ def main(argv=None) -> int:
     ingest_idx.add_argument("--archive-directory"); ingest_idx.add_argument("--r2", action="store_true")
     discover_idx = sub.add_parser("discover-idx-xbrl")
     discover_idx.add_argument("--output", required=True); discover_idx.add_argument("--as-of", required=True)
-    discover_idx.add_argument("--year", required=True, type=int)
-    discover_idx.add_argument("--period", required=True, choices=["tw1", "tw2", "tw3"])
+    discover_idx.add_argument("--year", type=int)
+    discover_idx.add_argument("--period", default="auto", choices=["auto", "tw1", "tw2", "tw3"])
     backup = sub.add_parser("backup")
     backup.add_argument("--output", required=True); backup.add_argument("--r2", action="store_true")
     publish = sub.add_parser("publish-snapshot")
@@ -502,6 +694,16 @@ def main(argv=None) -> int:
     daily_scan = sub.add_parser("build-daily-scan")
     daily_scan.add_argument("--output", required=True)
     daily_scan.add_argument("--r2", action="store_true")
+    refresh_market = sub.add_parser("refresh-market-history")
+    refresh_market.add_argument("--output", required=True)
+    daily = sub.add_parser("run-daily-research")
+    daily.add_argument("--output", required=True)
+    daily.add_argument("--release", default=DEFAULT_RELEASE_PATH)
+    daily.add_argument("--r2", action="store_true")
+    daily.add_argument("--final-attempt", action="store_true")
+    check_release = sub.add_parser("check-research-release")
+    check_release.add_argument("--release", default=DEFAULT_RELEASE_PATH)
+    check_release.add_argument("--base-ref")
     rebuild = sub.add_parser("rebuild-monthly-panel")
     rebuild.add_argument("--start", required=True); rebuild.add_argument("--end", required=True)
     rebuild.add_argument("--scores-output", required=True); rebuild.add_argument("--bars-output", required=True)
@@ -526,8 +728,10 @@ def main(argv=None) -> int:
         if any(item["status"] == "QUARANTINED" for item in report):
             return 2
     elif args.command == "discover-idx-xbrl":
+        year, period = (automatic_idx_period(args.as_of) if args.period == "auto"
+                        else (args.year or pd.Timestamp(args.as_of).year, args.period))
         manifest = discover_idx_manifest(
-            args.output, as_of=args.as_of, year=args.year, period=args.period,
+            args.output, as_of=args.as_of, year=year, period=period,
         )
         missing = manifest["discovery"]["current_period_missing"] + manifest["discovery"]["prior_annual_missing"]
         print(json.dumps(manifest["discovery"], sort_keys=True))
@@ -560,6 +764,24 @@ def main(argv=None) -> int:
         print(json.dumps(summary, sort_keys=True))
         if not result["published"]:
             return 2
+    elif args.command == "refresh-market-history":
+        result = refresh_market_history(args.output)
+        print(json.dumps(result, sort_keys=True))
+        if not result["ready"]:
+            return 2
+    elif args.command == "run-daily-research":
+        result = run_daily_research(
+            args.output, release_path=args.release, use_r2=args.r2,
+            final_attempt=args.final_attempt,
+        )
+        print(json.dumps({key: value for key, value in result.items() if key != "stages"}, sort_keys=True))
+        if result["status"] == "FAILED":
+            return 2
+    elif args.command == "check-research-release":
+        result = release_provenance(args.release)
+        if args.base_ref and set(args.base_ref) != {"0"}:
+            result["change_policy"] = check_release_change(args.base_ref, args.release)
+        print(json.dumps(result, sort_keys=True))
     elif args.command == "rebuild-monthly-panel":
         result = rebuild_monthly_panel(args.start, args.end, args.scores_output, args.bars_output)
         print(json.dumps(result, sort_keys=True))

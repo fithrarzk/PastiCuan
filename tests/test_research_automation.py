@@ -1,0 +1,147 @@
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+from analysis.scan_v2 import _quant_is_fresh
+from operations.research_cli import automatic_idx_period, run_daily_research
+from operations.research_release import calculation_digest, load_release
+
+
+class ReleasePolicyTests(unittest.TestCase):
+    def test_calculation_digest_changes_with_code_and_is_deterministic(self):
+        with TemporaryDirectory() as root:
+            base = Path(root)
+            (base / "analysis").mkdir()
+            code = base / "analysis" / "score.py"
+            code.write_text("WEIGHT = 1\n")
+            release = {
+                "release_id": "test-r1", "model_version": "test-shadow",
+                "formula_version": "test-v1", "calculation_revision": 1,
+                "status": "SHADOW", "calculation_paths": ["analysis/score.py"],
+            }
+            first = calculation_digest(release, repository_root=base)
+            self.assertEqual(first, calculation_digest(release, repository_root=base))
+            code.write_text("WEIGHT = 2\n")
+            self.assertNotEqual(first, calculation_digest(release, repository_root=base))
+
+    def test_automatic_release_cannot_be_validated_status(self):
+        with TemporaryDirectory() as root:
+            path = Path(root) / "release.json"
+            path.write_text(json.dumps({
+                "release_id": "test", "model_version": "test",
+                "formula_version": "test", "calculation_revision": 1,
+                "status": "VALIDATED_RESEARCH", "calculation_paths": ["x.py"],
+            }))
+            with self.assertRaisesRegex(ValueError, "restricted to SHADOW"):
+                load_release(path)
+
+
+class CalendarPolicyTests(unittest.TestCase):
+    def test_official_calendar_excludes_holiday_from_quant_age(self):
+        snapshot = SimpleNamespace(
+            snapshot_id="quant", effective_at="2026-08-14T17:00:00+07:00",
+        )
+
+        class Calendar:
+            def expected_session_age(self, start, end):
+                self.window = (start, end)
+                return 1  # 17 August is HOLIDAY; only 18 August counts.
+
+        calendar = Calendar()
+        observed = datetime(2026, 8, 18, 12, tzinfo=timezone.utc)
+        self.assertTrue(_quant_is_fresh(snapshot, observed, calendar))
+        self.assertEqual(calendar.window, ("2026-08-14", "2026-08-18"))
+
+    def test_idx_period_is_derived_without_manual_inputs(self):
+        self.assertEqual(automatic_idx_period("2026-08-18T00:00:00Z"), (2026, "tw2"))
+        self.assertEqual(automatic_idx_period("2026-02-01T00:00:00Z"), (2025, "tw3"))
+
+
+class DailyOrchestrationTests(unittest.TestCase):
+    def _run_not_ready(self, final_attempt):
+        repository = SimpleNamespace(
+            record_research_job=lambda value: None,
+            applied_schema_migrations=lambda: [],
+        )
+        market = {
+            "ready": False, "observed": datetime(2026, 8, 18, 12, tzinfo=timezone.utc),
+            "on_date": "2026-08-18", "session_date": "2026-08-14",
+            "coverage_pct": 100.0, "membership_count": 45, "imported_count": 0,
+            "session_age": 2, "reason": "Provider has not completed the expected session.",
+            "bases": [], "same_session": [], "excluded": [],
+        }
+        provenance = {
+            "release_id": "test-r1", "calculation_digest": "a" * 64,
+            "git_commit": "test", "model_version": "test", "formula_version": "test",
+            "calculation_revision": 1, "type": "research_release",
+        }
+        with TemporaryDirectory() as root, \
+                patch.dict("os.environ", {
+                    "SUPABASE_WRITER_DATABASE_URL": "postgresql://test",
+                    "SNAPSHOT_ED25519_PRIVATE_KEY": "configured",
+                }, clear=False), \
+                patch("storage.database.connect_from_env"), \
+                patch("storage.repository.SnapshotRepository", return_value=repository), \
+                patch("operations.research_cli.load_release", return_value={"status": "SHADOW"}), \
+                patch("operations.research_cli.release_provenance", return_value=provenance), \
+                patch("operations.research_cli._required_migrations", return_value=[]), \
+                patch("operations.research_cli.refresh_lq45_market_history", return_value=market):
+            output = str(Path(root) / "report.json")
+            result = run_daily_research(output, final_attempt=final_attempt)
+            persisted = json.loads(Path(output).read_text())
+        self.assertEqual(result, persisted)
+        return result
+
+    def test_early_attempt_waits_without_publication(self):
+        self.assertEqual(self._run_not_ready(False)["status"], "WAITING")
+
+    def test_final_attempt_fails_closed(self):
+        self.assertEqual(self._run_not_ready(True)["status"], "FAILED")
+
+    def test_matching_primary_session_is_an_idempotent_noop(self):
+        digest = "b" * 64
+        latest = SimpleNamespace(
+            mode="PRIMARY", session_date="2026-08-18",
+            source_summary={"research_release": {"calculation_digest": digest}},
+            quant_snapshot_id="quant", snapshot_id="scan", checksum="scan-checksum",
+        )
+        repository = SimpleNamespace(
+            record_research_job=lambda value: None,
+            applied_schema_migrations=lambda: [],
+            latest_scan_snapshot=lambda: latest,
+        )
+        market = {
+            "ready": True, "observed": datetime(2026, 8, 18, 12, tzinfo=timezone.utc),
+            "on_date": "2026-08-18", "session_date": "2026-08-18",
+            "coverage_pct": 100.0, "membership_count": 45, "imported_count": 0,
+            "session_age": 0, "reason": None, "bases": [], "same_session": [], "excluded": [],
+        }
+        release = {
+            "release_id": "test-r1", "calculation_digest": digest, "git_commit": "test",
+            "model_version": "test", "formula_version": "test",
+            "calculation_revision": 1, "type": "research_release",
+        }
+        with TemporaryDirectory() as root, \
+                patch.dict("os.environ", {
+                    "SUPABASE_WRITER_DATABASE_URL": "postgresql://test",
+                    "SNAPSHOT_ED25519_PRIVATE_KEY": "configured",
+                }, clear=False), \
+                patch("storage.database.connect_from_env"), \
+                patch("storage.repository.SnapshotRepository", return_value=repository), \
+                patch("operations.research_cli.load_release", return_value={"status": "SHADOW"}), \
+                patch("operations.research_cli.release_provenance", return_value=release), \
+                patch("operations.research_cli._required_migrations", return_value=[]), \
+                patch("operations.research_cli.refresh_lq45_market_history", return_value=market), \
+                patch("operations.research_cli.evaluate_signal_outcomes", return_value={"saved": 0, "pending": 0}), \
+                patch("operations.research_cli.build_snapshot_from_database") as build:
+            result = run_daily_research(str(Path(root) / "report.json"))
+        self.assertEqual(result["status"], "NOOP")
+        build.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

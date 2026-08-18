@@ -1,0 +1,67 @@
+name: research-daily
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 12 * * 1-5"
+    - cron: "0 13 * * 1-5"
+    - cron: "0 14 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      final_attempt:
+        description: Fail if current-session evidence is still unavailable
+        type: boolean
+        default: true
+
+concurrency:
+  group: research-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_WRITER_DATABASE_URL: ${{ secrets.SUPABASE_WRITER_DATABASE_URL }}
+      SNAPSHOT_ED25519_PRIVATE_KEY: ${{ secrets.SNAPSHOT_ED25519_PRIVATE_KEY }}
+      SNAPSHOT_SIGNING_KEY_ID: ${{ vars.SNAPSHOT_SIGNING_KEY_ID || 'primary' }}
+      R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-jobs.txt
+      - name: Refresh and publish verified research
+        shell: bash
+        run: |
+          flags=()
+          if [[ -n "$R2_BUCKET" ]]; then flags+=(--r2); fi
+          if [[ "${{ github.event.schedule }}" == "0 14 * * 1-5" || "${{ inputs.final_attempt }}" == "true" ]]; then
+            flags+=(--final-attempt)
+          fi
+          python -m operations.research_cli run-daily-research \
+            --output /tmp/daily-research-report.json "${flags[@]}"
+      - name: Add run summary
+        if: always()
+        run: |
+          if [[ -f /tmp/daily-research-report.json ]]; then
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            python -m json.tool /tmp/daily-research-report.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: daily-research-${{ github.run_id }}
+          path: /tmp/daily-research-report.json
+          if-no-files-found: warn
+          retention-days: 14

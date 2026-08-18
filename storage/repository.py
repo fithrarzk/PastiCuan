@@ -5,6 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from dataclasses import replace
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -34,6 +37,12 @@ class SnapshotRepository:
                      bundle.data_quality.grade, bundle.action),
                 )
         return snapshot_id
+
+    def applied_schema_migrations(self) -> list[str]:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT version FROM schema_migrations ORDER BY version")
+                return [str(row[0]) for row in cursor.fetchall()]
 
     def market_bars_as_of(self, issuer_id: int, as_of: str) -> list[dict]:
         """Latest non-quarantined version known by ``as_of`` for each session."""
@@ -70,6 +79,25 @@ class SnapshotRepository:
                        WHERE exchange='IDX' AND status='COMPLETED' LIMIT 1"""
                 )
                 return count if cursor.fetchone() else None
+
+    def expected_session_age(self, session_date: str, on_date: str) -> int | None:
+        """Count official trading sessions after a date, excluding holidays."""
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT 1 FROM market_sessions
+                       WHERE exchange='IDX' AND status IN ('SCHEDULED','HOLIDAY','HALTED')
+                       LIMIT 1"""
+                )
+                if cursor.fetchone() is None:
+                    return None
+                cursor.execute(
+                    """SELECT count(*) FROM market_sessions
+                       WHERE exchange='IDX' AND status IN ('SCHEDULED','COMPLETED')
+                         AND session_date>%s AND session_date<=%s""",
+                    (session_date, on_date),
+                )
+                return int(cursor.fetchone()[0])
 
     def import_yahoo_market_histories(self, histories: dict[str, Any], *, available_at: str) -> int:
         """Store fetched OHLCV with retrieval-time availability; never backdate knowledge."""
@@ -202,7 +230,12 @@ class SnapshotRepository:
                        ORDER BY session_date DESC, published_at DESC LIMIT 1"""
                 )
                 row = cursor.fetchone()
-                return ScanResearchSnapshot.from_dict(row[0]) if row else None
+        if not row:
+            return None
+        snapshot = ScanResearchSnapshot.from_dict(row[0])
+        today = datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Jakarta")).date().isoformat()
+        age = self.expected_session_age(snapshot.session_date, today)
+        return replace(snapshot, verified_session_age=age)
 
     def ticker_snapshot_history(self, ticker: str, *, limit: int = 8) -> list[dict]:
         ticker = ticker.upper().replace(".JK", "")
@@ -741,6 +774,11 @@ class SnapshotRepository:
 
     def publish_quant_snapshot(self, snapshot: ResearchSnapshot) -> str:
         snapshot.validate()
+        release = next(
+            (item for item in snapshot.sources if item.get("type") == "research_release"), {}
+        )
+        code_checksum = release.get("calculation_digest") or snapshot.checksum
+        parameters = {"release": release} if release else {}
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 if snapshot.model_status == "VALIDATED_RESEARCH":
@@ -756,9 +794,14 @@ class SnapshotRepository:
                 cursor.execute(
                     """INSERT INTO model_versions
                          (id, model_type, formula_version, parameters, code_checksum, status)
-                       VALUES (%s,'CROSS_SECTIONAL_QUANT',%s,'{}'::jsonb,%s,%s)
-                       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status""",
-                    (snapshot.model_version, snapshot.formula_version, snapshot.checksum, snapshot.model_status),
+                       VALUES (%s,'CROSS_SECTIONAL_QUANT',%s,%s::jsonb,%s,%s)
+                       ON CONFLICT (id) DO UPDATE SET
+                         formula_version=EXCLUDED.formula_version,
+                         parameters=EXCLUDED.parameters,
+                         code_checksum=EXCLUDED.code_checksum,
+                         status=EXCLUDED.status""",
+                    (snapshot.model_version, snapshot.formula_version, json.dumps(parameters),
+                     code_checksum, snapshot.model_status),
                 )
                 cursor.execute(
                     """INSERT INTO quant_research_snapshots

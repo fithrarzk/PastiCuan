@@ -602,6 +602,12 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Scan session <code>{html.escape(scan.session_date)}</code> · mode <code>{html.escape(scan.mode)}</code>",
         f"Market coverage <code>{scan.universe_coverage_pct:.0f}%</code>",
     ]
+    release = (scan.source_summary or {}).get("research_release") or {}
+    if release:
+        lines.extend([
+            f"Release <code>{html.escape(str(release.get('release_id') or 'unknown'))}</code>",
+            f"Calculation <code>{html.escape(str(release.get('calculation_digest') or 'unknown')[:12])}</code>",
+        ])
     if operational:
         lines.extend([
             f"Latest completed session <code>{html.escape(str(operational['latest_session']))}</code>",

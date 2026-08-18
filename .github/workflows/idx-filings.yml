@@ -1,0 +1,121 @@
+name: idx-filings
+
+on:
+  schedule:
+    - cron: "17 2 * * 1"
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [discover, import]
+        default: discover
+  push:
+    branches: [main]
+    paths:
+      - data/idx_filing_manifest.json
+      - data/source_manifest.json
+
+concurrency:
+  group: idx-filings
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.action == 'discover')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      SUPABASE_WRITER_DATABASE_URL: ${{ secrets.SUPABASE_WRITER_DATABASE_URL }}
+      R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-jobs.txt
+      - name: Import reviewed source manifest
+        run: |
+          flags=()
+          if [[ -n "$R2_BUCKET" ]]; then flags+=(--r2); fi
+          python -m operations.research_cli ingest-manifest \
+            --manifest data/source_manifest.json --report /tmp/source-ingestion-report.json "${flags[@]}"
+      - name: Discover official attachments
+        run: |
+          python -m operations.research_cli discover-idx-xbrl \
+            --output /tmp/idx_filing_manifest.json \
+            --as-of "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" --period auto
+      - name: Open manifest review PR when changed
+        run: |
+          cp /tmp/idx_filing_manifest.json data/idx_filing_manifest.json
+          if git diff --quiet -- data/idx_filing_manifest.json; then
+            echo "Official manifest is unchanged." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          branch="idx-manifest-${GITHUB_RUN_ID}"
+          git config user.name "pasticuan-research-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add data/idx_filing_manifest.json
+          git commit -m "Update reviewed IDX filing manifest"
+          git push origin "$branch"
+          gh pr create --title "Review official IDX filing manifest" \
+            --body "Review every ticker, publication timestamp, reporting period, and official IDX URL. Merging automatically imports accepted filings and refreshes research." \
+            --base main --head "$branch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: idx-manifest-draft-${{ github.run_id }}
+          path: /tmp/idx_filing_manifest.json
+          retention-days: 30
+
+  import:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'import')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write
+    env:
+      SUPABASE_WRITER_DATABASE_URL: ${{ secrets.SUPABASE_WRITER_DATABASE_URL }}
+      R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-jobs.txt
+      - name: Import reviewed official XBRL
+        run: |
+          flags=()
+          if [[ -n "$R2_BUCKET" ]]; then flags+=(--r2); fi
+          python -m operations.research_cli ingest-manifest \
+            --manifest data/source_manifest.json --report /tmp/source-ingestion-report.json "${flags[@]}"
+          python -m operations.research_cli ingest-idx-xbrl \
+            --manifest data/idx_filing_manifest.json \
+            --report /tmp/idx-xbrl-ingestion-report.json "${flags[@]}"
+      - name: Request a research refresh
+        run: gh workflow run research-daily.yml --ref main -f final_attempt=false
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: idx-xbrl-review-${{ github.run_id }}
+          path: /tmp/idx-xbrl-ingestion-report.json
+          retention-days: 30

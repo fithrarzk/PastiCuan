@@ -115,7 +115,7 @@ def _iso_date(value: str) -> str:
     return pd.Timestamp(value).date().isoformat()
 
 
-def _quant_is_fresh(snapshot, observed_at: datetime) -> bool:
+def _quant_is_fresh(snapshot, observed_at: datetime, repository=None) -> bool:
     if snapshot is None or snapshot.snapshot_id == "bundled-empty-shadow":
         return False
     # The latest completed price session can be Friday while the research
@@ -126,7 +126,12 @@ def _quant_is_fresh(snapshot, observed_at: datetime) -> bool:
     observed = pd.Timestamp(observed_at).date()
     if effective > observed:
         return False
-    age = len(pd.bdate_range(pd.Timestamp(effective) + pd.offsets.Day(1), observed))
+    age = None
+    authoritative = getattr(repository, "expected_session_age", None) if repository else None
+    if authoritative:
+        age = authoritative(effective.isoformat(), observed.isoformat())
+    if age is None:
+        age = len(pd.bdate_range(pd.Timestamp(effective) + pd.offsets.Day(1), observed))
     return age <= MAX_QUANT_AGE_COMPLETED_BUSINESS_DAYS
 
 
@@ -263,15 +268,15 @@ def _archive_payload(bases: list[dict], session_date: str) -> tuple[str, bytes]:
     return hashlib.sha256(compressed).hexdigest(), compressed
 
 
-def build_full_lq45_scan(
+def refresh_lq45_market_history(
     repository,
     *,
     loader: Callable = get_extended_data,
     now: datetime | None = None,
     max_workers: int = 6,
     timeout_seconds: float = 180,
-    archive_callback: Callable[[str, bytes], None] | None = None,
-) -> ScanResearchSnapshot:
+):
+    """Fetch and persist OHLCV without publishing an incomplete scan."""
     observed = now or datetime.now(timezone.utc)
     if observed.tzinfo is None:
         observed = observed.replace(tzinfo=timezone.utc)
@@ -279,12 +284,12 @@ def build_full_lq45_scan(
     on_date = market_date.isoformat()
     issuers = repository.constituent_issuers_as_of("LQ45", on_date)
     if len(issuers) != 45:
-        return signed_scan_snapshot(
-            snapshot_id=str(uuid4()), session_date=on_date, created_at=observed.isoformat(),
-            mode="UNAVAILABLE", universe_size=45,
-            warnings=[f"Exactly 45 effective LQ45 constituents are required; found {len(issuers)}."],
-            source_summary={"membership": "Supabase point-in-time", "price": "not fetched"},
-        )
+        return {
+            "ready": False, "observed": observed, "on_date": on_date,
+            "session_date": on_date, "coverage_pct": 0.0, "bases": [], "same_session": [],
+            "excluded": [], "membership_count": len(issuers), "imported_count": 0,
+            "reason": f"Exactly 45 effective LQ45 constituents are required; found {len(issuers)}.",
+        }
 
     issuer_map = {str(item["ticker"]).upper().replace(".JK", ""): item for item in issuers}
 
@@ -325,8 +330,9 @@ def build_full_lq45_scan(
     # publication, but it must not discard valid historical bars that were
     # observed now and can support a later point-in-time candidate build.
     usable_bases = [base for base in bases if base.get("data_usable")]
+    imported_count = 0
     if usable_bases:
-        repository.import_yahoo_market_histories(
+        imported_count = repository.import_yahoo_market_histories(
             {base["ticker"]: base["_history"] for base in usable_bases},
             available_at=observed.isoformat(),
         )
@@ -340,32 +346,72 @@ def build_full_lq45_scan(
     ]
     coverage = len(same_session) / 45 * 100
     if coverage < MIN_UNIVERSE_COVERAGE:
-        return signed_scan_snapshot(
-            snapshot_id=str(uuid4()), session_date=session_date, created_at=observed.isoformat(),
-            mode="UNAVAILABLE", universe_size=45, universe_coverage_pct=coverage,
-            excluded=excluded,
-            warnings=[f"Fresh market coverage {coverage:.1f}% is below {MIN_UNIVERSE_COVERAGE:.0f}%."],
-            source_summary={"membership": "Supabase point-in-time", "price": "Yahoo Finance fallback"},
-        )
+        return {
+            "ready": False, "observed": observed, "on_date": on_date,
+            "session_date": session_date, "coverage_pct": coverage, "bases": bases,
+            "same_session": same_session, "excluded": excluded, "membership_count": 45,
+            "imported_count": imported_count,
+            "reason": f"Fresh market coverage {coverage:.1f}% is below {MIN_UNIVERSE_COVERAGE:.0f}%.",
+        }
 
-    known_age = repository.completed_session_age(session_date, on_date)
-    fallback_age = len(pd.bdate_range(pd.Timestamp(session_date) + pd.offsets.Day(1), market_date))
-    # The local session table cannot prove that an expected session is missing,
-    # so never let its count weaken the conservative weekday estimate.
-    session_age = max(known_age or 0, fallback_age)
+    authoritative = getattr(repository, "expected_session_age", None)
+    session_age = authoritative(session_date, on_date) if authoritative else None
+    if session_age is None:
+        session_age = len(pd.bdate_range(pd.Timestamp(session_date) + pd.offsets.Day(1), market_date))
     if session_age > 1:
-        return signed_scan_snapshot(
-            snapshot_id=str(uuid4()), session_date=session_date, created_at=observed.isoformat(),
-            mode="UNAVAILABLE", universe_size=45, universe_coverage_pct=coverage,
-            excluded=excluded,
-            warnings=[f"Market data is {session_age} completed-session estimate(s) old."],
-            source_summary={"membership": "Supabase point-in-time", "price": "Yahoo Finance fallback"},
-        )
+        return {
+            "ready": False, "observed": observed, "on_date": on_date,
+            "session_date": session_date, "coverage_pct": coverage, "bases": bases,
+            "same_session": same_session, "excluded": excluded, "membership_count": 45,
+            "imported_count": imported_count, "session_age": session_age,
+            "reason": f"Market data is {session_age} completed-session estimate(s) old.",
+        }
 
     repository.record_completed_market_session(session_date, observed_at=observed.isoformat())
+    return {
+        "ready": True, "observed": observed, "on_date": on_date,
+        "session_date": session_date, "coverage_pct": coverage, "bases": bases,
+        "same_session": same_session, "excluded": excluded, "membership_count": 45,
+        "imported_count": imported_count, "session_age": session_age, "reason": None,
+    }
+
+
+def market_refresh_summary(result: dict) -> dict:
+    return {key: result.get(key) for key in (
+        "ready", "on_date", "session_date", "coverage_pct", "membership_count",
+        "imported_count", "session_age", "reason",
+    )}
+
+
+def build_full_lq45_scan(
+    repository,
+    *,
+    loader: Callable = get_extended_data,
+    now: datetime | None = None,
+    max_workers: int = 6,
+    timeout_seconds: float = 180,
+    archive_callback: Callable[[str, bytes], None] | None = None,
+    market_refresh: dict | None = None,
+) -> ScanResearchSnapshot:
+    market = market_refresh or refresh_lq45_market_history(
+        repository, loader=loader, now=now, max_workers=max_workers,
+        timeout_seconds=timeout_seconds,
+    )
+    observed = market["observed"]
+    session_date = market["session_date"]
+    coverage = market["coverage_pct"]
+    excluded = list(market["excluded"])
+    same_session = market["same_session"]
+    if not market["ready"]:
+        return signed_scan_snapshot(
+            snapshot_id=str(uuid4()), session_date=session_date, created_at=observed.isoformat(),
+            mode="UNAVAILABLE", universe_size=45, universe_coverage_pct=coverage,
+            excluded=excluded, warnings=[market["reason"]],
+            source_summary={"membership": "Supabase point-in-time", "price": "Yahoo Finance fallback"},
+        )
 
     quant_snapshot = repository.latest_approved_quant_snapshot()
-    quant_fresh = _quant_is_fresh(quant_snapshot, observed)
+    quant_fresh = _quant_is_fresh(quant_snapshot, observed, repository)
     quant_map = quant_snapshot.rankings if quant_fresh else {}
     quant_hits = sum(1 for base in same_session if _quant_row_eligible(quant_map.get(base["ticker"])))
     primary = quant_fresh and quant_hits / 45 * 100 >= MIN_UNIVERSE_COVERAGE
@@ -423,5 +469,9 @@ def build_full_lq45_scan(
             "membership": "Supabase point-in-time LQ45", "price": "Yahoo Finance OHLCV fallback",
             "quant": quant_snapshot.snapshot_id if primary else "unavailable",
             "r2_archive": archive_summary,
+            "research_release": next(
+                (item for item in (getattr(quant_snapshot, "sources", []) if quant_snapshot else [])
+                 if item.get("type") == "research_release"), None,
+            ),
         },
     )

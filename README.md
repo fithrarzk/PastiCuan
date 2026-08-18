@@ -66,6 +66,13 @@ python -m unittest discover -s tests -v
 
 ## Research-core jobs
 
+Production research is automatic. Every merge to `main` invokes the idempotent
+daily pipeline, and GitHub retries at 19:00, 20:00, and 21:00 WIB on weekdays.
+The first two attempts may finish as `WAITING`; the final attempt fails closed.
+Formula changes must bump `data/research_release.json`, while unrelated bot or
+presentation changes reuse the current release. Railway deploys `main` in
+parallel and reads the newly signed Supabase snapshots within five minutes.
+
 Install the job-only dependencies locally with
 `pip install -r requirements-jobs.txt`. Core commands are:
 
@@ -77,6 +84,9 @@ python -m operations.research_cli discover-idx-xbrl \
   --year 2026 --period tw2
 python -m operations.research_cli ingest-idx-xbrl \
   --manifest data/idx_filing_manifest.json --report idx-xbrl-report.json --r2
+python -m operations.research_cli check-research-release
+python -m operations.research_cli run-daily-research \
+  --output daily-research-report.json --r2 --final-attempt
 python -m operations.research_cli build-snapshot-from-database \
   --output data/snapshots/candidate.json.gz \
   --effective-at 2026-08-31T16:15:00+07:00
@@ -112,10 +122,11 @@ replacing the last good snapshot. Railway caches the latest database result for
 5 minutes (bounded to 15) and performs no Yahoo, R2, backtest, or full-universe calculation in
 the `/scan` request path.
 
-For a new database, run one scan before building the first quant candidate. Even
-when freshness prevents that bootstrap scan from publishing, usable retrieved
-history is persisted with its real availability timestamp. Then rebuild the
-candidate, review it, publish SHADOW, and run the final scan.
+For a new database, apply every migration and configure the production secrets,
+then merge or manually dispatch `research-daily`. Its acquisition stage persists
+usable history before candidate gates and never publishes an unavailable scan.
+Daily candidates live only in the runner's temporary directory; a reviewed
+release on `main` is the SHADOW approval boundary.
 
 ## Narrative policy
 

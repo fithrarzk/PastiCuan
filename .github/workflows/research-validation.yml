@@ -1,0 +1,50 @@
+name: research-validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      validation_start:
+        type: string
+        default: "2021-01-01"
+      validation_end:
+        type: string
+        default: "2026-08-01"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_WRITER_DATABASE_URL: ${{ secrets.SUPABASE_WRITER_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-jobs.txt
+      - name: Rebuild twice and validate holdout
+        run: |
+          python -m operations.research_cli rebuild-monthly-panel \
+            --start "${{ inputs.validation_start }}" --end "${{ inputs.validation_end }}" \
+            --scores-output /tmp/scores-a.csv --bars-output /tmp/bars-a.csv
+          python -m operations.research_cli rebuild-monthly-panel \
+            --start "${{ inputs.validation_start }}" --end "${{ inputs.validation_end }}" \
+            --scores-output /tmp/scores-b.csv --bars-output /tmp/bars-b.csv
+          cmp /tmp/scores-a.csv /tmp/scores-b.csv
+          cmp /tmp/bars-a.csv /tmp/bars-b.csv
+          python -m operations.research_cli validate-quant \
+            --scores /tmp/scores-a.csv --bars /tmp/bars-a.csv \
+            --output /tmp/validation.json --persist \
+            --model-version lq45-factor-v1-shadow --deterministic-rebuild
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: research-validation-${{ github.run_id }}
+          path: |
+            /tmp/validation.json
+            /tmp/scores-a.csv
+          retention-days: 30

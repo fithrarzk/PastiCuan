@@ -53,7 +53,9 @@ def create_api() -> FastAPI:
     @api.get("/ready")
     async def readiness() -> dict[str, str]:
         snapshot = get_research_snapshot()
-        scan = (await asyncio.to_thread(get_scan_snapshot)).to_bundle()
+        scan_snapshot = await asyncio.to_thread(get_scan_snapshot)
+        scan = scan_snapshot.to_bundle()
+        release = (scan_snapshot.source_summary or {}).get("research_release") or {}
         return {
             "status": "degraded" if (
                 snapshot.snapshot_id == "bundled-empty-shadow" or scan.mode != "PRIMARY"
@@ -64,6 +66,9 @@ def create_api() -> FastAPI:
             "scan_mode": scan.mode,
             "scan_snapshot_id": scan.snapshot_id or "unavailable",
             "scan_session_date": scan.session_date or "unavailable",
+            "research_release": str(release.get("release_id") or "unavailable"),
+            "calculation_digest": str(release.get("calculation_digest") or "unavailable"),
+            "research_git_commit": str(release.get("git_commit") or "unavailable"),
         }
 
     @api.post("/telegram/webhook")
