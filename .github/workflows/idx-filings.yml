@@ -9,6 +9,14 @@ on:
         type: choice
         options: [discover, import]
         default: discover
+      annual_start_year:
+        description: Optional first annual reporting year for reviewed backfill
+        type: string
+        default: ""
+      annual_end_year:
+        description: Optional last annual reporting year for reviewed backfill
+        type: string
+        default: ""
   push:
     branches: [main]
     paths:
@@ -54,9 +62,17 @@ jobs:
             --manifest data/source_manifest.json --report /tmp/source-ingestion-report.json "${flags[@]}"
       - name: Discover official attachments
         run: |
+          history_flags=()
+          if [[ -n "${{ inputs.annual_start_year }}" ]]; then
+            history_flags+=(--annual-start-year "${{ inputs.annual_start_year }}")
+          fi
+          if [[ -n "${{ inputs.annual_end_year }}" ]]; then
+            history_flags+=(--annual-end-year "${{ inputs.annual_end_year }}")
+          fi
           python -m operations.research_cli discover-idx-xbrl \
             --output /tmp/idx_filing_manifest.json \
-            --as-of "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" --period auto
+            --as-of "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" --period auto \
+            "${history_flags[@]}"
       - name: Open manifest review PR when changed
         run: |
           cp /tmp/idx_filing_manifest.json data/idx_filing_manifest.json

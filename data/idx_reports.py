@@ -79,7 +79,9 @@ def _fetch_catalog(year: int, period: str) -> list[dict]:
 
 
 def discover_idx_xbrl_manifest(tickers: list[str], *, year: int, period: str,
-                               fetch_catalog=None, include_prior_audit: bool = True) -> dict:
+                               fetch_catalog=None, include_prior_audit: bool = True,
+                               annual_start_year: int | None = None,
+                               annual_end_year: int | None = None) -> dict:
     if period not in PERIOD_END or period == "audit":
         raise ValueError("Current period must be one of tw1, tw2, or tw3.")
     wanted = {ticker.upper().replace(".JK", "") for ticker in tickers}
@@ -118,25 +120,38 @@ def discover_idx_xbrl_manifest(tickers: list[str], *, year: int, period: str,
             }
 
     annual = {}
-    if include_prior_audit:
-        for row in fetch(year - 1, "audit"):
+    if annual_start_year is not None or annual_end_year is not None:
+        first = annual_start_year if annual_start_year is not None else year - 1
+        last = annual_end_year if annual_end_year is not None else year - 1
+        if first > last or first < 2000 or last > year:
+            raise ValueError("Annual discovery range is invalid.")
+        annual_years = range(first, last + 1)
+    else:
+        annual_years = [year - 1] if include_prior_audit else []
+    for annual_year in annual_years:
+        for row in fetch(annual_year, "audit"):
             ticker = str(row.get("KodeEmiten") or "").upper().replace(".JK", "")
-            if ticker not in wanted:
+            key = (ticker, annual_year)
+            if ticker not in wanted or key in annual:
                 continue
             candidates = [item for item in (row.get("Attachments") or []) if
-                          str(item.get("File_Name") or "").lower() == "instance.zip"]
-            if not candidates or not candidates[0].get("File_Path"):
+                          "instance" in str(item.get("File_Name") or "").lower()
+                          and "inline" not in str(item.get("File_Name") or "").lower()
+                          and str(item.get("File_Name") or "").lower().endswith(".zip")]
+            if not candidates:
                 continue
-            attachment = candidates[0]
+            attachment = sorted(candidates, key=lambda item: str(item.get("File_Name")))[0]
+            if not attachment.get("File_Path"):
+                continue
             source_url = urljoin(
                 f"{IDX_ORIGIN}/", quote(str(attachment["File_Path"]), safe="/%:"),
             )
             validate_official_idx_url(source_url)
             published = attachment.get("File_Modified") or row.get("File_Modified")
-            annual[ticker] = {
+            annual[key] = {
                 "ticker": ticker, "source_url": source_url,
                 "published_at": _published_at(published), "filing_type": "ANNUAL",
-                "period_end": f"{year - 1}-12-31", "audit_status": "AUDITED",
+                "period_end": f"{annual_year}-12-31", "audit_status": "AUDITED",
                 "restatement_version": 1,
             }
     filings = [*current.values(), *annual.values()]
@@ -145,7 +160,12 @@ def discover_idx_xbrl_manifest(tickers: list[str], *, year: int, period: str,
         "discovery": {
             "year": year, "period": period, "requested_tickers": len(wanted),
             "current_period_missing": sorted(wanted - set(current)),
-            "prior_annual_missing": sorted(wanted - set(annual)) if include_prior_audit else [],
+            "annual_years": list(annual_years),
+            "annual_missing": {
+                str(annual_year): sorted(wanted - {ticker for ticker, value_year in annual if value_year == annual_year})
+                for annual_year in annual_years
+            },
+            "prior_annual_missing": sorted(wanted - {ticker for ticker, _ in annual}) if annual_years else [],
             "period_counts": {
                 filing_type: sum(row["filing_type"] == filing_type for row in current.values())
                 for filing_type in ("Q1", "Q2", "Q3")

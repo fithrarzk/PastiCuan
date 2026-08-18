@@ -5,7 +5,7 @@
 The Telegram webhook does not require a database to start. To enable the
 point-in-time research core without adding another Railway service:
 
-1. Create one Supabase project and apply migrations `001` through `005` in order.
+1. Create one Supabase project and apply migrations `001` through `006` in order.
 2. Apply or re-apply `storage/supabase_roles.sql`, create separate login users, and grant
    Railway only `pasticuan_bot` while GitHub receives an ingest/validator user.
    In pooler URLs, use the login names (`pasticuan_bot_login.PROJECT_REF` and
@@ -13,8 +13,9 @@ point-in-time research core without adding another Railway service:
 3. Put the read-only session-pooler URL in Railway as
    `SUPABASE_DATABASE_URL`. Never add `SUPABASE_WRITER_DATABASE_URL` to Railway.
 4. Add the writer URL and optional `R2_*` values as GitHub Actions secrets.
-5. Configure `data/source_manifest.json`, including a reviewed official
-   `market_sessions_csv` when available. Merging it triggers ingestion.
+5. Configure `data/source_manifest.json`, including reviewed official
+   `issuer_profiles_csv`, `market_sessions_csv`, shares, corporate actions,
+   disclosures, and policy rates when available. Merging it triggers ingestion.
 6. Push through a pull request. Tests, Railway deployment, signed SHADOW
    publication, the LQ45 scan, and outcome evaluation then run automatically.
 7. Use `/ready` to verify which snapshot the bot cached.
@@ -250,6 +251,10 @@ For the point-in-time data pipeline:
    validates, archives, and imports XBRL before requesting a research refresh.
    If IDX blocks discovery, copy the official `instance.zip` URLs into the same
    manifest and open a normal PR.
+   For the one-time five-year foundation, manually run **idx-filings**, choose
+   `discover`, set `annual_start_year=2021` and `annual_end_year=2025`, then
+   review and merge the generated manifest PR. The import is resumable and
+   checksum-idempotent; quarantined rows appear in the workflow artifact.
 6. Add a reviewed official IDX session-calendar CSV to `data/source_manifest.json`.
    `SCHEDULED`, `COMPLETED`, and `HOLIDAY` rows make freshness holiday-aware;
    without it the pipeline deliberately uses a conservative weekday estimate.
@@ -281,9 +286,10 @@ Editor after migrations and role grants. It inserts the composition effective
 45 constituents. Placeholder issuer names/sectors are explicitly unclassified;
 they must not be interpreted as official fundamental metadata.
 
-The ingestion path supports strict canonical CSV layouts plus the reviewed IDX
-XBRL concepts used by value and quality: parent net income, operating cash
-flow, parent equity, cash, and basic EPS. TTM
+The ingestion path supports strict canonical CSV layouts plus reviewed IDX
+XBRL concepts used by general and bank research. Issuer profiles must be
+verified through `issuer_profiles_csv`; until then the issuer is
+`PROFILE_UNVERIFIED` and receives no Business Score. TTM
 flows correctly combine annual and cumulative interim comparisons. If official
 period-end shares are absent, the factor dataset discloses use of the
 weighted-average shares implied by official profit and EPS. Original PDFs can
@@ -293,6 +299,28 @@ R2 archival is optional for daily scan publication. An upload failure is
 recorded in the signed SHADOW snapshot but does not discard a valid Supabase
 scan. Database backups remain strict and fail when R2 upload is denied. For R2,
 use an API token with Object Read & Write access scoped to the configured bucket.
+
+### Five-year accuracy rollout
+
+1. Apply migration `006_evidence_profiles` and re-run
+   `storage/supabase_roles.sql`. This also grants the research roles read access
+   to `schema_migrations`, fixing `permission denied for table schema_migrations`.
+2. Import the reviewed XBRL manifest. Its official sector metadata automatically
+   verifies general/bank profiles. If a filing omits sector metadata, add a
+   reviewed `issuer_profiles_csv` source for only those remaining issuers.
+3. Dispatch **idx-filings** with `discover`, `2021`, and `2025`; inspect every
+   URL, period and publication timestamp in the PR, then merge it.
+4. Let the automatic import finish. Do not merge or publish a candidate when a
+   profile, business-history, or quant gate fails; the last verified snapshot
+   remains active.
+5. Merge reviewed shares-history and corporate-action sources. Valuation-aware
+   `/range` activates ticker-by-ticker only after four comparable quarters and
+   historical shares exist. Otherwise it honestly remains technical-only.
+6. Check `/status`, `/evidence BBCA`, `/fund BBCA`, `/range BBCA`, `/chart BBCA`,
+   and `/scan`. `/chart` uses stored Supabase OHLCV and makes no provider call.
+
+Supabase size is reported by `/status`: `WARNING` starts at 350 MiB and
+`CRITICAL` at 425 MiB. Original filings stay in R2 rather than PostgreSQL.
 
 ## 5. Keep the deployment free
 

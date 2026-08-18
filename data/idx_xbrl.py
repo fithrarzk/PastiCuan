@@ -34,6 +34,21 @@ CONCEPTS = {
     "CashAndCashEquivalents": ("cash_and_cash_equivalents", 0),
     "CashAndCashEquivalentsCashFlows": ("cash_and_cash_equivalents", 1),
     "BasicEarningsLossPerShareFromContinuingOperations": ("basic_earnings_per_share", 0),
+    "Assets": ("total_assets", 0),
+    "TotalAssets": ("total_assets", 1),
+    "Liabilities": ("total_liabilities", 0),
+    "TotalLiabilities": ("total_liabilities", 1),
+    "ShortTermAndLongTermLoans": ("total_debt", 0),
+    "InterestBearingLiabilities": ("total_debt", 1),
+    "LoansAndReceivables": ("gross_loans", 1),
+    "LoansAndReceivablesGross": ("gross_loans", 0),
+    "DepositsFromCustomers": ("customer_deposits", 0),
+    "AllowanceForImpairmentLossesOnLoans": ("loan_loss_allowance", 0),
+    "ImpairedLoans": ("impaired_loans", 0),
+    "InterestAndShariaIncome": ("interest_income", 1),
+    "InterestIncome": ("interest_income", 0),
+    "ImpairmentLossesOnFinancialAssets": ("credit_impairment_expense", 0),
+    "CapitalAdequacyRatio": ("capital_adequacy_ratio", 0),
 }
 
 
@@ -173,13 +188,16 @@ def parse_idx_xbrl(body: bytes, *, ticker: str, source_url: str, published_at: s
     candidates = {}
     entity_code = None
     sector = None
+    industry = None
     xbrl_period_end = None
     for node in root:
         name = _local(node.tag)
         if name == "EntityCode" and node.text:
             entity_code = node.text.strip().upper().replace(".JK", "")
-        elif name in {"Sector", "EntityMainIndustry"} and node.text and not sector:
+        elif name == "Sector" and node.text and not sector:
             sector = node.text.strip()
+        elif name == "EntityMainIndustry" and node.text and not industry:
+            industry = node.text.strip()
         elif name == "CurrentPeriodEndDate" and node.text:
             xbrl_period_end = node.text.strip()
         definition = CONCEPTS.get(name)
@@ -240,6 +258,7 @@ def parse_idx_xbrl(body: bytes, *, ticker: str, source_url: str, published_at: s
             "xbrl_period_end": xbrl_period_end,
             "entity_code": entity_code,
             "sector": sector,
+            "industry": industry,
             "instance_checksum": checksum,
             "fact_count": len(facts),
             "concepts": sorted({item["normalized_concept"] for item in facts}),

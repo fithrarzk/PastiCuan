@@ -13,11 +13,18 @@ FLOW_CONCEPTS = {
     "operating_cash_flow": {"operating_cash_flow", "cash_flow_from_operations"},
     "operating_income": {"operating_income"},
     "basic_eps": {"basic_earnings_per_share"},
+    "credit_impairment": {"credit_impairment_expense"},
 }
 STOCK_CONCEPTS = {
     "equity": {"stockholders_equity", "common_stock_equity", "total_equity"},
     "debt": {"total_debt", "short_and_long_term_debt"},
     "cash": {"cash_and_cash_equivalents", "cash_cash_equivalents_and_short_term_investments"},
+    "assets": {"total_assets"},
+    "loans": {"gross_loans"},
+    "deposits": {"customer_deposits"},
+    "loan_allowance": {"loan_loss_allowance"},
+    "impaired_loans": {"impaired_loans"},
+    "capital_adequacy_ratio": {"capital_adequacy_ratio"},
 }
 
 
@@ -74,6 +81,13 @@ def _ttm(facts: list[dict], names: set[str]) -> float | None:
 def _latest(facts: list[dict], names: set[str]) -> float | None:
     rows = _concept_rows(facts, names)
     return _scaled(rows[-1]) if rows else None
+
+
+def _reported_ratio(value: float | None) -> float | None:
+    """Normalize a disclosed percentage while preserving decimal ratios."""
+    if value is None:
+        return None
+    return value / 100 if abs(value) > 1 else value
 
 
 def _annual_values(facts: list[dict], names: set[str]) -> list[float]:
@@ -176,6 +190,13 @@ def build_factor_inputs(repository, as_of: str, *, index_code: str = "LQ45") -> 
             mean_income = float(np.mean(annual_income[-3:]))
             if mean_income > 0:
                 earnings_stability = float(np.std(annual_income[-3:], ddof=0) / mean_income)
+        assets = _latest(usable_facts, STOCK_CONCEPTS["assets"])
+        loans = _latest(usable_facts, STOCK_CONCEPTS["loans"])
+        deposits = _latest(usable_facts, STOCK_CONCEPTS["deposits"])
+        loan_allowance = _latest(usable_facts, STOCK_CONCEPTS["loan_allowance"])
+        impaired_loans = _latest(usable_facts, STOCK_CONCEPTS["impaired_loans"])
+        capital_adequacy = _latest(usable_facts, STOCK_CONCEPTS["capital_adequacy_ratio"])
+        credit_impairment = _ttm(usable_facts, FLOW_CONCEPTS["credit_impairment"])
         accrual_ratio = (
             (net_income - operating_cash) / equity
             if net_income is not None and operating_cash is not None and equity and equity > 0 else None
@@ -204,19 +225,25 @@ def build_factor_inputs(repository, as_of: str, *, index_code: str = "LQ45") -> 
                     fx_source_ids.add(str(rate["checksum"]))
             dividends += amount
         issuer_profile = str(issuer.get("issuer_type") or "general").upper()
-        if issuer_profile == "GENERAL" and any(token in str(issuer.get("sector") or "").lower()
+        if not issuer.get("profile_verified_at"):
+            issuer_profile = "UNVERIFIED"
+        elif issuer_profile == "GENERAL" and any(token in str(issuer.get("sector") or "").lower()
                                                 for token in ("bank", "financial")):
             issuer_profile = "BANK"
         rows.append({
             "ticker": issuer["ticker"], "sector": issuer["sector"],
             "share_count_source": share_count_source,
             "issuer_profile": issuer_profile,
+            "issuer_profile_source": issuer.get("profile_source_url"),
+            "issuer_profile_checksum": issuer.get("profile_checksum"),
+            "annual_history_years": len(annual_income),
             "currency_status": currency_status,
             "fx_source_ids": sorted(fx_source_ids),
             "earnings_yield": net_income / market_cap if net_income is not None and market_cap else None,
             "book_yield": equity / market_cap if equity is not None and market_cap else None,
             "dividend_yield": dividends / latest_price if latest_price and dividend_currency_complete else None,
             "roe": net_income / equity if net_income is not None and equity and equity > 0 else None,
+            "roa": net_income / assets if net_income is not None and assets and assets > 0 else None,
             # ROIC requires a normalized tax provision and invested-capital
             # policy; remain unavailable rather than inventing a proxy.
             "roic": None,
@@ -228,6 +255,17 @@ def build_factor_inputs(repository, as_of: str, *, index_code: str = "LQ45") -> 
             "net_debt_to_equity": net_debt_to_equity,
             "cash_to_equity": cash_to_equity,
             "equity_positive": 1.0 if equity is not None and equity > 0 else (0.0 if equity is not None else None),
+            "npl_ratio": impaired_loans / loans if impaired_loans is not None and loans and loans > 0 else None,
+            "credit_cost": abs(credit_impairment) / loans if credit_impairment is not None and loans and loans > 0 else None,
+            "allowance_coverage": loan_allowance / impaired_loans if loan_allowance is not None and impaired_loans and impaired_loans > 0 else None,
+            "capital_adequacy_ratio": _reported_ratio(capital_adequacy),
+            "equity_to_assets": equity / assets if equity is not None and assets and assets > 0 else None,
+            "loans_to_deposits": loans / deposits if loans is not None and deposits and deposits > 0 else None,
+            "liquid_assets_to_deposits": cash / deposits if cash is not None and deposits and deposits > 0 else None,
             **_market_features(close),
+            "financial_periods": sorted({str(row.get("period_end")) for row in usable_facts if row.get("period_end")}),
+            "source_documents": sorted({str(row.get("document_checksum")) for row in usable_facts
+                                         if row.get("document_checksum")}),
+            "source_urls": sorted({str(row.get("source_url")) for row in usable_facts if row.get("source_url")}),
         })
     return pd.DataFrame(rows)

@@ -38,6 +38,33 @@ class SnapshotRepository:
                 )
         return snapshot_id
 
+    def verify_issuer_profile(self, ticker: str, *, sector: str, source_url: str,
+                              checksum: str, available_at: str) -> str:
+        """Promote official XBRL issuer metadata without guessing missing sectors."""
+        clean_sector = str(sector or "").strip()
+        if not clean_sector or clean_sector.upper() in {"N/A", "UNKNOWN", "UNCLASSIFIED"}:
+            raise ValueError("Official XBRL does not contain usable issuer-sector metadata.")
+        lowered = clean_sector.lower()
+        issuer_type = "bank" if any(token in lowered for token in ("bank", "banking")) else "general"
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT issuer_type,profile_checksum FROM issuers WHERE ticker=%s FOR UPDATE""",
+                    (ticker.upper().replace(".JK", ""),),
+                )
+                existing = cursor.fetchone()
+                if not existing:
+                    raise ValueError(f"Issuer {ticker} must exist before profile verification.")
+                if existing[1] and existing[0] != issuer_type:
+                    raise ValueError(f"Official issuer profile conflicts with the reviewed {existing[0]} profile.")
+                cursor.execute(
+                    """UPDATE issuers SET sector=%s,issuer_type=%s,profile_verified_at=%s,
+                              profile_source_url=%s,profile_checksum=%s WHERE ticker=%s""",
+                    (clean_sector, issuer_type, available_at, source_url, checksum,
+                     ticker.upper().replace(".JK", "")),
+                )
+        return issuer_type
+
     def applied_schema_migrations(self) -> list[str]:
         with self._connect() as connection:
             with connection.cursor() as cursor:
@@ -62,6 +89,43 @@ class SnapshotRepository:
                 )
                 names = [column.name for column in cursor.description]
                 return [dict(zip(names, row)) for row in cursor.fetchall()]
+
+    def ticker_market_history(self, ticker: str, as_of: str, *, sessions: int = 756):
+        """Return verified stored OHLCV for bot charts; this never calls a provider."""
+        import pandas as pd
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id,sector FROM issuers WHERE ticker=%s", (ticker.upper().replace(".JK", ""),))
+                issuer = cursor.fetchone()
+        if not issuer:
+            return pd.DataFrame(), None
+        rows = self.market_bars_as_of(issuer[0], as_of)[-max(1, min(int(sessions), 1000)):]
+        if not rows:
+            return pd.DataFrame(), issuer[1]
+        frame = pd.DataFrame(rows).rename(columns={
+            "open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume",
+        })
+        frame.index = pd.to_datetime(frame.pop("session_date"))
+        return frame[["Open", "High", "Low", "Close", "Volume"]].sort_index(), issuer[1]
+
+    def valuation_bands_for_ticker(self, ticker: str, history, as_of: str) -> dict:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id FROM issuers WHERE ticker=%s", (ticker.upper().replace(".JK", ""),))
+                row = cursor.fetchone()
+                if not row:
+                    return {"status": "INSUFFICIENT_POINT_IN_TIME_DATA", "pe": None, "pbv": None}
+                issuer_id = row[0]
+                cursor.execute(
+                    """SELECT effective_from AS period_end,period_end_shares,weighted_average_shares,
+                              available_at,checksum FROM shares_history
+                       WHERE issuer_id=%s AND available_at<=%s ORDER BY effective_from,available_at""",
+                    (issuer_id, as_of),
+                )
+                names = [column.name for column in cursor.description]
+                shares = [dict(zip(names, value)) for value in cursor.fetchall()]
+        from analysis.valuation_bands import compute_valuation_bands_from_facts
+        return compute_valuation_bands_from_facts(history, self.facts_as_of(issuer_id, as_of), shares)
 
     def completed_session_age(self, session_date: str, on_date: str) -> int | None:
         """Count known completed IDX sessions after ``session_date``."""
@@ -214,7 +278,8 @@ class SnapshotRepository:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT i.id, i.ticker, i.legal_name, i.sector, i.issuer_type, i.currency
+                    """SELECT i.id, i.ticker, i.legal_name, i.sector, i.issuer_type, i.currency,
+                              i.profile_verified_at,i.profile_source_url,i.profile_checksum
                        FROM index_constituents c JOIN issuers i ON i.id=c.issuer_id
                        WHERE c.index_code=%s AND c.effective_from<=%s AND c.effective_to>=%s
                        ORDER BY i.ticker""", (index_code, on_date, on_date),
@@ -242,18 +307,21 @@ class SnapshotRepository:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT session_date,payload->'candidates',formula_version,checksum
+                    """SELECT session_date,payload->'candidates',payload->'excluded',formula_version,checksum
                        FROM scan_research_snapshots
-                       WHERE payload->'candidates' @> %s::jsonb
                        ORDER BY session_date DESC,published_at DESC LIMIT %s""",
-                    (json.dumps([{"ticker": ticker}]), int(max(1, min(limit, 20)))),
+                    (int(max(1, min(limit * 4, 80))),),
                 )
                 result = []
-                for session_date, candidates, formula_version, checksum in cursor.fetchall():
+                for session_date, candidates, excluded, formula_version, checksum in cursor.fetchall():
                     candidate = next((item for item in candidates or [] if item.get("ticker") == ticker), None)
-                    if candidate:
+                    exclusion = next((item for item in excluded or [] if item.get("ticker") == ticker), None)
+                    if candidate or exclusion:
                         result.append({"session_date": str(session_date), "formula_version": formula_version,
-                                       "checksum": checksum, "candidate": candidate})
+                                       "checksum": checksum, "candidate": candidate,
+                                       "reason": (exclusion or {}).get("reason")})
+                    if len(result) >= limit:
+                        break
                 return result
 
     def disclosure_events_for_ticker(self, ticker: str, *, limit: int = 10) -> list[dict]:
@@ -279,9 +347,14 @@ class SnapshotRepository:
                 job = cursor.fetchone()[0]
                 cursor.execute("SELECT count(*) FROM provider_runs WHERE status='FAILED' AND started_at>now()-interval '24 hours'")
                 failures = int(cursor.fetchone()[0])
+                cursor.execute("SELECT pg_database_size(current_database())")
+                database_size = int(cursor.fetchone()[0])
                 return {"latest_session": str(session) if session else None, "open_issues": issues,
                         "last_successful_job": job.isoformat() if job else None,
-                        "provider_failures_24h": failures}
+                        "provider_failures_24h": failures,
+                        "database_size_bytes": database_size,
+                        "database_size_state": "CRITICAL" if database_size >= 425 * 1024 * 1024
+                        else ("WARNING" if database_size >= 350 * 1024 * 1024 else "OK")}
 
     def record_provider_run(self, run: dict) -> None:
         with self._connect() as connection:
@@ -627,8 +700,34 @@ class SnapshotRepository:
                         )
                         imported += 1
                         continue
+                    if artifact_type == "policy_rates_csv":
+                        cursor.execute(
+                            """INSERT INTO policy_rates(observation_date,rate_name,annual_rate,
+                                      available_at,source_url,checksum)
+                               VALUES (%s,%s,%s,%s,%s,%s)
+                               ON CONFLICT (observation_date,rate_name) DO UPDATE SET
+                                 annual_rate=EXCLUDED.annual_rate,available_at=EXCLUDED.available_at,
+                                 source_url=EXCLUDED.source_url,checksum=EXCLUDED.checksum""",
+                            (row["observation_date"], row["rate_name"], row["annual_rate"],
+                             row["available_at"], row["source_url"], row["checksum"]),
+                        )
+                        imported += 1
+                        continue
                     ticker = str(row["ticker"]).upper().replace(".JK", "")
-                    if artifact_type == "lq45_constituents_csv":
+                    if artifact_type == "issuer_profiles_csv":
+                        issuer_type = str(row["issuer_type"]).lower()
+                        if issuer_type not in {"general", "bank"}:
+                            raise ValueError(f"Unsupported issuer profile {issuer_type} for {ticker}.")
+                        cursor.execute(
+                            """UPDATE issuers SET legal_name=%s,sector=%s,issuer_type=%s,currency=%s,
+                                      profile_verified_at=%s,profile_source_url=%s,profile_checksum=%s
+                               WHERE ticker=%s""",
+                            (row["legal_name"], row["sector"], issuer_type, row["currency"],
+                             row["available_at"], row["source_url"], row["checksum"], ticker),
+                        )
+                        if cursor.rowcount != 1:
+                            raise ValueError(f"Issuer {ticker} must exist before its profile is imported.")
+                    elif artifact_type == "lq45_constituents_csv":
                         cursor.execute(
                             """INSERT INTO issuers(ticker,legal_name,sector,currency,active_from,active_to)
                                VALUES (%s,%s,%s,%s,%s,%s)
@@ -733,6 +832,18 @@ class SnapshotRepository:
                                  row.get("cash_amount"), row.get("currency"), row.get("published_at"),
                                  row["available_at"], source_class, row.get("subscription_price"), validation,
                                  row["source_url"], row["checksum"], validation, validation),
+                            )
+                        elif artifact_type == "disclosure_events_csv":
+                            cursor.execute(
+                                """INSERT INTO disclosure_events
+                                     (id,issuer_id,event_type,published_at,available_at,title,
+                                      source_url,object_key,checksum,metadata)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                                   ON CONFLICT (checksum) DO NOTHING""",
+                                (str(uuid4()), issuer_id, row["event_type"], row["published_at"],
+                                 row["available_at"], row["title"], row["source_url"],
+                                 row.get("object_key"), row["checksum"],
+                                 json.dumps(row.get("metadata") or {})),
                             )
                         else:
                             raise ValueError(f"Unsupported canonical artifact type {artifact_type}.")

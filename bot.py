@@ -149,10 +149,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/evidence <ticker>` — Point-in-time sources and calculation coverage\n"
         "• `/history <ticker>` — Previous immutable research snapshots\n"
         "• `/status` — Data, provider, and model health\n"
+        "• `/ready` — Alias for deployment and snapshot health\n"
         "• `/market` — Latest LQ45 research breadth\n"
         "• `/events <ticker>` — Official stored disclosure events\n"
         "• `/range <ticker>` — Stored entry, stop, target, and R/R evidence (e.g. `/range BBCA`)\n"
-        "• `/chart <ticker>` — Unavailable in strict snapshot-only production mode\n"
+        "• `/chart <ticker>` — Chart from verified stored OHLCV\n"
         "• `/scan [ticker ...]` — Latest full-LQ45 EOD snapshot; optional filter\n"
         "• `/help` — Display this command menu\n\n"
 
@@ -457,8 +458,13 @@ async def fund_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _snapshot_unavailable(update, ticker_symbol, "Fundamental evidence")
             return
         lines = [f"🏛️ <b>{ticker_symbol} Business Evidence</b>",
-                 f"Business <code>{display_number(row.get('business_score'))}</code> · <code>{html.escape(row.get('business_state', 'LIMITED_HISTORY'))}</code>"]
-        for name in ("quality", "valuation", "durability", "resilience"):
+                 f"Business <code>{display_number(row.get('business_score'))}</code> · <code>{html.escape(row.get('business_state', 'LIMITED_HISTORY'))}</code>",
+                 f"Profile <code>{html.escape(str(row.get('issuer_profile', 'UNVERIFIED')))}</code> · model <code>{html.escape(str(row.get('business_model', 'NONE')))}</code>",
+                 f"Annual history <code>{int(row.get('annual_history_years') or 0)} year(s)</code> · <code>{html.escape(str(row.get('history_confidence', 'LIMITED')))}</code>"]
+        component_names = (("bank_profitability", "bank_asset_quality", "bank_capital", "bank_funding", "bank_valuation")
+                           if row.get("issuer_profile") == "BANK"
+                           else ("quality", "valuation", "durability", "resilience"))
+        for name in component_names:
             lines.append(f"{name.title()} <code>{display_number(row.get(name + '_score'))}</code>")
         lines.extend([f"Raw fundamental coverage <code>{float(row.get('raw_fundamental_coverage_pct') or 0):.0f}%</code>",
                       f"Effective <code>{html.escape(snapshot.effective_at)}</code> · <code>{html.escape(snapshot.formula_version)}</code>"])
@@ -540,7 +546,29 @@ async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ticker_symbol = _clean_ticker(context.args[0])
     if _snapshot_only():
-        await _snapshot_unavailable(update, ticker_symbol, "Chart")
+        repository = _readonly_repository()
+        scan = get_scan_snapshot()
+        if not repository or scan.mode == "UNAVAILABLE":
+            await _snapshot_unavailable(update, ticker_symbol, "Chart")
+            return
+        try:
+            history, sector = await asyncio.to_thread(
+                repository.ticker_market_history, ticker_symbol, scan.created_at,
+            )
+            from analysis.technical import analyze_technical
+            from telegram_utils.chart_generator import generate_telegram_chart
+            tech = await asyncio.to_thread(analyze_technical, history, sector)
+            buf = await asyncio.to_thread(generate_telegram_chart, tech, f"{ticker_symbol}.JK")
+        except Exception:
+            logger.exception("Stored chart rendering failed")
+            buf = None
+        if buf is None:
+            await _snapshot_unavailable(update, ticker_symbol, "Chart")
+            return
+        await update.message.reply_photo(
+            photo=buf,
+            caption=f"📈 {ticker_symbol}.JK · verified stored OHLCV through {scan.session_date}\nSnapshot {scan.snapshot_id} · RESEARCH_ONLY",
+        )
         return
     await update.message.reply_text(f"📊 Rendering technical chart for *{ticker_symbol}.JK*...", parse_mode=ParseMode.MARKDOWN)
 
@@ -609,10 +637,12 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Calculation <code>{html.escape(str(release.get('calculation_digest') or 'unknown')[:12])}</code>",
         ])
     if operational:
+        size_mb = float(operational.get("database_size_bytes") or 0) / 1024 / 1024
         lines.extend([
             f"Latest completed session <code>{html.escape(str(operational['latest_session']))}</code>",
             f"Open ingestion issues <code>{operational['open_issues']}</code>",
             f"Provider failures (24h) <code>{operational['provider_failures_24h']}</code>",
+            f"Database size <code>{size_mb:.1f} MB</code> · <code>{html.escape(operational.get('database_size_state', 'UNKNOWN'))}</code>",
         ])
     for warning in [*quant.warnings[:1], *scan.warnings[:1]]:
         lines.append(f"⚠️ {html.escape(str(warning)[:180])}")
@@ -629,13 +659,19 @@ async def evidence_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not row:
         await update.message.reply_text(f"No approved point-in-time evidence exists for {ticker}.")
         return
-    fields = ("business_state", "business_score", "quality_score", "valuation_score",
+    fields = ("issuer_profile", "business_model", "annual_history_years", "history_confidence",
+              "business_state", "business_score", "quality_score", "valuation_score",
               "durability_score", "resilience_score", "composite_percentile",
               "raw_fundamental_coverage_pct", "raw_component_coverage_pct", "ranking_scope")
     lines = [f"🔎 <b>{ticker} Evidence</b>",
              f"Effective <code>{html.escape(quant.effective_at)}</code>",
              f"Formula <code>{html.escape(quant.formula_version)}</code>"]
     lines.extend(f"{html.escape(name)}: <code>{html.escape(display_number(row.get(name)))}</code>" for name in fields)
+    periods = row.get("financial_periods") or []
+    documents = row.get("source_documents") or []
+    if periods:
+        lines.append(f"Periods: <code>{html.escape(', '.join(map(str, periods[-8:])))}</code>")
+    lines.append(f"Official documents: <code>{len(documents)}</code>")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
@@ -655,8 +691,11 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     lines = [f"🕰️ <b>{ticker} Research History</b>"]
     for row in rows:
-        item = row["candidate"]
-        lines.append(f"<code>{row['session_date']}</code> · Business {html.escape(display_number(item.get('business_score')))} · {html.escape(item.get('entry_state', 'N/A'))}")
+        item = row.get("candidate")
+        if item:
+            lines.append(f"<code>{row['session_date']}</code> · Business {html.escape(display_number(item.get('business_score')))} · {html.escape(item.get('entry_state', 'N/A'))}")
+        else:
+            lines.append(f"<code>{row['session_date']}</code> · Not eligible: {html.escape(str(row.get('reason') or 'No published row')[:120])}")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
@@ -665,9 +704,12 @@ async def market_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     candidates = bundle.get("candidates", [])
     quality = sum(row.get("business_state") == "QUALITY_CANDIDATE" for row in candidates)
     ready = sum(row.get("entry_state") == "FAVORABLE_ENTRY" for row in candidates)
+    business_scored = sum(row.get("business_score") is not None for row in candidates)
+    technical_scored = sum(row.get("technical_score") is not None for row in candidates)
     await update.message.reply_text(
         f"🌐 <b>LQ45 Research Breadth</b>\nSession <code>{html.escape(str(bundle.get('session_date')))}</code>\n"
         f"Market coverage <code>{float(bundle.get('universe_coverage_pct') or 0):.0f}%</code>\n"
+        f"Technical coverage <code>{technical_scored}/45</code> · Business coverage <code>{business_scored}/45</code>\n"
         f"Quality candidates <code>{quality}</code> · Favorable entries <code>{ready}</code>",
         parse_mode=ParseMode.HTML,
     )
@@ -720,6 +762,9 @@ async def quant_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"_Snapshot `{snapshot.snapshot_id}`; rankings use information available at the stated cutoff._"
         )
         await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        return
+    if _snapshot_only():
+        await _snapshot_unavailable(update, ticker_symbol, "Quant evidence")
         return
     await update.message.reply_text(f"⏳ Ranking *{ticker_symbol}.JK* in the default comparison universe...", parse_mode=ParseMode.MARKDOWN)
     comparison = [ticker_symbol, *[item for item in POPULAR_TICKERS if item != ticker_symbol]][:10]
@@ -847,7 +892,7 @@ def build_application():
     app.add_handler(CommandHandler(["range", "buyrange"], range_command))
     app.add_handler(CommandHandler(["chart"], chart_command))
     app.add_handler(CommandHandler(["scan"], scan_command))
-    app.add_handler(CommandHandler(["status"], status_command))
+    app.add_handler(CommandHandler(["status", "ready"], status_command))
     app.add_handler(CommandHandler(["evidence"], evidence_command))
     app.add_handler(CommandHandler(["history"], history_command))
     app.add_handler(CommandHandler(["market"], market_command))

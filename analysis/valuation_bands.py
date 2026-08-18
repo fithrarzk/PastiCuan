@@ -144,3 +144,77 @@ def compute_valuation_bands(
         result["status"] = "AVAILABLE"
         result["warnings"] = []
     return result
+
+
+def compute_valuation_bands_from_facts(history: pd.DataFrame, facts: list[dict],
+                                       shares_history: list[dict]) -> dict:
+    """Build PIT bands directly from canonical IDX facts.
+
+    Cumulative IDX YTD flows are converted to discrete quarters.  A derived
+    quarter becomes available only when every source fact used by it is known.
+    """
+    result = {"pe": None, "pbv": None, "status": "INSUFFICIENT_POINT_IN_TIME_DATA",
+              "formula_version": "valuation-bands-pit-v5", "warnings": []}
+    if history is None or history.empty or not facts or not shares_history:
+        result["warnings"] = ["Official facts, historical shares, and stored prices are required."]
+        return result
+    shares = pd.DataFrame(shares_history)
+    if shares.empty:
+        return result
+
+    def rows(name: str) -> pd.DataFrame:
+        frame = pd.DataFrame([row for row in facts if row.get("normalized_concept") == name])
+        if frame.empty:
+            return frame
+        frame["value"] = pd.to_numeric(frame["value"], errors="coerce") * (
+            10 ** pd.to_numeric(frame.get("scale", 0), errors="coerce").fillna(0)
+        )
+        frame["period_end"] = pd.to_datetime(frame["period_end"]).dt.tz_localize(None)
+        frame["available_at"] = pd.to_datetime(frame["available_at"]).dt.tz_localize(None)
+        return frame.dropna(subset=["value", "period_end", "available_at"]).sort_values("period_end")
+
+    income = rows("net_income")
+    discrete = []
+    if not income.empty:
+        for fiscal_year, group in income.groupby(income["period_end"].dt.year):
+            values = {int(row.fiscal_quarter): row for row in group.itertuples()
+                      if row.fiscal_quarter is not None and str(row.duration_class) in {"YTD", "FY"}}
+            previous = None
+            for quarter in range(1, 5):
+                current = values.get(quarter)
+                if current is None:
+                    continue
+                value = float(current.value) - (float(previous.value) if previous is not None else 0.0)
+                available = max(current.available_at, previous.available_at) if previous is not None else current.available_at
+                discrete.append({"period_end": current.period_end, "value": value,
+                                 "available_at": available})
+                previous = current
+    income_frame = pd.DataFrame(discrete)
+    equity = rows("stockholders_equity")
+    equity_frame = equity[["period_end", "value", "available_at"]] if not equity.empty else pd.DataFrame()
+    share_frame = shares.copy()
+    for column in ("period_end", "available_at"):
+        share_frame[column] = pd.to_datetime(share_frame[column], errors="coerce").dt.tz_localize(None)
+    weighted = share_frame.rename(columns={"weighted_average_shares": "shares"})
+    period_end = share_frame.rename(columns={"period_end_shares": "shares"})
+
+    close = history["Close"].dropna().copy()
+    close.index = _strip_index(close.index)
+    result["pe"] = _bands(_daily_multiple(close, _merge_fact_shares(income_frame, weighted), ttm=True), "pe")
+    result["pbv"] = _bands(_daily_multiple(close, _merge_fact_shares(equity_frame, period_end), ttm=False), "pbv")
+    if result["pe"] or result["pbv"]:
+        result["status"] = "AVAILABLE"
+    else:
+        result["warnings"] = ["At least four comparable quarters and historical shares are required."]
+    return result
+
+
+def _merge_fact_shares(facts: pd.DataFrame, shares: pd.DataFrame) -> pd.DataFrame:
+    if facts.empty or shares.empty or "shares" not in shares:
+        return pd.DataFrame()
+    clean = shares[["period_end", "available_at", "shares"]].dropna().query("shares > 0")
+    merged = facts.merge(clean, on="period_end", suffixes=("_fact", "_shares"))
+    if merged.empty:
+        return merged
+    merged["available_at"] = merged[["available_at_fact", "available_at_shares"]].max(axis=1)
+    return merged[["period_end", "value", "shares", "available_at"]].sort_values("period_end")

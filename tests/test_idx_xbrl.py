@@ -102,6 +102,22 @@ class IdxDiscoveryTests(unittest.TestCase):
         self.assertTrue(current["published_at"].endswith("+07:00"))
         self.assertEqual(result["discovery"]["current_period_missing"], [])
 
+    def test_discovery_can_backfill_five_reviewed_annual_years(self):
+        def fetch(year, period):
+            return [{
+                "KodeEmiten": "TEST", "File_Modified": f"{year + 1}-03-31T12:00:00+07:00",
+                "Attachments": [{"File_Name": "instance.zip", "File_Path": f"/files/{year}/instance.zip"}],
+            }]
+
+        result = discover_idx_xbrl_manifest(
+            ["TEST"], year=2026, period="tw2", fetch_catalog=fetch,
+            annual_start_year=2021, annual_end_year=2025,
+        )
+        annuals = [row for row in result["filings"] if row["filing_type"] == "ANNUAL"]
+        self.assertEqual([row["period_end"] for row in annuals],
+                         [f"{year}-12-31" for year in range(2021, 2026)])
+        self.assertEqual(result["discovery"]["annual_years"], list(range(2021, 2026)))
+
 
 class CandidateReadinessTests(unittest.TestCase):
     def test_requires_45_members_and_90_percent_coverage(self):
@@ -114,6 +130,7 @@ class CandidateReadinessTests(unittest.TestCase):
             snapshot_id="candidate", effective_at="2026-08-16T00:00:00+00:00",
             created_at="2026-08-16T00:00:00+00:00", model_version="test",
             model_status="CANDIDATE", constituents=tickers, rankings=rankings,
+            formula_version="lq45-cross-section-v4+business-quality-v1",
         )
         snapshot = ResearchSnapshot(**{**base.unsigned_dict(), "checksum": base.calculated_checksum()})
         self.assertTrue(candidate_readiness(snapshot)["ready"])
@@ -124,6 +141,25 @@ class CandidateReadinessTests(unittest.TestCase):
         self.assertTrue(candidate_readiness(broken)["ready"])
         for ticker in tickers[:5]:
             rankings[ticker]["factor_coverage_pct"] = 50
+        broken = ResearchSnapshot(**{**base.unsigned_dict(), "rankings": rankings})
+        broken = ResearchSnapshot(**{**broken.unsigned_dict(), "checksum": broken.calculated_checksum()})
+        self.assertFalse(candidate_readiness(broken)["ready"])
+
+    def test_v2_candidate_requires_profiles_and_business_scores(self):
+        tickers = [f"T{index:02d}" for index in range(45)]
+        rankings = {ticker: {"composite_percentile": 50, "raw_component_coverage_pct": 70,
+                             "factor_coverage_pct": 75, "issuer_profile": "GENERAL",
+                             "issuer_profile_checksum": "a" * 64, "business_score": 70}
+                    for ticker in tickers}
+        base = ResearchSnapshot(
+            snapshot_id="candidate-v2", effective_at="2026-08-16T00:00:00+00:00",
+            created_at="2026-08-16T00:00:00+00:00", model_version="test-v2",
+            model_status="CANDIDATE", constituents=tickers, rankings=rankings,
+            formula_version="lq45-cross-section-v4+business-quality-v2",
+        )
+        snapshot = ResearchSnapshot(**{**base.unsigned_dict(), "checksum": base.calculated_checksum()})
+        self.assertTrue(candidate_readiness(snapshot)["ready"])
+        rankings[tickers[0]]["issuer_profile_checksum"] = None
         broken = ResearchSnapshot(**{**base.unsigned_dict(), "rankings": rankings})
         broken = ResearchSnapshot(**{**broken.unsigned_dict(), "checksum": broken.calculated_checksum()})
         self.assertFalse(candidate_readiness(broken)["ready"])

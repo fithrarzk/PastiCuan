@@ -40,6 +40,35 @@ class FundamentalAccuracyTests(unittest.TestCase):
         self.assertTrue(result["scores"]["business_score"].isna().all())
         self.assertTrue((result["scores"]["business_state"] == "LIMITED_HISTORY").all())
 
+    def test_bank_never_uses_general_company_components(self):
+        count = 6
+        universe = pd.DataFrame({
+            "ticker": [f"B{i}" for i in range(count)], "sector": ["Banks"] * count,
+            "issuer_profile": ["BANK"] * count, "annual_history_years": [5] * count,
+            "roe": np.linspace(.10, .22, count), "roa": np.linspace(.01, .03, count),
+            "earnings_stability": np.linspace(.20, .05, count),
+            "npl_ratio": np.linspace(.04, .01, count), "credit_cost": np.linspace(.03, .01, count),
+            "allowance_coverage": np.linspace(1.0, 2.0, count),
+            "capital_adequacy_ratio": np.linspace(.18, .26, count),
+            "equity_to_assets": np.linspace(.08, .14, count),
+            "loans_to_deposits": np.linspace(.95, .75, count),
+            "liquid_assets_to_deposits": np.linspace(.10, .20, count),
+            "earnings_yield": np.linspace(.05, .12, count), "book_yield": np.linspace(.4, .8, count),
+        })
+        result = compute_business_scores(universe)["scores"]
+        self.assertTrue(result["business_score"].notna().all())
+        self.assertTrue((result["business_model"] == "BANK_V1_SHADOW").all())
+        self.assertTrue(result["quality_score"].isna().all())
+
+    def test_unverified_profile_is_not_scored(self):
+        universe = pd.DataFrame({
+            "ticker": [f"U{i}" for i in range(6)], "sector": ["Unknown"] * 6,
+            "issuer_profile": ["UNVERIFIED"] * 6,
+        })
+        result = compute_business_scores(universe)["scores"]
+        self.assertTrue(result["business_score"].isna().all())
+        self.assertTrue((result["business_state"] == "PROFILE_UNVERIFIED").all())
+
 
 class ExecutionAccuracyTests(unittest.TestCase):
     def test_idx_price_floor_prevents_non_executable_stop(self):

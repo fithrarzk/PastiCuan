@@ -36,7 +36,7 @@ How to run
   authoritative fundamental data, so the action gate remains closed.
 - Canonical structured research data uses Supabase PostgreSQL; original filing
   documents and logical backups use optional S3-compatible R2 storage. Apply
-  migrations `001` through `005`, followed by `storage/supabase_roles.sql`.
+  migrations `001` through `006`, followed by `storage/supabase_roles.sql`.
 - Railway runs only the Telegram webhook. GitHub Actions performs source
   acquisition, candidate snapshot construction and backups outside the request
   path. The bot caches approved, checksummed database snapshots; a transient
@@ -84,7 +84,7 @@ python -m operations.research_cli ingest-manifest \
   --manifest data/source_manifest.json --report ingestion-report.json
 python -m operations.research_cli discover-idx-xbrl \
   --output idx-manifest-draft.json --as-of 2026-08-16T16:15:00+07:00 \
-  --year 2026 --period tw2
+  --year 2026 --period tw2 --annual-start-year 2021 --annual-end-year 2025
 python -m operations.research_cli ingest-idx-xbrl \
   --manifest data/idx_filing_manifest.json --report idx-xbrl-report.json --r2
 python -m operations.research_cli check-research-release
