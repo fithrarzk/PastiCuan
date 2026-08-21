@@ -38,6 +38,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write
     env:
       SUPABASE_WRITER_DATABASE_URL: ${{ secrets.SUPABASE_WRITER_DATABASE_URL }}
       R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
@@ -75,21 +76,34 @@ jobs:
             "${history_flags[@]}"
       - name: Open manifest review PR when changed
         run: |
+          branch="idx-manifest-review"
+          git config user.name "pasticuan-research-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git fetch origin main
+          if git ls-remote --exit-code origin "refs/heads/$branch" >/dev/null 2>&1; then
+            git fetch origin "$branch"
+            git checkout -B "$branch" "origin/$branch"
+            git merge --no-edit origin/main
+          else
+            git checkout -b "$branch" origin/main
+          fi
           cp /tmp/idx_filing_manifest.json data/idx_filing_manifest.json
           if git diff --quiet -- data/idx_filing_manifest.json; then
             echo "Official manifest is unchanged." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          branch="idx-manifest-${GITHUB_RUN_ID}"
-          git config user.name "pasticuan-research-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git checkout -b "$branch"
           git add data/idx_filing_manifest.json
           git commit -m "Update reviewed IDX filing manifest"
           git push origin "$branch"
-          gh pr create --title "Review official IDX filing manifest" \
-            --body "Review every ticker, publication timestamp, reporting period, and official IDX URL. Merging automatically imports accepted filings and refreshes research." \
-            --base main --head "$branch"
+          head_sha="$(git rev-parse HEAD)"
+          pr_number="$(gh pr list --state open --base main --head "$branch" --json number --jq '.[0].number // empty')"
+          if [[ -z "$pr_number" ]]; then
+            gh pr create --title "Review official IDX filing manifest" \
+              --body "Review every ticker, publication timestamp, reporting period, and official IDX URL. Merging automatically imports accepted filings and refreshes research." \
+              --base main --head "$branch"
+          fi
+          gh workflow run validate-branch.yml --ref "$branch" \
+            -f branch="$branch" -f sha="$head_sha"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
