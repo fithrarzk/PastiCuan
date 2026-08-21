@@ -2,7 +2,7 @@
 
 | Boundary | Current guarantee | Stop condition / limitation |
 | --- | --- | --- |
-| Evidence | [Repository queries](../../storage/repository.py) enforce checksums, source metadata, quarantine reporting, and `available_at <= as_of` | Missing or conflicting official evidence yields degraded/unavailable output; fallback is disclosed and does not open action gates |
+| Evidence | [Acquisition](../../data/ingestion.py) retrieves/checksums artifacts, [validation](../../data/validation.py) and [XBRL parsing](../../data/idx_xbrl.py) classify/quarantine them, and [repository point-in-time queries](../../storage/repository.py) select `available_at <= as_of` and non-quarantined rows | Missing or conflicting official evidence yields degraded/unavailable output; fallback is disclosed and does not open action gates |
 | Ingestion | [CLI ingestion](../../operations/research_cli.py) and [artifact acquisition](../../data/ingestion.py) are storage-idempotent | Not runtime-resumable before `ING-003`; discovery is a review draft, not cumulative production history |
 | Candidate/publication | [Snapshot validation](../../analysis/snapshots.py) rejects candidate files for delivery; signatures and checksums are verified | [Snapshot lifecycle](../specs/snapshot-lifecycle.md) requires one atomic activation, which is not implemented before `REL-001`; formal pair retention is planned |
 | Analytics | Formula/release identity is persisted; status can remain `SHADOW` | No claim of validated analytics until persisted validation evidence passes all gates |

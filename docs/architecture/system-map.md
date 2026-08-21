@@ -6,7 +6,7 @@ PastiCuan is a `RESEARCH_ONLY`, point-in-time IDX system. Production code is the
 
 | Boundary | Owner and real entry points | Source of truth | Output |
 | --- | --- | --- | --- |
-| Acquisition and validation | [`data/ingestion.py`](../../data/ingestion.py), [`data/idx_xbrl.py`](../../data/idx_xbrl.py), [`data/validation.py`](../../data/validation.py), [`operations/research_cli.py`](../../operations/research_cli.py) | Reviewed manifests; accepted/quarantined artifacts in storage | Evidence rows and ingestion reports |
+| Acquisition and validation | [`data/ingestion.py`](../../data/ingestion.py), [`data/idx_xbrl.py`](../../data/idx_xbrl.py), [`data/validation.py`](../../data/validation.py), [`operations/research_cli.py`](../../operations/research_cli.py) | Reviewed [`data/source_manifest.json`](../../data/source_manifest.json) and [`data/idx_filing_manifest.json`](../../data/idx_filing_manifest.json); accepted/quarantined artifacts in storage | Evidence rows and ingestion reports |
 | Persistence | [`storage/repository.py`](../../storage/repository.py), [`storage/database.py`](../../storage/database.py), [`storage/migrations/`](../../storage/migrations/) | Supabase PostgreSQL; optional original archives in R2 | Point-in-time evidence, signals, snapshots |
 | Analysis | [`analysis/`](../../analysis/) (factor, business, technical, quant, scan modules) | Evidence selected with `available_at <= as_of` | Candidate quant and scan snapshots |
 | Orchestration | [`.github/workflows/`](../../.github/workflows/), [`operations/research_cli.py`](../../operations/research_cli.py) | Workflow run artifacts and signed release metadata | Reviewed publication attempt and reports |

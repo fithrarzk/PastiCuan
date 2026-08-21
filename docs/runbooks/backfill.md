@@ -8,7 +8,7 @@ Do not apply migrations or perform production data actions without explicit task
 
 1. Run `discover-idx-xbrl` for the requested period and review its draft; discovery never imports by itself.
 2. Merge the reviewed manifest, then run `ingest-idx-xbrl --manifest ... --report ...`.
-3. Inspect the per-item `ACCEPTED` or `QUARANTINED` report statuses plus checksums and availability times. Durable `RETRYABLE`/remaining totals and cumulative discovery are planned under `ING-004`, not current behavior.
+3. Inspect the per-item `ACCEPTED` or `QUARANTINED` report statuses plus checksums and availability times. Cumulative manifest discovery/merge is planned under `ING-001`; durable `RETRYABLE`/remaining progress totals and deterministic sharding are planned under `ING-004`, not current behavior.
 4. Refresh market/evidence history, then run one non-final research refresh. Publish only if all gates pass.
 
 ## Verification and stop

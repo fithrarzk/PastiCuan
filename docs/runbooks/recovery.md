@@ -8,7 +8,7 @@ Open or update one incident record, identify the currently published snapshot an
 
 1. Classify the failure as delivery, refresh/publication, ingestion, provider, or database.
 2. For delivery, keep the current service fail-closed and escalate; a last-good redeploy is a future `DEP-002` procedure requiring explicit authorization and verification.
-3. For research, stop failed publication, correct the upstream cause, and rebuild from accepted evidence; retaining/reactivating a prior pair is a future `REL-001` capability, not a current operation.
+3. For research, stop failed publication, correct the upstream cause, and rebuild from accepted evidence; retaining/reactivating a prior pair is a future `DEP-002` capability, not a current operation. `REL-001` covers the append-only activation schema and atomic pair activation.
 4. For database issues, use a reviewed forward fix. A restore procedure requires narrow explicit authorization, verified backup evidence, independent review, and compatibility/freshness checks.
 5. Verify snapshot signature, release identity, completed session, and dependent commands before closing the incident.
 
