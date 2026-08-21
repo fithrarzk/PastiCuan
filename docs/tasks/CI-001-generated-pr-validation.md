@@ -1,6 +1,6 @@
 # CI-001: Validate generated pull requests
 
-- Status: proposed
+- Status: review
 - Priority: P0
 - Owner/model: Luna implementation from Sol contract
 - Reasoning effort: medium
@@ -8,11 +8,11 @@
 - Retry ceiling: two implementation cycles and two CI reruns; retry only runner/network failures
 - Escalation condition: repository rules reject the check produced by an explicit dispatch on the tested commit
 - Parallelism: one implementation agent, one independent reviewer; serialize `.github/workflows/idx-filings.yml`
-- Base SHA: set from `origin/main` when claimed
+- Base SHA: `b9f889e549555a8d0d5f431997b3bce2f2b07575`
 - Branch: `fix/CI-001-generated-pr-checks`
 - Worktree: `../PastiCuan-wt/ci-001-generated-pr-checks`
 - Depends on: OPS-001
-- File ownership: `.github/workflows/idx-filings.yml`, new `.github/workflows/validate-branch.yml`, focused workflow-policy tests
+- File ownership: `.github/workflows/idx-filings.yml`, `.github/workflows/validate-branch.yml`, `tests/test_workflow_policy.py`, this task card, `docs/tasks/CLAIMS.md`
 - Merge policy: autonomous
 
 ## Outcome
@@ -53,4 +53,8 @@ Merge, run one dry-run discovery branch, and verify ruleset recognition before e
 
 ## Handoff
 
-Include test branch/PR, workflow run, head SHA, required-check match, permissions, and recursion proof.
+- Implementation commit: `7b7c913`
+- Focused workflow-policy tests: 5 passed.
+- Full suite: 84 passed.
+- YAML parse, isolated compile, research-release integrity, and `git diff --check`: passed.
+- Independent review, PR checks, generated-branch dry run, merge, and post-merge verification remain pending.
