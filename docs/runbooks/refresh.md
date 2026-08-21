@@ -11,6 +11,6 @@ Confirm `origin/main`, the active research release, completed session/calendar, 
 3. Check candidate readiness, source/freshness/coverage gates, signatures, and quant/scan identities.
 4. After publication, wait the configured bot cache interval and verify `/ready`, `/status`, `/scan`, and one dependent ticker command.
 
-## Stop and rollback
+## Verification, fail-closed stop, and last-good behavior
 
-Stop on any missing, stale, quarantined, conflicting, unsigned, or unavailable evidence. An `UNAVAILABLE` build must not replace the last good snapshot. Current quant and scan writes do not prove the accepted atomic release boundary before `REL-001`; never describe them as atomic publication.
+Stop on any missing, stale, quarantined, conflicting, unsigned, or unavailable evidence. An `UNAVAILABLE` scan must not replace the currently published scan; quant and scan writes are not an atomic pair before `REL-001`, so do not claim a jointly retained last-good pair. Correct the upstream cause and escalate rather than attempting an undocumented reactivation.

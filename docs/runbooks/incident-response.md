@@ -1,5 +1,9 @@
 # Incident response runbook
 
+## Prerequisites
+
+Have read-only access to production health endpoints and workflow logs, an incident record, the current `origin/main` SHA, and the relevant runbook/spec. Do not request or copy credentials, provider bodies, private URLs, or secret values. Any production restore or destructive data action requires narrowly scoped explicit authorization.
+
 ## Detect and triage
 
 Use `/ready`, `/status`, `/scan`, GitHub Actions run logs, and the relevant ingestion report. Record timestamp, code SHA, deployment ID if available, release/snapshot IDs, session, mode, coverage, warnings, and first failed stage. Diagnose production from `origin/main`, not a feature branch.
