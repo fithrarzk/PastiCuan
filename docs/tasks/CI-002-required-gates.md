@@ -1,6 +1,6 @@
 # CI-002: Required pull-request gates
 
-- Status: active
+- Status: blocked
 - Priority: P0
 - Owner/model: Luna implementation, Sol security review
 - Reasoning effort: high implementation, high review
@@ -11,8 +11,8 @@
 - Base SHA: `693af474baa11d73ad41d116b626a1bb44e5ed3d`
 - Branch: `feat/CI-002-required-gates`
 - Worktree: `../PastiCuan-wt/ci-002-required-gates`
-- Depends on: CI-001
-- File ownership: `.github/workflows/test.yml`, `.github/workflows/validate-branch.yml`, `.github/workflows/ci.yml` (new), `.dockerignore` (new), `Dockerfile`, `requirements.txt` and `requirements-bot.txt` (security-gate remediation only), `requirements-ci.txt` (new), `scripts/ci/check_migrations.py` (new), `scripts/ci/check_workflow_policy.py` (new), `scripts/ci/validate_manifest.py` (new), `scripts/ci/check_security.py` (new correction seam), `scripts/ci/container_smoke.sh` (new correction seam), `tests/test_ci_gates.py` (new), `tests/test_workflow_policy.py`, this task card, and `docs/tasks/CLAIMS.md` (root orchestrator only)
+- Depends on: CI-001, CI-002A
+- File ownership: `.github/workflows/test.yml`, `.github/workflows/validate-branch.yml`, `.github/workflows/ci.yml` (new), `.dockerignore` (new), `Dockerfile`, `requirements-ci.txt` (new), `scripts/ci/check_migrations.py` (new), `scripts/ci/check_workflow_policy.py` (new), `scripts/ci/validate_manifest.py` (new), `scripts/ci/check_security.py` (new correction seam), `scripts/ci/container_smoke.sh` (new correction seam), `tests/test_ci_gates.py` (new), `tests/test_workflow_policy.py`, this task card, and `docs/tasks/CLAIMS.md` (root orchestrator only)
 - Merge policy: autonomous
 
 ## Outcome
@@ -60,4 +60,4 @@ Land workflows while retaining the old `test` producer. Observe all new checks o
 
 ## Handoff
 
-Record timings, cache behavior, check names, ruleset state, failure fixtures, and runner-cost estimate.
+Blocked on CI-002A: `yfinance==1.2.0` requires vulnerable `curl-cffi<0.14`; the security gate must not waive that advisory. Record timings, cache behavior, check names, ruleset state, failure fixtures, and runner-cost estimate after CI-002A is verified and this branch is synchronized.
