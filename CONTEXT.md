@@ -58,6 +58,10 @@ _Avoid_: Bad data, ignored file
 The versioned identity of reviewed calculation formulas and their source paths.
 _Avoid_: Deployment, model run
 
+**Release activation**:
+An append-only event that makes one compatible signed quant-and-scan snapshot pair bot-readable.
+_Avoid_: Research release, deployment
+
 **Candidate snapshot**:
 A newly built result awaiting the publication boundary.
 _Avoid_: Approved snapshot, production snapshot

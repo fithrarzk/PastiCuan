@@ -56,6 +56,7 @@ Domain ownership:
 - Use **Luna** for a bounded accepted task card: test-first implementation, fixtures, mechanical refactors, documentation, and focused verification.
 - Use a fresh reviewer agent for spec and standards review; use a babysit agent only after a PR exists.
 - Give each implementation agent a one-page task card and exact file list, not conversation history.
+- Task cards state model, reasoning effort, context budget, retry ceiling, escalation condition, and allowed parallelism. Defaults are Luna/medium for bounded implementation and Sol/high for high-risk design or review; increase only when the task card justifies it.
 - Read `AGENTS.md`, `CONTEXT.md`, the task card, and only its linked specs/runbooks.
 - Handoffs replace rediscovery: include commits, changed files, commands, results, limitations, and next task.
 
@@ -82,6 +83,7 @@ git diff --check
 ## Git, review, and autonomous merge
 
 - Never commit directly to `main`; commit coherent changes to the task branch.
+- Only the orchestrator may claim or release a roadmap task. Implementation agents never self-assign; see `docs/tasks/CLAIMS.md`.
 - Review the diff against `origin/main` and the task spec before filing a PR.
 - PRs use concise Conventional Commit titles and explain outcome and reason. Never add an AI tool as author or co-author.
 - Required checks must pass on the current head. A missing required check is not green.
