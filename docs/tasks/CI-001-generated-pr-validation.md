@@ -1,6 +1,6 @@
 # CI-001: Validate generated pull requests
 
-- Status: review
+- Status: verified
 - Priority: P0
 - Owner/model: Luna implementation from Sol contract
 - Reasoning effort: medium
@@ -58,4 +58,8 @@ Merge, run one dry-run discovery branch, and verify ruleset recognition before e
 - Full suite: 84 passed.
 - YAML parse, isolated compile, research-release integrity, and `git diff --check`: passed.
 - Independent standards and spec reviews: no blockers after immutable action pinning.
-- PR checks, generated-branch dry run, merge, and post-merge verification remain pending.
+- PR: [#15](https://github.com/fithrarzk/PastiCuan/pull/15), squash-merged as `693af474baa11d73ad41d116b626a1bb44e5ed3d`.
+- Exact-head validation run `32523578280`: succeeded for the generated branch head.
+- Intentional mismatched-SHA run `32523704901`: failed closed as required.
+- Post-merge `core-tests` run `32523469725`: succeeded on `693af474baa11d73ad41d116b626a1bb44e5ed3d`.
+- Railway recorded deployment `6028729527` for the exact merge SHA; exact-SHA health verification remains roadmap task `DEP-001` and is not claimed by CI-001.
