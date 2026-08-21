@@ -13,7 +13,7 @@
 - Worktree: `../PastiCuan-wt/ci-002a-yfinance-compatibility`
 - Depends on: CI-001
 - Blocks: CI-002
-- File ownership: `requirements.txt`, `requirements-bot.txt`, `tests/test_yfinance_compat.py` (new), this task card, `docs/tasks/ROADMAP.md`, and `docs/tasks/CLAIMS.md` (root orchestrator only). The implementation may change `data/stock.py`, `data/extended.py`, `analysis/portfolio.py`, or `ui/tabs/comparison.py` only when an offline characterization test proves a compatibility regression first.
+- File ownership: `requirements.txt`, `requirements-bot.txt`, `requirements-jobs.txt`, `tests/test_yfinance_compat.py` (new), this task card, `docs/tasks/ROADMAP.md`, and `docs/tasks/CLAIMS.md` (root orchestrator only). The implementation may change `data/stock.py`, `data/extended.py`, `analysis/portfolio.py`, or `ui/tabs/comparison.py` only when an offline characterization test proves a compatibility regression first.
 - Merge policy: autonomous
 
 ## Outcome
@@ -31,6 +31,7 @@ Replace the unsupported `yfinance==1.2.0` / `curl-cffi==0.13.0` chain with a mut
 
 - Pin `yfinance==1.5.2`, `curl-cffi==0.16.1`, and `cryptography==50.0.0` consistently in both runtime requirement sets.
 - In `requirements-bot.txt`, pin `fastapi==0.141.1` and its compatible transitive boundary `starlette==1.3.1` so the audit result is reproducible.
+- Keep the redundant `cryptography` constraint in `requirements-jobs.txt` aligned with its included bot requirement so that job installs remain resolvable.
 - Add offline characterization for the yfinance public interfaces used here: `Ticker` construction and `history`/`info`/quarterly attributes, plus `download`. Tests must not call the network or assert private provider internals.
 - Preserve existing seams proving price-only paths do not request `.info` and injected portfolio history does not call the provider.
 - Change a provider call site only if the new characterization first fails against the supported pins.
