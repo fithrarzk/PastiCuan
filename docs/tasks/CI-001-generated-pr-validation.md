@@ -24,6 +24,17 @@ Every manifest PR created with `GITHUB_TOKEN` receives the required test result 
 - Introduce a GitHub App or long-lived PAT.
 - Change research calculations, import behavior, or branch-rule gates.
 
+## Current evidence
+
+The 2026-08-22 audit found that generated manifest PRs are pushed with `GITHUB_TOKEN`; ordinary recursive workflow triggers are suppressed, leaving the required `test` check absent. The open generated PR at audit time was therefore unmergeable despite having a valid branch.
+
+## Invariants
+
+- Validate the exact generated branch head SHA.
+- Do not add a PAT, paid service, recursive discovery trigger, or production secret to validation.
+- A missing or failed check remains blocking.
+- Keep `main` protected by PRs and preserve fail-closed research behavior.
+
 ## Implementation contract
 
 Choose the free explicit-dispatch design: after pushing the generated branch, dispatch a reusable branch-validation workflow at that branch. Grant only required Actions/contents permissions. The validation workflow uses stable check names, no write token, and cannot call discovery or create another PR.

@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user; just synthesize what you already know.
 
-The issue tracker and triage label vocabulary should have been provided to you. If not, tell the user to run `/setup-matt-pocock-skills`.
+PastiCuan uses task cards under `docs/tasks/` as its durable specification tracker. When authenticated GitHub Issues are available, the orchestrator mirrors the task there for atomic assignment; local task-card creation must not block on an external setup command.
 
 ## Process
 
@@ -14,9 +14,9 @@ The issue tracker and triage label vocabulary should have been provided to you. 
 
 2. Sketch out the seams at which you're going to test the feature. Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better - the ideal number is one.
 
-Check with the user that these seams match their expectations.
+Record the seams in the task card. The user's existing request is sufficient confirmation unless a seam would materially expand the public contract.
 
-3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. Write the spec using the template below, then create or update `docs/tasks/<TASK-ID>-<name>.md` using the repository task-card fields. If GitHub authentication is available, create or update the matching issue and use the repository's existing status labels; do not invent a required label. Only the orchestrator claims it in `docs/tasks/CLAIMS.md`.
 
 <spec-template>
 

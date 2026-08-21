@@ -24,6 +24,18 @@ Replace the single coarse `test` gate with stable, reproducible checks for code,
 - Apply production migrations or deploy Railway.
 - Make network-dependent research calculations part of ordinary PR CI.
 
+## Current evidence
+
+At the 2026-08-22 audit, `.github/workflows/test.yml` only compiled Python, checked the research release, and ran unit tests. There was no workflow-policy, real-PostgreSQL migration/integration, container startup, manifest semantic, secret, or dependency gate.
+
+## Invariants
+
+- CI uses no production database, R2, Telegram, signing, or Railway credential.
+- A check name configured in the ruleset always has a producer.
+- Conditional gates return an explicit not-applicable success rather than disappearing.
+- Research formulas and publication policy are unchanged by this task.
+- Do not trade deterministic coverage for network-dependent PR tests.
+
 ## Implementation contract
 
 Implement the named checks from `docs/specs/ci-cd-contract.md`. Pin action SHAs and tool versions. Use ephemeral PostgreSQL. Conditional checks must still produce a deterministic successful status when not applicable so rulesets do not wait forever.

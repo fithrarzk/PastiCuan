@@ -41,7 +41,7 @@ When a boundary is reached, finish every safe prerequisite and provide one exact
 |---|---|---|---|
 | Routine | docs, tests, bounded fixes, non-production refactor | Autonomous after green review | Automatic smoke checks |
 | Research | formula, threshold, factor, range, validation semantics | Autonomous merge only with release revision and independent research review | Shadow only until exact-digest validation |
-| Data | manifest, parser, source policy, issuer profile | Autonomous after semantic validation | Import is resumable; publication gates remain closed until ready |
+| Data | manifest, parser, source policy, issuer profile | Autonomous after semantic validation | Resume is allowed only after `ING-003` is verified; publication gates remain closed until ready |
 | Platform | workflow, additive migration, deploy configuration | Autonomous after security and migration checks | Protected environment and last-good recovery |
 | Restricted | destructive schema/data, secret rotation, safety-gate reduction, access/billing | No standing authorization | Explicit narrowly scoped owner action |
 

@@ -35,6 +35,10 @@ The 2026-08-22 analytics, CI/CD, and documentation audits are summarized in `doc
 - Research remains point-in-time, `RESEARCH_ONLY`, and fail-closed.
 - Standing autonomy never bypasses credentials, required checks, or destructive-operation safeguards.
 
+## Implementation contract
+
+Follow the domain-modeling formats; keep durable agent rules in `AGENTS.md`, vocabulary only in `CONTEXT.md`, operational contracts under `docs/specs/`, and mutable work under task cards. Adapt installed skills to PastiCuan rather than preserving instructions from their source repository.
+
 ## Acceptance tests
 
 - All relative Markdown links resolve.

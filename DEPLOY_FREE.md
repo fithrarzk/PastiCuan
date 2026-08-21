@@ -256,7 +256,8 @@ For the point-in-time data pipeline:
    review and merge the generated manifest PR. Until roadmap task `ING-003` is
    verified, import progress commits per artifact but accepted rows may still be
    downloaded and parsed again after a timeout; do not describe it as resumable.
-   checksum-idempotent; quarantined rows appear in the workflow artifact.
+   Accepted artifacts are checksum-idempotent, and quarantined rows appear in
+   the workflow artifact.
 6. Add a reviewed official IDX session-calendar CSV to `data/source_manifest.json`.
    `SCHEDULED`, `COMPLETED`, and `HOLIDAY` rows make freshness holiday-aware;
    without it the pipeline deliberately uses a conservative weekday estimate.
