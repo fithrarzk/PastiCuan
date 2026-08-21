@@ -7,7 +7,7 @@ The orchestrator owns the dependency graph, task assignment, file ownership, PR 
 For each ready task:
 
 1. Fetch `origin/main` and record its SHA in the task card.
-2. Confirm no active task owns the same files or contract.
+2. As the only claim writer, record the task and exact file ownership in `docs/tasks/CLAIMS.md`; when GitHub is available, atomically assign its task issue and add `status:claimed` before creating a worktree.
 3. Create `../PastiCuan-wt/<task-id>-<short-name>` from `origin/main`.
 4. Give the agent only `AGENTS.md`, `CONTEXT.md`, its task card, linked specs, and exact files.
 5. Require a test-first commit and structured handoff.
@@ -31,6 +31,8 @@ Safe parallel work has disjoint ownership. Examples:
 - read-only analytics or CI audits.
 
 Serialize changes to shared snapshot contracts, `operations/research_cli.py`, migrations, formula releases, and the same workflow file. The orchestrator resolves cross-task interfaces before parallel work begins.
+
+Implementation agents never self-claim. A claim is valid only when the orchestrator records it against the current `origin/main` SHA. If two sessions propose the same task, the first GitHub issue assignment wins; the other stops before editing. The committed registry is human-readable recovery state, while the GitHub assignment is the coordination lock.
 
 ## Routing
 

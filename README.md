@@ -66,7 +66,14 @@ python -m unittest discover -s tests -v
 
 ## Research-core jobs
 
-Production research is automatic. Every merge to `main` invokes the idempotent
+> Operational status (2026-08-22): the intended automation below is not yet
+> fully reliable. Filing ingestion is storage-idempotent but not resumable before
+> download, generated manifest PR checks can be suppressed, and Railway delivery
+> is not verified against every `main` SHA. Follow the live remediation plan in
+> [docs/tasks/ROADMAP.md](docs/tasks/ROADMAP.md) and do not treat a merged PR alone
+> as production recovery.
+
+The intended production flow is automatic. Every merge to `main` invokes the idempotent
 daily pipeline, and GitHub retries at 19:00, 20:00, and 21:00 WIB on weekdays.
 The first two attempts may finish as `WAITING`; the final attempt fails closed.
 Formula changes must bump `data/research_release.json`, while unrelated bot or

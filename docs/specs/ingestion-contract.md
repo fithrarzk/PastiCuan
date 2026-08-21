@@ -42,7 +42,7 @@ Research starts only when all required entries are `ACCEPTED` or have an explici
 ## Acceptance scenarios
 
 1. Kill an import halfway; rerun processes only unfinished entries.
-2. Rerun a complete 258-entry manifest; it performs zero filing downloads.
+2. Rerun any fully accepted reviewed manifest; it performs zero filing downloads.
 3. One invalid filing is quarantined without rolling back other accepted entries.
 4. One transient failure is retried within policy and remains visible if exhausted.
 5. Discovery after a five-year backfill preserves every reviewed historical entry.

@@ -4,6 +4,8 @@ This roadmap is the dependency graph for agent-owned delivery. Priorities reflec
 
 ## Current incident baseline
 
+Observed on 2026-08-22 from `origin/main` at `f5166c7` and GitHub Actions runs through 2026-08-21. Treat these as incident evidence, not permanent architecture constants.
+
 - The bot is correctly fail-closed because the last active scan is stale.
 - Filing imports repeatedly reached the 30-minute limit; current ingestion re-downloads and reparses accepted rows.
 - Reviewed filing discovery replaces history instead of accumulating it.
@@ -12,6 +14,7 @@ This roadmap is the dependency graph for agent-owned delivery. Priorities reflec
 - Quant publication can precede scan failure, so active evidence is not an atomic pair.
 - Railway deployment is not verifiably tied to every merged main SHA.
 - Historical validation is not yet point-in-time safe and must remain `SHADOW`.
+- Prior failures include non-finite JSON serialization, insufficient `schema_migrations` privilege, and expected fail-closed publication exits being reported too generically.
 
 ## Execution waves
 
@@ -30,9 +33,10 @@ This roadmap is the dependency graph for agent-owned delivery. Priorities reflec
 |---|---|---|---|---|---|
 | DOC-001 | Domain glossary, agent contract, autonomy, worktrees, handoffs, core specs, roadmap | Sol design + Luna edits | none | autonomous | Docs are internally linked; `CONTEXT.md` remains glossary-only; agent rules define done and safety |
 | OPS-001 | Audit GitHub auth, ruleset, Actions permissions, environments, secrets-by-name, auto-merge, Railway linkage | Sol | DOC-001 | human-gated only for platform setting changes | Machine-readable inventory; invalid auth is one explicit bootstrap action; no secret values logged |
-| CI-001 | Make bot-created PR validation reliable | Luna from Sol contract | OPS-001 | autonomous | Generated PR receives all required current-head checks without recursion; PR #12-equivalent can auto-merge |
+| CI-001 | Make bot-created PR validation reliable | Luna from Sol contract | OPS-001 | autonomous | A generated manifest PR receives all required current-head checks without recursion and can auto-merge when green |
 | CI-002 | Establish required PR gates | Luna | CI-001 | autonomous | `unit`, `quality`, `workflow-policy`, `migration`, `container-smoke`, conditional `manifest-validate`, and `security` are green and required |
 | DOC-002 | Add architecture maps, command/data dictionary, formula/model-card index, and incident/deploy/backfill runbooks | Luna | DOC-001 | autonomous | A new agent can locate source of truth, owner, invariant, test, and runbook without reading chat history |
+| REG-001 | Lock prior production failures into regression tests and error taxonomy | Luna | CI-002 | autonomous | Tests cover NaN sanitization, migration privilege preflight, and distinct WAITING/UNAVAILABLE/policy-gate/infrastructure exits with actionable summaries |
 
 ## Wave 1 — Official evidence recovery
 
@@ -42,17 +46,17 @@ Tasks touching `operations/research_cli.py`, `storage/repository.py`, or migrati
 |---|---|---|---|---|---|
 | ING-001 | Cumulative filing identity and manifest merge | Sol design, Luna implementation | CI-002 | autonomous | Reviewed 2021–2026 entries cannot disappear; duplicate/regression/removal tests pass |
 | ING-002 | Durable filing-work ledger migration and repository API | Sol schema, Luna implementation | ING-001 | autonomous with migration gates | States, leases, attempts, errors, checksums, and artifact IDs persist transactionally |
-| ING-003 | Skip-before-download resumable importer | Luna | ING-002 | autonomous | Interrupted run resumes; completed 258-entry rerun performs zero downloads; bad row does not roll back good rows |
+| ING-003 | Skip-before-download resumable importer | Luna | ING-002 | autonomous | Interrupted run resumes; a rerun of any fully accepted reviewed manifest performs zero downloads; bad row does not roll back good rows |
 | ING-004 | Deterministic shards, bounded retry, and progress aggregation | Luna | ING-003 | autonomous | No shard approaches timeout; durable totals include accepted/skipped/quarantined/retryable/remaining |
 | OBS-001 | Per-issuer readiness diagnostics | Luna | ING-002 | autonomous | Exact unverified/unscored tickers, missing concepts/history, gates, sources, and checksums appear in CLI and job summary |
-| ING-005 | Reconcile the five-year reviewed manifest and complete import | Orchestrator | ING-004, OBS-001 | data-reviewed | 45 verified profiles, at least 41 Business Scores, 45 quant eligible; explicit waivers only where reviewed |
+| ING-005 | Reconcile reviewed annual history plus current interim filings and complete import | Orchestrator | ING-004, OBS-001 | data-reviewed | Required annual years and current interim period are cumulative; 45 verified profiles, at least 41 Business Scores, 45 quant eligible; explicit waivers only where reviewed |
 | OPS-002 | Serialize import and research orchestration | Sol design, Luna workflow | ING-004 | autonomous | Manifest validation -> import -> readiness -> one research refresh; all production DB writers share a lock |
 
 ## Wave 2 — Atomic publication and deployment
 
 | ID | Task | Owner/model | Depends | Merge | Acceptance |
 |---|---|---|---|---|---|
-| REL-001 | Append-only atomic research release schema | Sol | ING-005 | autonomous with migration gates | Quant and scan candidates activate together; injected mid-build failure changes neither active ID |
+| REL-001 | Append-only release-activation schema | Sol | ING-005 | autonomous with migration gates | One release activation pairs a formula research release with quant and scan candidates; injected mid-build failure changes neither active ID |
 | REL-002 | Resolve every bot research command through active release | Luna | REL-001 | autonomous | `/scan`, `/range`, `/decision`, `/quant`, `/status` report one release pair and structured unavailability |
 | DEP-001 | Exact-SHA Railway deployment check | Luna from Sol contract | CI-002 | autonomous | Every deployable main SHA reports Railway status and checks `/`, `/ready`, signature, and snapshot readability |
 | DEP-002 | Last-good code and research recovery | Sol design, Luna implementation | REL-001, DEP-001 | autonomous | Redeploy recorded healthy artifact or append prior release activation; no SQL down rollback |

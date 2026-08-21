@@ -6,6 +6,8 @@ The repository owner delegates routine software delivery to the orchestrator. Wi
 
 This authorization is durable repository guidance. It does not override GitHub, host, sandbox, billing, or secret-management controls.
 
+Current-state warning: until roadmap task `ING-003` is verified, IDX filing ingestion is idempotent at storage but not runtime-resumable and may re-download accepted entries. Do not dispatch it as though safe resume already exists.
+
 ## Standing authorization
 
 Agents may autonomously:
