@@ -1,0 +1,6 @@
+# Deliberately separate from provider and production-job dependencies.
+PyYAML==6.0.2
+psycopg[binary]==3.2.13
+ruff==0.12.11
+mypy==1.17.1
+pip-audit==2.9.0

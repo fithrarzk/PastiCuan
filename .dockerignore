@@ -2,7 +2,8 @@
 .github
 .env
 .env.*
-!.env.example
+# Configuration templates can contain credential-shaped values and are not
+# needed by the production image. Keep all environment files out of context.
 .streamlit
 venv
 .venv

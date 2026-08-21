@@ -1,0 +1,79 @@
+"""Fail closed on unsafe or non-reproducible GitHub workflow policy."""
+
+from __future__ import annotations
+
+import argparse
+import re
+from pathlib import Path
+
+import yaml
+
+
+SHA_ACTION = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}(?:\s+#.*)?$")
+REQUIRED_JOBS = {"unit", "quality", "workflow-policy", "migration", "container-smoke", "manifest-validate", "security"}
+
+
+def _workflow_data(path: Path) -> dict:
+    data = yaml.safe_load(path.read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: workflow is not a mapping")
+    return data
+
+
+def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> list[str]:
+    errors: list[str] = []
+    try:
+        workflow = _workflow_data(path)
+    except Exception as exc:
+        return [f"{path}: YAML parse failed: {exc}"]
+    if not workflow.get("concurrency"):
+        errors.append(f"{path}: concurrency is required")
+    permissions = workflow.get("permissions", {})
+    if permissions != "read-all" and any(value == "write" for value in (permissions or {}).values()):
+        errors.append(f"{path}: workflow-level permissions must not grant write")
+    jobs = workflow.get("jobs") or {}
+    if require_required_jobs and REQUIRED_JOBS - set(jobs):
+        errors.append(f"{path}: missing jobs: {', '.join(sorted(REQUIRED_JOBS - set(jobs)))}")
+    for job_name, job in jobs.items():
+        if not isinstance(job, dict):
+            errors.append(f"{path}: job {job_name} is not a mapping")
+            continue
+        if not job.get("timeout-minutes"):
+            errors.append(f"{path}: job {job_name} has no timeout-minutes")
+        job_permissions = job.get("permissions", {})
+        if any(value == "write" for value in (job_permissions or {}).values()):
+            errors.append(f"{path}: job {job_name} grants write permission")
+        for step in job.get("steps", []):
+            action = step.get("uses") if isinstance(step, dict) else None
+            if action and not SHA_ACTION.match(str(action)):
+                errors.append(f"{path}: action is not immutable: {action}")
+    return errors
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("paths", nargs="*", type=Path)
+    parser.add_argument("--required-jobs", action="store_true")
+    args = parser.parse_args()
+    # The PR policy owns the three workflows that can produce required checks.
+    # Operational workflows are reviewed by their own task cards and can be
+    # passed explicitly when their policy is being changed.
+    paths = args.paths or [
+        Path(".github/workflows/ci.yml"),
+        Path(".github/workflows/test.yml"),
+        Path(".github/workflows/validate-branch.yml"),
+    ]
+    required_paths = set(paths) if args.paths else {Path(".github/workflows/ci.yml")}
+    errors = [
+        error for path in paths
+        for error in validate_workflow(path, require_required_jobs=args.required_jobs and path in required_paths)
+    ]
+    if errors:
+        print("\n".join(errors))
+        return 1
+    print(f"workflow policy passed for {len(paths)} workflow(s)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
