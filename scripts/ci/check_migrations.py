@@ -11,6 +11,7 @@ import argparse
 import hashlib
 from pathlib import Path
 from typing import Any
+import subprocess
 
 
 def migration_files(directory: Path) -> list[Path]:
@@ -22,11 +23,55 @@ def migration_files(directory: Path) -> list[Path]:
     return files
 
 
+def migration_pairs(directory: Path) -> dict[str, tuple[Path, Path]]:
+    """Require a reversible pair for every migration version."""
+    ups = {p.name.removesuffix(".up.sql"): p for p in directory.glob("*.up.sql")}
+    downs = {p.name.removesuffix(".down.sql"): p for p in directory.glob("*.down.sql")}
+    if set(ups) != set(downs):
+        raise ValueError(
+            "migration up/down pairs do not match: "
+            f"missing up={sorted(set(downs) - set(ups))}, "
+            f"missing down={sorted(set(ups) - set(downs))}"
+        )
+    return {version: (ups[version], downs[version]) for version in sorted(ups)}
+
+
 def migration_checksums(directory: Path) -> dict[str, str]:
+    migration_pairs(directory)
     return {
         path.name.removesuffix(".up.sql"): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in migration_files(directory)
     }
+
+
+def read_sql(path: Path) -> str:
+    """Decode migration bytes explicitly so locale/SQL_ASCII cannot leak in."""
+    return path.read_bytes().decode("utf-8", errors="strict")
+
+
+def immutable_against(directory: Path, base_ref: str) -> None:
+    """Reject edits to an already published migration in the requested base."""
+    changed = subprocess.run(
+        ["git", "diff", "--name-only", f"{base_ref}...HEAD", "--", str(directory)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    for filename in changed:
+        path = Path(filename)
+        if path.suffixes[-2:] not in ([".up", ".sql"], [".down", ".sql"]):
+            continue
+        try:
+            subprocess.run(
+                ["git", "cat-file", "-e", f"{base_ref}:{filename}"],
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError:
+            continue  # An additive migration is allowed; its pair is checked above.
+        raise RuntimeError(
+            f"immutable migration changed relative to {base_ref}: {filename}"
+        )
 
 
 def apply_migrations(connection: Any, directory: Path) -> dict[str, str]:
@@ -39,12 +84,17 @@ def apply_migrations(connection: Any, directory: Path) -> dict[str, str]:
         )
         for path in migration_files(directory):
             version = path.name.removesuffix(".up.sql")
-            cursor.execute("SELECT checksum FROM ci_migration_checksums WHERE version=%s", (version,))
+            cursor.execute(
+                "SELECT checksum FROM ci_migration_checksums WHERE version=%s",
+                (version,),
+            )
             recorded = cursor.fetchone()
             if recorded and recorded[0] != checksums[version]:
-                raise RuntimeError(f"migration checksum changed after application: {version}")
+                raise RuntimeError(
+                    f"migration checksum changed after application: {version}"
+                )
             if not recorded:
-                cursor.execute(path.read_text())
+                cursor.execute(read_sql(path))
                 cursor.execute(
                     "INSERT INTO ci_migration_checksums(version, checksum) VALUES (%s, %s)",
                     (version, checksums[version]),
@@ -53,7 +103,9 @@ def apply_migrations(connection: Any, directory: Path) -> dict[str, str]:
         applied = {str(row[0]) for row in cursor.fetchall()}
     expected = set(checksums)
     if applied != expected:
-        raise RuntimeError(f"migration ledger mismatch: expected {sorted(expected)}, got {sorted(applied)}")
+        raise RuntimeError(
+            f"migration ledger mismatch: expected {sorted(expected)}, got {sorted(applied)}"
+        )
     connection.commit()
     return checksums
 
@@ -71,10 +123,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url", required=True)
     parser.add_argument("--migrations", type=Path, default=Path("storage/migrations"))
+    parser.add_argument(
+        "--base-ref", help="git ref whose existing migrations must remain immutable"
+    )
     args = parser.parse_args()
     import psycopg
 
+    migration_pairs(args.migrations)
+    if args.base_ref:
+        immutable_against(args.migrations, args.base_ref)
     with psycopg.connect(args.database_url, autocommit=False) as connection:
+        apply_migrations(connection, args.migrations)
         apply_migrations(connection, args.migrations)
         repository_compatibility(connection)
     print(f"verified {len(migration_checksums(args.migrations))} migrations")

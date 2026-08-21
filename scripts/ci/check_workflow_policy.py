@@ -10,7 +10,15 @@ import yaml
 
 
 SHA_ACTION = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}(?:\s+#.*)?$")
-REQUIRED_JOBS = {"unit", "quality", "workflow-policy", "migration", "container-smoke", "manifest-validate", "security"}
+REQUIRED_JOBS = {
+    "unit",
+    "quality",
+    "workflow-policy",
+    "migration",
+    "container-smoke",
+    "manifest-validate",
+    "security",
+}
 
 
 def _workflow_data(path: Path) -> dict:
@@ -28,12 +36,18 @@ def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> lis
         return [f"{path}: YAML parse failed: {exc}"]
     if not workflow.get("concurrency"):
         errors.append(f"{path}: concurrency is required")
+    if "permissions" not in workflow:
+        errors.append(f"{path}: explicit workflow permissions are required")
     permissions = workflow.get("permissions", {})
-    if permissions != "read-all" and any(value == "write" for value in (permissions or {}).values()):
+    if permissions != "read-all" and any(
+        value == "write" for value in (permissions or {}).values()
+    ):
         errors.append(f"{path}: workflow-level permissions must not grant write")
     jobs = workflow.get("jobs") or {}
     if require_required_jobs and REQUIRED_JOBS - set(jobs):
-        errors.append(f"{path}: missing jobs: {', '.join(sorted(REQUIRED_JOBS - set(jobs)))}")
+        errors.append(
+            f"{path}: missing jobs: {', '.join(sorted(REQUIRED_JOBS - set(jobs)))}"
+        )
     for job_name, job in jobs.items():
         if not isinstance(job, dict):
             errors.append(f"{path}: job {job_name} is not a mapping")
@@ -43,10 +57,31 @@ def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> lis
         job_permissions = job.get("permissions", {})
         if any(value == "write" for value in (job_permissions or {}).values()):
             errors.append(f"{path}: job {job_name} grants write permission")
+        for service_name, service in (job.get("services") or {}).items():
+            image = service.get("image", "") if isinstance(service, dict) else ""
+            if "@sha256:" not in str(image):
+                errors.append(
+                    f"{path}: service image {service_name} is not immutable: {image}"
+                )
         for step in job.get("steps", []):
             action = step.get("uses") if isinstance(step, dict) else None
             if action and not SHA_ACTION.match(str(action)):
                 errors.append(f"{path}: action is not immutable: {action}")
+    trigger = workflow.get("on", workflow.get(True, {}))
+    trigger = trigger if isinstance(trigger, dict) else {}
+    if path.name in {"ci.yml", "test.yml"}:
+        if "pull_request" not in trigger:
+            errors.append(f"{path}: pull_request trigger is required")
+        if "push" in trigger and path.name == "test.yml":
+            errors.append(f"{path}: legacy test must not duplicate push execution")
+    if path.name == "ci.yml" and "push" in trigger:
+        push = trigger["push"] or {}
+        branches = push.get("branches", []) if isinstance(push, dict) else []
+        if branches != ["main"]:
+            errors.append(f"{path}: push trigger must be restricted to main")
+    if path.name == "validate-branch.yml":
+        if set(trigger) != {"workflow_dispatch"}:
+            errors.append(f"{path}: generated validation must be dispatch-only")
     return errors
 
 
@@ -65,8 +100,11 @@ def main() -> int:
     ]
     required_paths = set(paths) if args.paths else {Path(".github/workflows/ci.yml")}
     errors = [
-        error for path in paths
-        for error in validate_workflow(path, require_required_jobs=args.required_jobs and path in required_paths)
+        error
+        for path in paths
+        for error in validate_workflow(
+            path, require_required_jobs=args.required_jobs and path in required_paths
+        )
     ]
     if errors:
         print("\n".join(errors))
