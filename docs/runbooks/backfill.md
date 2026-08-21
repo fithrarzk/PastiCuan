@@ -1,0 +1,20 @@
+# Backfill runbook
+
+## Prerequisites
+
+Apply reviewed additive migrations and roles, verify a backup, configure writer/R2 secrets only in GitHub Actions, and prepare a reviewed manifest. Confirm official URLs, stable filing identity, periods, publication timestamps, and issuer coverage.
+
+## Procedure
+
+1. Run `discover-idx-xbrl` for the requested period and review its draft; discovery never imports by itself.
+2. Merge the reviewed manifest, then run `ingest-idx-xbrl --manifest ... --report ...`.
+3. Inspect accepted, quarantined, retryable, and remaining counts plus checksums and availability times.
+4. Refresh market/evidence history, then run one non-final research refresh. Publish only if all gates pass.
+
+## Verification and stop
+
+Stop on a non-official URL, identity conflict, missing profile, quarantine affecting required coverage, stale data, failed signing, or unavailable scan. Current imports are storage-idempotent but **not runtime-resumable**: a timeout can redownload/reparse accepted work before `ING-003`; do not claim cumulative discovery or resumability.
+
+## Last good / rollback
+
+Leave the prior active snapshot untouched when backfill or refresh fails. Quarantine the offending artifact and correct the manifest/provider issue; never delete accepted evidence or use a destructive down migration.
