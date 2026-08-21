@@ -1,6 +1,6 @@
 # CI-002A: Supported yfinance dependency chain
 
-- Status: active
+- Status: review
 - Priority: P0 prerequisite
 - Owner/model: Luna implementation, Sol review
 - Reasoning effort: medium implementation, high review
@@ -40,7 +40,7 @@ Replace the unsupported `yfinance==1.2.0` / `curl-cffi==0.13.0` chain with a mut
 
 - Fresh Python 3.12 environments install `requirements.txt` and `requirements-bot.txt`, and `pip check` passes in each.
 - The installed yfinance metadata accepts `curl-cffi==0.16.1`.
-- `pip-audit` reports zero known vulnerabilities for all four repository requirement files; no advisory is ignored.
+- `pip-audit` reports zero known vulnerabilities for all three requirement files present at this base SHA; no advisory is ignored. After synchronization, CI-002 must also audit its new `requirements-ci.txt`.
 - Focused compatibility tests and the full repository verification commands pass without network or production credentials.
 
 ## Rollout and rollback
@@ -49,4 +49,4 @@ Merge before CI-002, then synchronize the CI-002 branch and let its security gat
 
 ## Handoff
 
-Record resolved package versions, audit output, characterization coverage, exact commands/results, limitations, PR/check/review state, merge SHA, and post-merge evidence.
+Implementation commits `9f74832` and `4f5d485` pin the supported chain and add five offline compatibility tests; no provider call site changed. Fresh Python 3.12 installs and `pip check` passed for both runtime profiles. Strict audits reported no known vulnerabilities for `requirements.txt`, `requirements-bot.txt`, and `requirements-jobs.txt`; `requirements-ci.txt` does not exist at this base and remains a CI-002 verification obligation. Record final review, PR/check, merge SHA, and post-merge evidence before marking verified.
