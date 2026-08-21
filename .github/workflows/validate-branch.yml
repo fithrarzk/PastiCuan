@@ -102,7 +102,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with: {python-version: "3.12"}
       - run: pip install -r requirements-ci.txt
-      - run: python scripts/ci/check_workflow_policy.py .github/workflows/ci.yml --required-jobs
+      - run: python scripts/ci/check_workflow_policy.py --base-ref origin/main --required-jobs
 
   migration:
     name: migration

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -82,13 +83,32 @@ def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> lis
     if path.name == "validate-branch.yml":
         if set(trigger) != {"workflow_dispatch"}:
             errors.append(f"{path}: generated validation must be dispatch-only")
+        text = path.read_text()
+        for forbidden in ("discover-idx-xbrl", "gh pr", "gh workflow run"):
+            if forbidden in text:
+                errors.append(
+                    f"{path}: generated validation contains recursion command: {forbidden}"
+                )
     return errors
+
+
+def changed_workflows(base_ref: str) -> list[Path]:
+    output = subprocess.run(
+        ["git", "diff", "--name-only", f"{base_ref}...HEAD", "--", ".github/workflows"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    return [Path(name) for name in output if name.endswith((".yml", ".yaml"))]
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", type=Path)
     parser.add_argument("--required-jobs", action="store_true")
+    parser.add_argument(
+        "--base-ref", help="include every workflow changed relative to this ref"
+    )
     args = parser.parse_args()
     # The PR policy owns the three workflows that can produce required checks.
     # Operational workflows are reviewed by their own task cards and can be
@@ -99,6 +119,8 @@ def main() -> int:
         Path(".github/workflows/validate-branch.yml"),
     ]
     required_paths = set(paths) if args.paths else {Path(".github/workflows/ci.yml")}
+    if args.base_ref:
+        paths = list(dict.fromkeys(paths + changed_workflows(args.base_ref)))
     errors = [
         error
         for path in paths

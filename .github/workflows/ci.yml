@@ -62,8 +62,7 @@ jobs:
         with: {python-version: "${{ env.PYTHON_VERSION }}"}
       - run: pip install -r requirements-ci.txt
       - run: |
-          python scripts/ci/check_workflow_policy.py .github/workflows/ci.yml --required-jobs
-          python scripts/ci/check_workflow_policy.py .github/workflows/test.yml .github/workflows/validate-branch.yml
+          python scripts/ci/check_workflow_policy.py --base-ref "${{ github.event.pull_request.base.sha }}" --required-jobs
 
   migration:
     name: migration

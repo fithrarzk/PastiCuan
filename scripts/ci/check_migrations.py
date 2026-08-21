@@ -12,6 +12,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 import subprocess
+import sys
 
 
 def migration_files(directory: Path) -> list[Path]:
@@ -47,6 +48,13 @@ def migration_checksums(directory: Path) -> dict[str, str]:
 def read_sql(path: Path) -> str:
     """Decode migration bytes explicitly so locale/SQL_ASCII cannot leak in."""
     return path.read_bytes().decode("utf-8", errors="strict")
+
+
+def normalize_version(value: object) -> str:
+    """Normalize PostgreSQL text values from UTF-8 and SQL_ASCII adapters."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="strict")
+    return str(value)
 
 
 def immutable_against(directory: Path, base_ref: str) -> None:
@@ -89,7 +97,7 @@ def apply_migrations(connection: Any, directory: Path) -> dict[str, str]:
                 (version,),
             )
             recorded = cursor.fetchone()
-            if recorded and recorded[0] != checksums[version]:
+            if recorded and normalize_version(recorded[0]) != checksums[version]:
                 raise RuntimeError(
                     f"migration checksum changed after application: {version}"
                 )
@@ -100,7 +108,7 @@ def apply_migrations(connection: Any, directory: Path) -> dict[str, str]:
                     (version, checksums[version]),
                 )
         cursor.execute("SELECT version FROM schema_migrations ORDER BY version")
-        applied = {str(row[0]) for row in cursor.fetchall()}
+        applied = {normalize_version(row[0]) for row in cursor.fetchall()}
     expected = set(checksums)
     if applied != expected:
         raise RuntimeError(
@@ -112,6 +120,9 @@ def apply_migrations(connection: Any, directory: Path) -> dict[str, str]:
 
 def repository_compatibility(connection: Any) -> None:
     """Exercise the repository's read-only migration seam without providers."""
+    project_root = str(Path.cwd())
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
     from storage.repository import SnapshotRepository
 
     migrations = SnapshotRepository(lambda: connection).applied_schema_migrations()

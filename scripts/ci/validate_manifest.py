@@ -51,6 +51,8 @@ def validate_manifest(
             or host.endswith(".idx.co.id")
         ):
             errors.append(f"entry {index} is not an official IDX URL")
+        if not is_source_manifest and not parsed.path.lower().endswith(".zip"):
+            errors.append(f"entry {index} is not an IDX filing attachment")
         if not is_source_manifest and (
             not ticker
             or not str(entry["filing_type"]).strip()
