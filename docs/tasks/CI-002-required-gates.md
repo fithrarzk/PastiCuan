@@ -1,6 +1,6 @@
 # CI-002: Required pull-request gates
 
-- Status: blocked
+- Status: active
 - Priority: P0
 - Owner/model: Luna implementation, Sol security review
 - Reasoning effort: high implementation, high review
@@ -8,7 +8,7 @@
 - Retry ceiling: three bounded implementation cycles; security findings do not auto-waive
 - Escalation condition: a required external service cannot run on GitHub's free runner or ruleset administration is unavailable
 - Parallelism: one Luna implementation agent; one root integration owner; two later read-only reviewers. No nested writers.
-- Base SHA: `693af474baa11d73ad41d116b626a1bb44e5ed3d`
+- Base SHA: `693af474baa11d73ad41d116b626a1bb44e5ed3d`; synchronized through `a60a561c0c70192979107777843f420b941db67a`
 - Branch: `feat/CI-002-required-gates`
 - Worktree: `../PastiCuan-wt/ci-002-required-gates`
 - Depends on: CI-001, CI-002A
@@ -60,4 +60,4 @@ Land workflows while retaining the old `test` producer. Observe all new checks o
 
 ## Handoff
 
-Blocked on CI-002A: `yfinance==1.2.0` requires vulnerable `curl-cffi<0.14`; the security gate must not waive that advisory. Record timings, cache behavior, check names, ruleset state, failure fixtures, and runner-cost estimate after CI-002A is verified and this branch is synchronized.
+CI-002A merged as `a60a561`, restoring a supported dependency chain without an advisory waiver. Record timings, cache behavior, check names, ruleset state, failure fixtures, and runner-cost estimate after the synchronized gates are verified.
