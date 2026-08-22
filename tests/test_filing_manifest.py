@@ -4,7 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from data.filing_manifest import ManifestError, exact_identity, merge_manifests
+from data.filing_manifest import (
+    ManifestError,
+    exact_identity,
+    merge_files,
+    merge_manifests,
+)
 from scripts.ci.check_workflow_policy import validate_workflow
 
 
@@ -32,6 +37,11 @@ class FilingManifestTests(unittest.TestCase):
             text.index('git checkout -b "$branch" origin/main'),
             text.index("python -m data.filing_manifest"),
         )
+        merge_index = text.index("python -m data.filing_manifest")
+        self.assertLess(
+            text.index('git checkout -B "$branch" "origin/$branch"'), merge_index
+        )
+        self.assertLess(text.index("git merge --no-edit origin/main"), merge_index)
         self.assertNotIn(
             "cp /tmp/idx_filing_manifest.json data/idx_filing_manifest.json", text
         )
@@ -117,6 +127,47 @@ jobs:
         self.assertEqual(
             json.dumps(first, sort_keys=True), json.dumps(second, sort_keys=True)
         )
+
+    def test_merge_files_bytes_are_canonical_for_mapping_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline_a = root / "baseline-a.json"
+            baseline_b = root / "baseline-b.json"
+            discovered = root / "discovered.json"
+            output_a = root / "output-a.json"
+            output_b = root / "output-b.json"
+            row = filing()
+            baseline_a.write_text(
+                json.dumps({"filings": [row], "discovery": {"z": 1, "a": 2}})
+            )
+            baseline_b.write_text(
+                json.dumps(
+                    {
+                        "discovery": {"a": 2, "z": 1},
+                        "filings": [dict(reversed(row.items()))],
+                    }
+                )
+            )
+            discovered.write_text(json.dumps({"filings": []}))
+            merge_files(baseline_a, discovered, output_a)
+            merge_files(baseline_b, discovered, output_b)
+            self.assertEqual(output_a.read_bytes(), output_b.read_bytes())
+
+    def test_validator_normalizes_filing_type_across_baseline(self):
+        from scripts.ci.validate_manifest import validate_manifest
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline = filing(filing_type=" annual ")
+            current = filing(filing_type="ANNUAL")
+            (root / "baseline.json").write_text(json.dumps({"filings": [baseline]}))
+            (root / "current.json").write_text(json.dumps({"filings": [current]}))
+            errors = validate_manifest(
+                root / "current.json", root / "baseline.json", kind="filing"
+            )
+            self.assertFalse(
+                any("removed" in error or "conflict" in error for error in errors)
+            )
 
     def test_duplicate_and_provenance_conflict_fail(self):
         with self.assertRaisesRegex(ManifestError, "duplicate exact identity"):

@@ -162,7 +162,14 @@ def merge_files(baseline: Path, discovered: Path, output: Path) -> None:
     fd, temporary = tempfile.mkstemp(prefix=f".{output.name}.", dir=output.parent)
     try:
         with os.fdopen(fd, "w") as handle:
-            json.dump(result, handle, indent=2, ensure_ascii=False)
+            json.dump(
+                result,
+                handle,
+                indent=2,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ": "),
+            )
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
