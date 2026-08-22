@@ -69,7 +69,10 @@ class SnapshotRepository:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT version FROM schema_migrations ORDER BY version")
-                return [str(row[0]) for row in cursor.fetchall()]
+                return [
+                    row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0]
+                    for row in cursor.fetchall()
+                ]
 
     def market_bars_as_of(self, issuer_id: int, as_of: str) -> list[dict]:
         """Latest non-quarantined version known by ``as_of`` for each session."""
