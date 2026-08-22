@@ -49,4 +49,4 @@ Merge before CI-002, then synchronize the CI-002 branch and let its security gat
 
 ## Handoff
 
-Implementation commits `9f74832` and `4f5d485` pin the supported chain and add five offline compatibility tests; no provider call site changed. Fresh Python 3.12 installs and `pip check` passed for both runtime profiles. Strict audits reported no known vulnerabilities for `requirements.txt`, `requirements-bot.txt`, and `requirements-jobs.txt`; `requirements-ci.txt` does not exist at this base and remains a CI-002 verification obligation. Record final review, PR/check, merge SHA, and post-merge evidence before marking verified.
+Implementation commits `9f74832`, `4f5d485`, and `6d2e25d` pin the supported chain and add seven offline compatibility tests; no provider call site changed. Fresh Python 3.12 installs and `pip check` passed for both runtime profiles. Strict audits reported no known vulnerabilities for `requirements.txt`, `requirements-bot.txt`, and `requirements-jobs.txt`; `requirements-ci.txt` does not exist at this base and remains a CI-002 verification obligation. Record final review, PR/check, merge SHA, and post-merge evidence before marking verified.
