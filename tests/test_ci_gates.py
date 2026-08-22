@@ -110,6 +110,28 @@ class ManifestGateTests(unittest.TestCase):
 
 
 class WorkflowGateTests(unittest.TestCase):
+    def test_base_ref_jobs_fetch_complete_history(self):
+        for name in ("ci.yml", "validate-branch.yml"):
+            workflow = _workflow_data(ROOT / ".github/workflows" / name)
+            for job_name, job in workflow["jobs"].items():
+                steps = job.get("steps", [])
+                runs = "\n".join(
+                    step.get("run", "") for step in steps if isinstance(step, dict)
+                )
+                if "--base-ref" not in runs:
+                    continue
+                checkout = next(
+                    step
+                    for step in steps
+                    if isinstance(step, dict)
+                    and str(step.get("uses", "")).startswith("actions/checkout@")
+                )
+                self.assertEqual(
+                    checkout.get("with", {}).get("fetch-depth"),
+                    0,
+                    f"{name}:{job_name}",
+                )
+
     def test_unittest_jobs_install_ci_dependencies(self):
         workflow_paths = (
             ROOT / ".github/workflows/test.yml",
@@ -320,6 +342,10 @@ class SecurityGateTests(unittest.TestCase):
 class ContainerGateTests(unittest.TestCase):
     def test_smoke_uses_image_cmd_and_dynamic_port_healthcheck(self):
         dockerfile = (ROOT / "Dockerfile").read_text()
+        from_line = next(
+            line for line in dockerfile.splitlines() if line.startswith("FROM ")
+        )
+        self.assertEqual(len(from_line.split()), 2)
         smoke = (ROOT / "scripts/ci/container_smoke.sh").read_text()
         self.assertIn("os.getenv('PORT','8080')", dockerfile)
         self.assertIn("UVICORN_LIFESPAN=off", smoke)
