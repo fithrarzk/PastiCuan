@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+import inspect
 from pathlib import Path
 from unittest.mock import patch
 
@@ -74,14 +75,25 @@ class YfinanceCompatibilityTests(unittest.TestCase):
             for raw in metadata.get_all("Requires-Dist", [])
             if Requirement(raw).name.lower().replace("_", "-") == "curl-cffi"
         ]
-        if yfinance.__version__ != "1.5.2":
-            self.skipTest(
-                f"dependency environment has yfinance {yfinance.__version__}; pin check runs on supported environment"
-            )
+        self.assertEqual(yfinance.__version__, "1.5.2")
         self.assertTrue(curl_requirements)
         self.assertTrue(
             any(req.specifier.contains("0.16.1") for req in curl_requirements)
         )
+
+    def test_installed_public_call_shapes_bind_without_network(self):
+        ticker = yfinance.Ticker("BBCA.JK")
+        history_signature = inspect.signature(ticker.history)
+        history_signature.bind(period="3y", auto_adjust=False, actions=True, timeout=12)
+        download_signature = inspect.signature(yfinance.download)
+        download_signature.bind(
+            ["BBCA.JK", "BMRI.JK"],
+            period="3y",
+            progress=False,
+            auto_adjust=False,
+            actions=True,
+        )
+        self.assertEqual(ticker.ticker, "BBCA.JK")
 
     def test_ticker_public_interfaces_are_available_offline(self):
         ticker = _Ticker("BBCA.JK")
@@ -128,6 +140,23 @@ class YfinanceCompatibilityTests(unittest.TestCase):
             actions=True,
         )
         self.assertIn("504 overlapping completed sessions", result["error"])
+
+    def test_injected_history_does_not_call_provider(self):
+        dates = pd.date_range("2024-01-01", periods=506, freq="B")
+        prices = pd.DataFrame(
+            {
+                "BBCA.JK": np.linspace(100, 150, len(dates)),
+                "BMRI.JK": np.linspace(80, 120, len(dates)),
+            },
+            index=dates,
+        )
+        with patch("analysis.portfolio.yf.download") as download:
+            result = optimize_portfolio(
+                ["BBCA", "BMRI"], risk_free_rate=0.0, price_history=prices
+            )
+
+        download.assert_not_called()
+        self.assertEqual(result["observations"], 505)
 
 
 if __name__ == "__main__":
