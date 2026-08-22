@@ -5,7 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.ci.check_migrations import migration_checksums, repository_compatibility
+from scripts.ci.check_migrations import (
+    migration_checksums,
+    repository_compatibility,
+    verify_disposable_database_identity,
+)
 from scripts.ci.check_migrations import migration_pairs, normalize_version, read_sql
 from scripts.ci.check_security import scan_paths
 from scripts.ci.check_workflow_policy import _workflow_data, validate_workflow
@@ -19,7 +23,7 @@ class MigrationGateTests(unittest.TestCase):
     def test_checksum_ledger_is_deterministic_and_ordered(self):
         checksums = migration_checksums(ROOT / "storage/migrations")
         self.assertEqual(list(checksums), sorted(checksums))
-        self.assertEqual(len(checksums), 6)
+        self.assertEqual(len(checksums), 7)
         self.assertTrue(all(len(value) == 64 for value in checksums.values()))
 
     def test_migration_pair_and_utf8_failures_are_explicit(self):
@@ -63,6 +67,71 @@ class MigrationGateTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "repository migration mismatch"):
             repository_compatibility(Connection(), {"001_demo"})
+
+    def test_disposable_down_opt_in_rejects_non_ci_database_identity(self):
+        class Info:
+            dbname = "research"
+            user = "pasticuan_writer"
+
+        class Connection:
+            info = Info()
+
+        with self.assertRaisesRegex(RuntimeError, "disposable down/re-up"):
+            verify_disposable_database_identity(Connection())
+
+    def test_disposable_down_opt_in_rejects_remote_shaped_ci_identity(self):
+        class Info:
+            dbname = "pasticuan_ci"
+            user = "pasticuan_ci"
+            host = "postgres.internal.example"
+            hostaddr = "203.0.113.10"
+
+        class Connection:
+            info = Info()
+
+        with self.assertRaisesRegex(RuntimeError, "loopback"):
+            verify_disposable_database_identity(Connection())
+
+    def test_disposable_down_opt_in_accepts_ci_service_behind_loopback_client(self):
+        class Info:
+            dbname = "pasticuan_ci"
+            user = "pasticuan_ci"
+            host = "localhost"
+            hostaddr = "127.0.0.1"
+
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def execute(self, _query):
+                return None
+
+            def fetchone(self):
+                return ("10.0.0.4/32",)
+
+        class Connection:
+            info = Info()
+
+            def cursor(self):
+                return Cursor()
+
+        verify_disposable_database_identity(Connection())
+
+    def test_disposable_down_opt_in_rejects_remote_hostaddr_override(self):
+        class Info:
+            dbname = "pasticuan_ci"
+            user = "pasticuan_ci"
+            host = "localhost"
+            hostaddr = "203.0.113.10"
+
+        class Connection:
+            info = Info()
+
+        with self.assertRaisesRegex(RuntimeError, "loopback"):
+            verify_disposable_database_identity(Connection())
 
 
 class ManifestGateTests(unittest.TestCase):
