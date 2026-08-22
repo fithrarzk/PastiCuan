@@ -775,7 +775,7 @@ def _is_genuine_current_session_wait(market: dict) -> bool:
             return False
         return (
             market.get("session_date") == market.get("on_date")
-            and float(market.get("coverage_pct", 0)) < 90.0
+            and 0.0 < float(market.get("coverage_pct", 0)) < 90.0
         )
     except (TypeError, ValueError):
         return False

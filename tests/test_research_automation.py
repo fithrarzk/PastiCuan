@@ -89,7 +89,9 @@ class CalendarPolicyTests(unittest.TestCase):
 
 
 class DailyOrchestrationTests(unittest.TestCase):
-    def _run_not_ready(self, final_attempt, *, session_age=1, membership_count=45):
+    def _run_not_ready(
+        self, final_attempt, *, session_age=1, membership_count=45, coverage_pct=80.0
+    ):
         repository = SimpleNamespace(
             record_research_job=lambda value: None,
             applied_schema_migrations=lambda: [],
@@ -99,7 +101,7 @@ class DailyOrchestrationTests(unittest.TestCase):
             "observed": datetime(2026, 8, 18, 12, tzinfo=timezone.utc),
             "on_date": "2026-08-18",
             "session_date": "2026-08-18",
-            "coverage_pct": 80.0,
+            "coverage_pct": coverage_pct,
             "membership_count": membership_count,
             "imported_count": 0,
             "session_age": session_age,
@@ -161,8 +163,10 @@ class DailyOrchestrationTests(unittest.TestCase):
     def test_stale_or_short_market_is_unavailable_even_before_final_attempt(self):
         stale = self._run_not_ready(False, session_age=2)
         short = self._run_not_ready(False, membership_count=44)
+        absent = self._run_not_ready(False, session_age=None, coverage_pct=0.0)
         self.assertEqual(stale["outcome"]["exit_code"], 20)
         self.assertEqual(short["outcome"]["exit_code"], 20)
+        self.assertEqual(absent["outcome"]["exit_code"], 20)
 
     def test_matching_primary_session_is_an_idempotent_noop(self):
         digest = "b" * 64
