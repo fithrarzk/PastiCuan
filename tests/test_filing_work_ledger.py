@@ -14,8 +14,14 @@ class FilingWorkLedgerContractTests(unittest.TestCase):
         checksums = migration_checksums(migrations)
         self.assertEqual(len(checksums), 7)
         self.assertIn("007_filing_work_ledger", checksums)
-        self.assertIn("CREATE TABLE filing_work_items", read_sql(migrations / "007_filing_work_ledger.up.sql"))
-        self.assertIn("CREATE TABLE filing_work_attempts", read_sql(migrations / "007_filing_work_ledger.up.sql"))
+        self.assertIn(
+            "CREATE TABLE filing_work_items",
+            read_sql(migrations / "007_filing_work_ledger.up.sql"),
+        )
+        self.assertIn(
+            "CREATE TABLE filing_work_attempts",
+            read_sql(migrations / "007_filing_work_ledger.up.sql"),
+        )
 
     def test_repository_exposes_durable_ledger_seams(self):
         expected = {
@@ -29,6 +35,27 @@ class FilingWorkLedgerContractTests(unittest.TestCase):
             "get_filing_work_counts",
         }
         self.assertTrue(expected.issubset(set(dir(SnapshotRepository))))
+        self.assertNotIn("sync_filing_work_items", dir(SnapshotRepository))
+
+    def test_stable_error_surface_rejects_raw_or_unknown_summaries(self):
+        self.assertEqual(
+            SnapshotRepository._error_fields("provider", "provider_unavailable"),
+            ("PROVIDER", "PROVIDER_UNAVAILABLE"),
+        )
+        with self.assertRaises(ValueError):
+            SnapshotRepository._error_fields("provider", "raw provider response body")
+
+    def test_attempt_contract_has_run_and_source_snapshots(self):
+        sql = read_sql(ROOT / "storage/migrations/007_filing_work_ledger.up.sql")
+        for field in (
+            "run_id",
+            "lease_expires_at",
+            "source_url",
+            "expected_checksum",
+            "artifact_status",
+        ):
+            self.assertIn(field, sql)
+        self.assertIn("DEFERRABLE INITIALLY DEFERRED", sql)
 
     def test_roles_do_not_grant_delete_or_bot_ledger_access(self):
         roles = (ROOT / "storage/supabase_roles.sql").read_text()

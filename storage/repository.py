@@ -126,8 +126,24 @@ class SnapshotRepository:
     # public seam.  They never fetch a provider or alter point-in-time data.
     _WORK_STATES = {"PENDING", "RUNNING", "ACCEPTED", "QUARANTINED", "RETRYABLE"}
     _ERROR_CLASSES = {
-        "TRANSIENT", "PROVIDER", "DATABASE", "VALIDATION", "SCHEMA",
-        "PROVENANCE", "CONFLICT", "UNKNOWN",
+        "TRANSIENT",
+        "PROVIDER",
+        "DATABASE",
+        "VALIDATION",
+        "SCHEMA",
+        "PROVENANCE",
+        "CONFLICT",
+        "UNKNOWN",
+    }
+    _ERROR_SUMMARIES = {
+        "LEASE_EXPIRED",
+        "PROVIDER_UNAVAILABLE",
+        "DATABASE_UNAVAILABLE",
+        "VALIDATION_FAILED",
+        "SCHEMA_INVALID",
+        "PROVENANCE_CONFLICT",
+        "ARTIFACT_MISMATCH",
+        "UNKNOWN_FAILURE",
     }
 
     @staticmethod
@@ -139,6 +155,10 @@ class SnapshotRepository:
             restatement = int(item.get("restatement_version", 1))
             source_url = str(item["source_url"]).strip()
             published_at = item["published_at"]
+            if isinstance(published_at, str):
+                published_at = datetime.fromisoformat(
+                    published_at.replace("Z", "+00:00")
+                )
             audit_status = str(item.get("audit_status", "UNKNOWN")).strip().upper()
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("invalid reviewed filing identity") from exc
@@ -147,28 +167,49 @@ class SnapshotRepository:
         if audit_status not in {"AUDITED", "UNAUDITED", "REVIEWED", "UNKNOWN"}:
             raise ValueError("invalid reviewed filing audit status")
         expected = item.get("expected_checksum") or None
-        if expected is not None and (not isinstance(expected, str) or not expected.strip()):
+        if expected is not None and (
+            not isinstance(expected, str) or not expected.strip()
+        ):
             raise ValueError("invalid reviewed filing checksum")
         return {
-            "issuer_id": issuer_id, "filing_type": filing_type,
-            "period_end": period_end, "restatement_version": restatement,
-            "source_url": source_url, "published_at": published_at,
-            "audit_status": audit_status, "expected_checksum": expected,
+            "issuer_id": issuer_id,
+            "filing_type": filing_type,
+            "period_end": period_end,
+            "restatement_version": restatement,
+            "source_url": source_url,
+            "published_at": published_at,
+            "audit_status": audit_status,
+            "expected_checksum": expected,
         }
 
     @staticmethod
     def _work_key(item: dict) -> tuple:
-        return (item["issuer_id"], item["filing_type"], item["period_end"], item["restatement_version"])
+        return (
+            item["issuer_id"],
+            item["filing_type"],
+            item["period_end"],
+            item["restatement_version"],
+        )
 
     @staticmethod
     def _identity(value: dict | tuple) -> tuple:
-        raw = value if isinstance(value, dict) else {
-            "issuer_id": value[0], "filing_type": value[1], "period_end": value[2],
-            "restatement_version": value[3],
-        }
+        raw = (
+            value
+            if isinstance(value, dict)
+            else {
+                "issuer_id": value[0],
+                "filing_type": value[1],
+                "period_end": value[2],
+                "restatement_version": value[3],
+            }
+        )
         try:
-            key = (int(raw["issuer_id"]), str(raw["filing_type"]).strip().upper(),
-                   raw["period_end"], int(raw.get("restatement_version", 1)))
+            key = (
+                int(raw["issuer_id"]),
+                str(raw["filing_type"]).strip().upper(),
+                raw["period_end"],
+                int(raw.get("restatement_version", 1)),
+            )
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise ValueError("invalid filing identity") from exc
         if key[0] <= 0 or not key[1] or key[3] <= 0:
@@ -181,15 +222,24 @@ class SnapshotRepository:
         if not row:
             return None
         names = [column.name for column in cursor.description]
-        return {name: value for name, value in zip(names, row)}
+        return {
+            name: SnapshotRepository._db_text(value) for name, value in zip(names, row)
+        }
+
+    @staticmethod
+    def _db_text(value: Any) -> Any:
+        return value.decode("utf-8") if isinstance(value, bytes) else value
 
     @classmethod
     def _error_fields(cls, error_class: str | None, error_summary: str | None) -> tuple:
         if error_class is None and error_summary is None:
             return None, None
         clean_class = str(error_class or "UNKNOWN").strip().upper()
-        clean_summary = " ".join(str(error_summary or "").split())[:500]
-        if clean_class not in cls._ERROR_CLASSES or not clean_summary:
+        clean_summary = str(error_summary or "").strip().upper()
+        if (
+            clean_class not in cls._ERROR_CLASSES
+            or clean_summary not in cls._ERROR_SUMMARIES
+        ):
             raise ValueError("invalid stable filing error")
         return clean_class, clean_summary
 
@@ -207,7 +257,9 @@ class SnapshotRepository:
                 with connection.cursor() as cursor:
                     result = []
                     for item in reviewed:
-                        cursor.execute("SELECT 1 FROM issuers WHERE id=%s", (item["issuer_id"],))
+                        cursor.execute(
+                            "SELECT 1 FROM issuers WHERE id=%s", (item["issuer_id"],)
+                        )
                         if not cursor.fetchone():
                             raise ValueError("unknown issuer for reviewed filing")
                         cursor.execute(
@@ -219,18 +271,51 @@ class SnapshotRepository:
                         )
                         existing = cursor.fetchone()
                         if existing:
-                            if tuple(existing[:4]) != tuple(item[field] for field in ("source_url", "published_at", "audit_status", "expected_checksum")):
+                            observed = (
+                                self._db_text(existing[0]),
+                                existing[1],
+                                self._db_text(existing[2]),
+                                self._db_text(existing[3]),
+                            )
+                            expected = tuple(
+                                item[field]
+                                for field in (
+                                    "source_url",
+                                    "published_at",
+                                    "audit_status",
+                                    "expected_checksum",
+                                )
+                            )
+                            if observed != expected:
                                 raise ValueError("reviewed filing provenance conflict")
-                            result.append({"identity": self._work_key(item), "state": existing[4], "created": False})
+                            result.append(
+                                {
+                                    "identity": self._work_key(item),
+                                    "state": self._db_text(existing[4]),
+                                    "created": False,
+                                }
+                            )
                             continue
                         cursor.execute(
                             """INSERT INTO filing_work_items
                                (issuer_id,filing_type,period_end,restatement_version,source_url,published_at,audit_status,expected_checksum)
                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                                RETURNING state""",
-                            (*self._work_key(item), item["source_url"], item["published_at"], item["audit_status"], item["expected_checksum"]),
+                            (
+                                *self._work_key(item),
+                                item["source_url"],
+                                item["published_at"],
+                                item["audit_status"],
+                                item["expected_checksum"],
+                            ),
                         )
-                        result.append({"identity": self._work_key(item), "state": cursor.fetchone()[0], "created": True})
+                        result.append(
+                            {
+                                "identity": self._work_key(item),
+                                "state": cursor.fetchone()[0],
+                                "created": True,
+                            }
+                        )
                     return result
         except ValueError:
             raise
@@ -261,22 +346,36 @@ class SnapshotRepository:
         except Exception:
             raise RuntimeError("filing work status read failed") from None
 
-    def claim_filing_work(self, identity: dict | tuple, worker_id: str, *, lease_seconds: int = 900) -> dict | None:
+    def claim_filing_work(
+        self,
+        identity: dict | tuple,
+        worker_id: str,
+        *,
+        lease_seconds: int = 900,
+        run_id: str | None = None,
+    ) -> dict | None:
         """Acquire one fenced lease and create exactly one durable attempt."""
         if lease_seconds <= 0 or not str(worker_id).strip():
             raise ValueError("invalid filing lease")
         key = self._identity(identity)
         token = str(uuid4())
         attempt_id = str(uuid4())
+        clean_worker = str(worker_id).strip()
+        clean_run = str(run_id or uuid4()).strip()
+        if not clean_run:
+            raise ValueError("invalid filing run")
         try:
             with self._connect() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        """SELECT state,lease_token,lease_expires_at FROM filing_work_items
+                        """SELECT state,lease_token,lease_expires_at,source_url,expected_checksum FROM filing_work_items
                            WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
-                           FOR UPDATE SKIP LOCKED""", key
+                           FOR UPDATE SKIP LOCKED""",
+                        key,
                     )
                     current = cursor.fetchone()
+                    if current:
+                        current = tuple(self._db_text(value) for value in current)
                     if not current or current[0] in {"ACCEPTED", "QUARANTINED"}:
                         return None
                     if current[0] == "RUNNING" and current[2] is not None:
@@ -284,37 +383,59 @@ class SnapshotRepository:
                         if cursor.fetchone()[0]:
                             return None
                         cursor.execute(
+                            """UPDATE filing_work_items SET state='RETRYABLE',lease_token=NULL,lease_owner=NULL,
+                                      lease_expires_at=NULL,last_error_class='TRANSIENT',last_error_summary='LEASE_EXPIRED'
+                               WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s""",
+                            key,
+                        )
+                        cursor.execute(
                             """UPDATE filing_work_attempts SET finished_at=clock_timestamp(),outcome_state='RETRYABLE',
-                                      error_class='TRANSIENT',error_summary='lease expired'
+                                      error_class='TRANSIENT',error_summary='LEASE_EXPIRED'
                                WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
                                  AND lease_token=%s AND finished_at IS NULL""",
                             (*key, current[1]),
-                        )
-                        cursor.execute(
-                            """UPDATE filing_work_items SET state='RETRYABLE',lease_token=NULL,lease_owner=NULL,
-                                      lease_expires_at=NULL,last_error_class='TRANSIENT',last_error_summary='lease expired'
-                               WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s""", key
                         )
                     cursor.execute(
                         """UPDATE filing_work_items SET state='RUNNING',attempt_count=attempt_count+1,
                                   lease_token=%s,lease_owner=%s,lease_expires_at=clock_timestamp()+(%s * interval '1 second')
                            WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
                            RETURNING attempt_count,lease_expires_at""",
-                        (token, str(worker_id).strip(), lease_seconds, *key),
+                        (token, clean_worker, lease_seconds, *key),
                     )
                     attempt_number, expires = cursor.fetchone()
                     cursor.execute(
                         """INSERT INTO filing_work_attempts
-                           (id,issuer_id,filing_type,period_end,restatement_version,attempt_number,lease_token,worker_id)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (attempt_id, *key, attempt_number, token, str(worker_id).strip()),
+                           (id,issuer_id,filing_type,period_end,restatement_version,attempt_number,lease_token,
+                            worker_id,run_id,lease_expires_at,source_url,expected_checksum)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (
+                            attempt_id,
+                            *key,
+                            attempt_number,
+                            token,
+                            clean_worker,
+                            clean_run,
+                            expires,
+                            current[3],
+                            current[4],
+                        ),
                     )
-                    return {"identity": key, "lease_token": token, "attempt_id": attempt_id,
-                            "attempt_number": attempt_number, "lease_expires_at": expires, "state": "RUNNING"}
+                    return {
+                        "identity": key,
+                        "lease_token": token,
+                        "attempt_id": attempt_id,
+                        "attempt_number": attempt_number,
+                        "lease_expires_at": expires,
+                        "worker_id": clean_worker,
+                        "run_id": clean_run,
+                        "state": "RUNNING",
+                    }
         except Exception:
             raise RuntimeError("filing work claim failed") from None
 
-    def renew_filing_work(self, identity: dict | tuple, lease_token: str, *, lease_seconds: int = 900) -> dict | None:
+    def renew_filing_work(
+        self, identity: dict | tuple, lease_token: str, *, lease_seconds: int = 900
+    ) -> dict | None:
         if lease_seconds <= 0:
             raise ValueError("invalid filing lease")
         key = self._identity(identity)
@@ -329,15 +450,31 @@ class SnapshotRepository:
                         (lease_seconds, *key, lease_token),
                     )
                     row = cursor.fetchone()
-                    return {"identity": key, "lease_token": lease_token,
-                            "lease_expires_at": row[0], "state": "RUNNING"} if row else None
+                    return (
+                        {
+                            "identity": key,
+                            "lease_token": lease_token,
+                            "lease_expires_at": row[0],
+                            "state": "RUNNING",
+                        }
+                        if row
+                        else None
+                    )
         except Exception:
             raise RuntimeError("filing work renewal failed") from None
 
-    def finalize_filing_work(self, identity: dict | tuple, lease_token: str, state: str | None = None, *,
-                             outcome_state: str | None = None, artifact_id: str | None = None,
-                             checksum: str | None = None, error_class: str | None = None,
-                             error_summary: str | None = None) -> dict | None:
+    def finalize_filing_work(
+        self,
+        identity: dict | tuple,
+        lease_token: str,
+        state: str | None = None,
+        *,
+        outcome_state: str | None = None,
+        artifact_id: str | None = None,
+        checksum: str | None = None,
+        error_class: str | None = None,
+        error_summary: str | None = None,
+    ) -> dict | None:
         state = state or outcome_state
         if state is None:
             raise ValueError("filing work outcome is required")
@@ -345,34 +482,89 @@ class SnapshotRepository:
         if state not in {"ACCEPTED", "QUARANTINED", "RETRYABLE"}:
             raise ValueError("invalid filing work terminal state")
         error_class, error_summary = self._error_fields(error_class, error_summary)
-        if state == "ACCEPTED" and not artifact_id:
-            raise ValueError("accepted filing work requires an artifact")
+        if state in {"ACCEPTED", "QUARANTINED"} and not artifact_id:
+            raise ValueError("terminal filing work requires an artifact")
+        if state == "QUARANTINED" and error_summary is None:
+            raise ValueError("quarantined filing work requires a stable reason")
+        if state == "ACCEPTED" and (
+            error_class is not None or error_summary is not None
+        ):
+            raise ValueError("accepted filing work cannot carry an error")
         key = self._identity(identity)
         try:
             with self._connect() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
+                        """SELECT source_url,expected_checksum FROM filing_work_items
+                           WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
+                             AND state='RUNNING' AND lease_token=%s AND lease_expires_at>clock_timestamp()
+                           FOR UPDATE""",
+                        (*key, lease_token),
+                    )
+                    work = cursor.fetchone()
+                    if not work:
+                        return None
+                    work = tuple(self._db_text(value) for value in work)
+                    artifact = None
+                    if state in {"ACCEPTED", "QUARANTINED"}:
+                        cursor.execute(
+                            "SELECT checksum,source_url,parse_status FROM source_artifacts WHERE id=%s",
+                            (artifact_id,),
+                        )
+                        artifact = cursor.fetchone()
+                        if artifact:
+                            artifact = tuple(self._db_text(value) for value in artifact)
+                        required_status = state
+                        if (
+                            not artifact
+                            or artifact[2] != required_status
+                            or artifact[1] != work[0]
+                            or (work[1] is not None and artifact[0] != work[1])
+                            or (checksum is not None and artifact[0] != checksum)
+                        ):
+                            raise ValueError("filing work artifact provenance mismatch")
+                        checksum = artifact[0]
+                    cursor.execute(
                         """UPDATE filing_work_items SET state=%s,lease_token=NULL,lease_owner=NULL,lease_expires_at=NULL,
-                                  accepted_artifact_id=%s,last_error_class=%s,last_error_summary=%s
+                                  artifact_id=%s,artifact_checksum=%s,artifact_source_url=%s,artifact_status=%s,
+                                  accepted_artifact_id=%s,accepted_checksum=%s,last_error_class=%s,last_error_summary=%s
                            WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
                              AND state='RUNNING' AND lease_token=%s AND lease_expires_at>clock_timestamp()
                            RETURNING state,source_url""",
-                        (state, artifact_id if state == "ACCEPTED" else None, error_class, error_summary, *key, lease_token),
+                        (
+                            state,
+                            artifact_id,
+                            artifact[0] if artifact else None,
+                            artifact[1] if artifact else None,
+                            state if artifact else None,
+                            artifact_id if state == "ACCEPTED" else None,
+                            checksum if state == "ACCEPTED" else None,
+                            error_class,
+                            error_summary,
+                            *key,
+                            lease_token,
+                        ),
                     )
                     row = cursor.fetchone()
                     if not row:
                         return None
-                    if state == "ACCEPTED" and checksum is None:
-                        cursor.execute("SELECT checksum FROM source_artifacts WHERE id=%s", (artifact_id,))
-                        artifact_row = cursor.fetchone()
-                        checksum = artifact_row[0] if artifact_row else None
                     cursor.execute(
                         """UPDATE filing_work_attempts SET finished_at=clock_timestamp(),outcome_state=%s,
-                                  error_class=%s,error_summary=%s,artifact_id=%s,source_url=%s,checksum=%s
+                                  error_class=%s,error_summary=%s,artifact_id=%s,artifact_checksum=%s,
+                                  artifact_source_url=%s,artifact_status=%s
                            WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
                              AND lease_token=%s AND finished_at IS NULL""",
-                        (state, error_class, error_summary, artifact_id if state == "ACCEPTED" else None,
-                         row[1], checksum, *key, lease_token),
+                        (
+                            state,
+                            error_class,
+                            error_summary,
+                            artifact_id if artifact else None,
+                            artifact[0] if artifact else None,
+                            artifact[1] if artifact else None,
+                            state if artifact else None,
+                            *key,
+                            lease_token,
+                        ),
                     )
                     return {"identity": key, "state": state, "lease_token": lease_token}
         except ValueError:
@@ -390,22 +582,27 @@ class SnapshotRepository:
                         """SELECT issuer_id,filing_type,period_end,restatement_version,lease_token
                            FROM filing_work_items WHERE state='RUNNING' AND lease_expires_at<=clock_timestamp()
                            ORDER BY lease_expires_at,issuer_id,filing_type,period_end,restatement_version
-                           FOR UPDATE SKIP LOCKED LIMIT %s""", (limit,)
+                           FOR UPDATE SKIP LOCKED LIMIT %s""",
+                        (limit,),
                     )
                     rows = cursor.fetchall()
                     expired = []
                     for key in rows:
-                        identity = tuple(key[:4]); token = key[4]
+                        identity = tuple(self._db_text(value) for value in key[:4])
+                        token = key[4]
                         cursor.execute(
                             """UPDATE filing_work_items SET state='RETRYABLE',lease_token=NULL,lease_owner=NULL,
-                                      lease_expires_at=NULL,last_error_class='TRANSIENT',last_error_summary='lease expired'
+                                      lease_expires_at=NULL,last_error_class='TRANSIENT',last_error_summary='LEASE_EXPIRED'
                                WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
-                           """, identity)
+                           """,
+                            identity,
+                        )
                         cursor.execute(
                             """UPDATE filing_work_attempts SET finished_at=clock_timestamp(),outcome_state='RETRYABLE',
-                                      error_class='TRANSIENT',error_summary='lease expired'
+                                      error_class='TRANSIENT',error_summary='LEASE_EXPIRED'
                                WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
-                                 AND lease_token=%s AND finished_at IS NULL""", (*identity, token)
+                                 AND lease_token=%s AND finished_at IS NULL""",
+                            (*identity, token),
                         )
                         expired.append({"identity": identity, "state": "RETRYABLE"})
                     return expired
@@ -419,35 +616,27 @@ class SnapshotRepository:
                 cursor.execute(
                     """SELECT * FROM filing_work_attempts
                        WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
-                       ORDER BY attempt_number""", key
+                       ORDER BY attempt_number""",
+                    key,
                 )
                 names = [column.name for column in cursor.description]
-                return [dict(zip(names, row)) for row in cursor.fetchall()]
+                return [
+                    {name: self._db_text(value) for name, value in zip(names, row)}
+                    for row in cursor.fetchall()
+                ]
 
     def get_filing_work_counts(self) -> dict[str, int]:
         counts = {state: 0 for state in sorted(self._WORK_STATES)}
         with self._connect() as connection:
             with connection.cursor() as cursor:
-                cursor.execute("SELECT state,count(*) FROM filing_work_items GROUP BY state")
+                cursor.execute(
+                    "SELECT state,count(*) FROM filing_work_items GROUP BY state"
+                )
                 for state, count in cursor.fetchall():
+                    state = self._db_text(state)
                     if state in counts:
                         counts[state] = int(count)
         return counts
-
-    # Compatibility spellings kept at the public seam for callers using the
-    # noun from the ingestion contract.
-    sync_filing_work = sync_reviewed_filings
-    filing_work_statuses = get_filing_work_statuses
-    sync_filing_work_items = sync_reviewed_filings
-    read_filing_work_statuses = get_filing_work_statuses
-    claim_filing_work_item = claim_filing_work
-    renew_filing_work_lease = renew_filing_work
-    finalize_filing_work_item = finalize_filing_work
-    expire_filing_work = expire_filing_work_leases
-    filing_attempt_history = get_filing_attempt_history
-    read_filing_attempt_history = get_filing_attempt_history
-    filing_work_counts = get_filing_work_counts
-    aggregate_filing_work_counts = get_filing_work_counts
 
     def preflight_schema_migrations(
         self, required_versions: list[str] | tuple[str, ...]
