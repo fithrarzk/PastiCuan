@@ -17,4 +17,20 @@ The root [README](../README.md) describes the product. [DEPLOY_FREE](../DEPLOY_F
 - [Ingestion contract](specs/ingestion-contract.md): cumulative discovery and resumable imports.
 - [Snapshot lifecycle](specs/snapshot-lifecycle.md): atomic publication and last-good behavior.
 
+## Architecture
+
+- [System map](architecture/system-map.md): services, owners, stores, and source-of-truth boundaries.
+- [Data lifecycle](architecture/data-lifecycle.md): filing-to-snapshot evidence flow and point-in-time rules.
+- [Reliability boundaries](architecture/reliability-boundaries.md): fail-closed guarantees and known gaps.
+
+## Reference
+
+- [Command and data dictionary](reference/command-data-dictionary.md): interfaces, evidence identity, and test seams.
+- [Model-card index](models/README.md): current formula identities and validation status.
+
+## Runbooks
+
+- [CI/CD](runbooks/ci-cd.md) · [Backfill](runbooks/backfill.md) · [Refresh](runbooks/refresh.md)
+- [Deployment](runbooks/deployment.md) · [Recovery](runbooks/recovery.md) · [Incident response](runbooks/incident-response.md)
+
 Future specifications belong under `docs/specs/`, operational procedures under `docs/runbooks/`, system explanations under `docs/architecture/`, and difficult-to-reverse decisions under `docs/adr/`.
