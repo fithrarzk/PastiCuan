@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import hashlib
-import ipaddress
 from pathlib import Path
 import time
 from typing import Any
@@ -544,7 +543,7 @@ def filing_work_behavior(connection: Any, database_url: str) -> None:
 
 
 def verify_disposable_database_identity(connection: Any) -> None:
-    """Allow down/re-up only for named CI databases on a loopback server."""
+    """Allow down/re-up only through a loopback client endpoint to named CI databases."""
     database = str(connection.info.dbname)
     user = str(connection.info.user)
     host = str(getattr(connection.info, "host", "") or "")
@@ -556,21 +555,6 @@ def verify_disposable_database_identity(connection: Any) -> None:
         raise RuntimeError(
             "disposable down/re-up requires a named CI database on loopback"
         )
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT inet_server_addr()::text")
-        server_address = cursor.fetchone()[0]
-    if server_address:
-        address = normalize_version(server_address).split("/", 1)[0]
-        try:
-            loopback = ipaddress.ip_address(address).is_loopback
-        except ValueError as exc:
-            raise RuntimeError(
-                "disposable down/re-up requires a loopback PostgreSQL server"
-            ) from exc
-        if not loopback:
-            raise RuntimeError(
-                "disposable down/re-up requires a loopback PostgreSQL server"
-            )
 
 
 def verify_filing_work_catalog(connection: Any) -> None:

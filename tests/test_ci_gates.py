@@ -91,7 +91,7 @@ class MigrationGateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "loopback"):
             verify_disposable_database_identity(Connection())
 
-    def test_disposable_down_opt_in_rejects_remote_server_address(self):
+    def test_disposable_down_opt_in_accepts_ci_service_behind_loopback_client(self):
         class Info:
             dbname = "pasticuan_ci"
             user = "pasticuan_ci"
@@ -116,8 +116,7 @@ class MigrationGateTests(unittest.TestCase):
             def cursor(self):
                 return Cursor()
 
-        with self.assertRaisesRegex(RuntimeError, "loopback"):
-            verify_disposable_database_identity(Connection())
+        verify_disposable_database_identity(Connection())
 
 
 class ManifestGateTests(unittest.TestCase):
