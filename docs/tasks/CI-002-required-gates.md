@@ -1,6 +1,6 @@
 # CI-002: Required pull-request gates
 
-- Status: review
+- Status: verified
 - Priority: P0
 - Owner/model: Luna implementation, Sol security review
 - Reasoning effort: high implementation, high review
@@ -60,4 +60,6 @@ Land workflows while retaining the old `test` producer. Observe all new checks o
 
 ## Handoff
 
-CI-002A merged as `a60a561`, restoring a supported dependency chain without an advisory waiver. The fourth correction closed generated-check fanout, credential scanning, quality-path, and failure-path findings. CI-002B merged as `6484912`, fixing SQL-ASCII migration identity decoding at the storage boundary without weakening the exact gate. Final local evidence at `20560c2`: 119 clean Python 3.12 tests; six migrations applied twice and compared exactly in both UTF-8 and SQL-ASCII; strict four-profile audit, workflow policy, secret scan, manifest checks, Ruff, Mypy, shell syntax, compilation, release, and diff checks passed. Independent Standards and Spec reviews report zero findings. Docker build/start, real PR/generated check timings, current-head check names, ruleset transition, and post-merge evidence remain rollout obligations.
+CI-002A merged as `a60a561`, restoring a supported dependency chain without an advisory waiver. CI-002B merged as `6484912`, fixing SQL-ASCII migration identity decoding at the storage boundary without weakening the exact gate. CI-002 merged through PR #22 as `88409306f0dbc6eae42a1759231118cf7667b469`; its final reviewed task head was `dc265f25029b6037369cdf8fe1ccbef5f5643df4`. The changed files are the owned workflows, container definition, CI requirements/helpers, gate tests, and this task record. Behavior now provides the legacy `test` context plus stable `unit`, `quality`, `workflow-policy`, `migration`, `container-smoke`, `manifest-validate`, and `security` contexts on ordinary pull requests and exact-head generated validation.
+
+Local verification passed the clean Python 3.12 suite, compilation, research-release check, diff check, strict four-profile dependency audit, workflow policy, secret scan, manifest checks, Ruff, Mypy, shell syntax, real container probes, and six migrations applied twice with exact repository identity comparison in both UTF-8 and SQL-ASCII. Independent Standards and Spec reviews reported zero findings. On the real final-head PR, all eight required contexts passed. Generated validation run `32562878089` passed for the exact final head, while deliberate mismatched-SHA run `32562868244` failed the guard and all eight contexts. Ruleset `20977060` now requires all eight contexts with strict freshness and no bypass actors. Merge-SHA run `32563023464` passed compile, release policy, and the full test suite. Rollback is the documented workflow revert plus atomic restoration of the prior ruleset contexts; no production data or schema changed. Exact-SHA Railway linkage remains unavailable until DEP-001, and CI-002 does not claim research refresh recovery.

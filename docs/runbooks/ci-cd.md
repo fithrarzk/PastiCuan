@@ -6,9 +6,9 @@ Use a task branch and pull request. Read [the CI/CD contract](../specs/ci-cd-con
 
 ## Procedure
 
-1. Run the currently implemented core checks: compile, unit tests, research-release check, and diff whitespace. The seven additional CI-002 gates (quality, workflow-policy, migration, container-smoke, manifest validation, security/dependency, and their required orchestration) are proposed/planned, not current production-main checks.
+1. Run the current core checks locally: compile, unit tests, research-release check, and diff whitespace. Pull requests produce the required `test`, `unit`, `quality`, `workflow-policy`, `migration`, `container-smoke`, `manifest-validate`, and `security` contexts. Generated-branch validation additionally verifies the requested remote head before producing those same stable contexts.
 2. Obtain independent spec/standards review and resolve all threads. Missing, cancelled, neutral, or stale checks are not green.
-3. Squash-merge only after required current-head checks pass. The merge may trigger Railway and research workflows independently.
+3. Confirm the active ruleset requires all eight stable contexts with strict current-head freshness and no bypass, then squash-merge only after those checks pass. The merge may trigger Railway and research workflows independently.
 4. Inspect `research-daily`, `idx-filings`, and backup workflow outcomes; record code SHA, release, snapshot IDs, and last-good state.
 
 ## Verification and stop

@@ -8,11 +8,11 @@
 - Retry ceiling: two documentation correction cycles; broken-link or contradicted-current-state findings are retryable
 - Escalation condition: repository code and an accepted specification materially disagree and neither is explicitly marked planned/current
 - Parallelism: one Luna documentation writer; one root integration owner; two later read-only reviewers. No nested writers.
-- Base SHA: `693af474baa11d73ad41d116b626a1bb44e5ed3d`
+- Base SHA: `693af474baa11d73ad41d116b626a1bb44e5ed3d`; synchronized through `88409306f0dbc6eae42a1759231118cf7667b469`
 - Branch: `docs/DOC-002-architecture`
 - Worktree: `../PastiCuan-wt/doc-002-architecture`
 - Depends on: DOC-001
-- File ownership: `docs/README.md`, `docs/architecture/system-map.md` (new), `docs/architecture/data-lifecycle.md` (new), `docs/architecture/reliability-boundaries.md` (new), `docs/reference/command-data-dictionary.md` (new), `docs/models/README.md` (new), `docs/runbooks/ci-cd.md` (new), `docs/runbooks/backfill.md` (new), `docs/runbooks/refresh.md` (new), `docs/runbooks/deployment.md` (new), `docs/runbooks/recovery.md` (new), `docs/runbooks/incident-response.md` (new), and this task card
+- File ownership: `docs/README.md`, `docs/architecture/system-map.md` (new), `docs/architecture/data-lifecycle.md` (new), `docs/architecture/reliability-boundaries.md` (new), `docs/reference/command-data-dictionary.md` (new), `docs/models/README.md` (new), `docs/runbooks/ci-cd.md` (new), `docs/runbooks/backfill.md` (new), `docs/runbooks/refresh.md` (new), `docs/runbooks/deployment.md` (new), `docs/runbooks/recovery.md` (new), `docs/runbooks/incident-response.md` (new), this task card, and root-orchestrator updates to `docs/tasks/CI-002-required-gates.md` and `docs/tasks/CLAIMS.md`
 - Merge policy: autonomous
 
 ## Outcome
@@ -58,4 +58,6 @@ Publish through the documentation PR. No production action is required. Roll bac
 
 ## Handoff
 
-Record the final commit, exact files, Markdown-link validation command/results, repository verification results, limitations, PR/review/check state, and the next dependency-ready roadmap task.
+The branch adds the architecture, lifecycle, reliability, command/data, model-index, and six operational runbook pages listed in file ownership, updates the documentation index, and records the completed CI-002 rollout. An inline local-link validator checked all 13 owned Markdown files and found every local path and anchor resolvable. In a clean Python 3.12 environment, compilation passed, all 120 tests passed, `check-research-release` returned the accepted research release, and `git diff --check` passed. `CONTEXT.md`, runtime code, workflows, research artifacts, formulas, gates, and production state are unchanged by DOC-002.
+
+The documentation deliberately retains these limitations: ingestion is storage-idempotent but not runtime-resumable, publication is not atomic, exact-SHA Railway linkage is not verified, and analytics remain unvalidated `SHADOW` research. PR URL, reviewed head, required-check results, merge SHA, and post-merge verification must be recorded in the final orchestrator handoff. With CI-002 verified, REG-001 and ING-001 are the next dependency-ready roadmap tasks; their separate concerns and file ownership must remain separate.
