@@ -34,7 +34,7 @@ from operations.research_release import (
     release_provenance,
 )
 from operations.job_outcomes import (
-    JobOutcome, Outcome, OutcomeFailure, infrastructure_failure, outcome,
+    EvidenceUnavailable, JobOutcome, Outcome, OutcomeFailure, infrastructure_failure, outcome,
 )
 
 
@@ -393,7 +393,8 @@ def build_daily_scan(output_path: str, *, use_r2: bool = False) -> dict:
 
     archive = None
     if use_r2:
-        archive = lambda key, body: upload_to_r2(key, body, content_type="application/gzip")
+        def archive(key, body):
+            return upload_to_r2(key, body, content_type="application/gzip")
     try:
         snapshot = build_full_lq45_scan(repository, archive_callback=archive)
         payload = snapshot.to_dict()
@@ -422,10 +423,14 @@ def _required_migrations() -> list[str]:
     return sorted(path.name.removesuffix(".up.sql") for path in Path("storage/migrations").glob("*.up.sql"))
 
 
-def _write_job_report(path: str, report: dict) -> None:
+def _write_job_report(path: str, report: dict) -> bool:
     destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(strict_json_dumps(report, indent=2))
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(strict_json_dumps(report, indent=2))
+    except Exception:
+        return False
+    return True
 
 
 def _report_with_outcome(report: dict, result: JobOutcome) -> dict:
@@ -441,6 +446,27 @@ def _report_with_outcome(report: dict, result: JobOutcome) -> dict:
         else result.outcome.value
     )
     return payload
+
+
+def _report_write_failure(report: dict, repository, base_run: dict) -> dict:
+    """Emit one redacted infrastructure result without retrying the bad path."""
+    result = outcome(
+        Outcome.INFRASTRUCTURE, "REPORT_WRITE_FAILED", "report", retryable=False,
+        summary="The research report could not be written.",
+        action="Inspect the runner workspace and rerun the job.",
+    )
+    fallback = _report_with_outcome({"status": "RUNNING", "started_at": report.get("started_at"),
+                                     "stages": {}}, result)
+    print(strict_json_dumps({key: value for key, value in fallback.items() if key != "stages"}))
+    try:
+        repository.record_research_job({
+            **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
+            "status": result.persisted_status, "metrics": {"outcome": result.to_dict()},
+            "error_type": result.code,
+        })
+    except Exception:
+        pass
+    return fallback
 
 
 def _infrastructure(stage: str, code: str, *, retryable: bool = False,
@@ -469,6 +495,16 @@ def _redacted_market_summary(summary: dict) -> dict:
         "imported_count", "session_age",
     }
     return {key: summary.get(key) for key in allowed if key in summary}
+
+
+def _is_genuine_current_session_wait(market: dict) -> bool:
+    """Only a complete, current universe may use the retryable timing outcome."""
+    try:
+        return (int(market.get("session_age", 99)) <= 1
+                and int(market.get("membership_count", 0)) == 45
+                and float(market.get("coverage_pct", 0)) >= 90.0)
+    except (TypeError, ValueError):
+        return False
 
 
 def refresh_market_history(output_path: str, *, now: datetime | None = None) -> dict:
@@ -527,19 +563,21 @@ def run_daily_research(
         report["stages"]["market"] = safe_market_summary
         report["session_date"] = market_summary["session_date"]
         if not market["ready"]:
+            waiting = not final_attempt and _is_genuine_current_session_wait(market)
             result = outcome(
-                Outcome.UNAVAILABLE if final_attempt else Outcome.WAITING,
-                "EVIDENCE_UNAVAILABLE" if final_attempt else "MARKET_SESSION_NOT_READY",
-                "market", retryable=not final_attempt,
-                summary=("Required completed-session evidence is unavailable."
-                         if final_attempt else "The current session is not complete yet."),
+                Outcome.WAITING if waiting else Outcome.UNAVAILABLE,
+                "MARKET_SESSION_NOT_READY" if waiting else "EVIDENCE_UNAVAILABLE",
+                "market", retryable=waiting,
+                summary=("The current session is not complete yet." if waiting
+                         else "Required completed-session evidence is unavailable."),
                 action=("Wait for a completed session and run the next scheduled attempt."
-                        if not final_attempt else "Complete required ingestion and rerun the refresh."),
+                        if waiting else "Complete required ingestion and rerun the refresh."),
                 details={"session_date": safe_market_summary.get("session_date"),
                          "coverage_pct": safe_market_summary.get("coverage_pct")},
             )
             report = _report_with_outcome(report, result)
-            _write_job_report(output_path, report)
+            if not _write_job_report(output_path, report):
+                return _report_write_failure(report, repository, base_run)
             repository.record_research_job({
                 **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
                 "status": result.persisted_status,
@@ -568,7 +606,8 @@ def run_daily_research(
                            "scan_snapshot_id": latest_scan.snapshot_id})
             report["stages"]["outcomes"] = {"status": "SUCCEEDED", **outcomes}
             report = _report_with_outcome(report, result)
-            _write_job_report(output_path, report)
+            if not _write_job_report(output_path, report):
+                return _report_write_failure(report, repository, base_run)
             repository.record_research_job({
                 **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
                 "status": "SUCCEEDED", "input_checksum": provenance["calculation_digest"],
@@ -596,13 +635,13 @@ def run_daily_research(
                         candidate_path, observed.isoformat(), release["model_version"],
                         provenance=provenance, formula_version=release["formula_version"],
                     )
-                except ValueError as exc:
+                except EvidenceUnavailable:
                     raise OutcomeFailure(outcome(
                         Outcome.UNAVAILABLE, "POINT_IN_TIME_EVIDENCE_UNAVAILABLE", "quant",
                         retryable=True,
                         summary="Required point-in-time factor evidence is unavailable.",
                         action="Complete eligible ingestion and rerun the refresh.",
-                    )) from exc
+                    ))
                 readiness = candidate_readiness(candidate)
                 if not readiness["ready"]:
                     failed = ", ".join(key for key, passed in readiness["checks"].items() if not passed)
@@ -622,14 +661,17 @@ def run_daily_research(
 
         archive = None
         if use_r2:
-            archive = lambda key, body: upload_to_r2(key, body, content_type="application/gzip")
+            def archive(key, body):
+                return upload_to_r2(key, body, content_type="application/gzip")
         scan = build_full_lq45_scan(repository, market_refresh=market, archive_callback=archive)
         if scan.mode != "PRIMARY":
+            report["partial_quant_snapshot_id"] = locals().get("quant_snapshot_id")
             raise OutcomeFailure(outcome(
                 Outcome.POLICY_GATE, "SCAN_NOT_PRIMARY", "scan", retryable=False,
                 summary="The daily scan did not satisfy the PRIMARY publication gate.",
                 action="Resolve the disclosed scan gate failures before rerunning.",
-                details={"mode": scan.mode},
+                details={"mode": scan.mode,
+                         "partial_quant_snapshot_id": locals().get("quant_snapshot_id")},
             ))
         scan_snapshot_id = repository.publish_scan_snapshot(scan)
         report["stages"]["scan"] = {
@@ -647,7 +689,8 @@ def run_daily_research(
         report.update({"quant_snapshot_id": quant_snapshot_id,
                        "scan_snapshot_id": scan_snapshot_id})
         report = _report_with_outcome(report, result)
-        _write_job_report(output_path, report)
+        if not _write_job_report(output_path, report):
+            return _report_write_failure(report, repository, base_run)
         repository.record_research_job({
             **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
             "status": "SUCCEEDED", "input_checksum": provenance["calculation_digest"],
@@ -659,7 +702,8 @@ def run_daily_research(
     except OutcomeFailure as exc:
         result = exc.result
         report = _report_with_outcome(report, result)
-        _write_job_report(output_path, report)
+        if not _write_job_report(output_path, report):
+            return _report_write_failure(report, repository, base_run)
         try:
             repository.record_research_job({
                 **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -672,7 +716,8 @@ def run_daily_research(
     except Exception as exc:
         result = infrastructure_failure(exc, next(reversed(report.get("stages", {})), "unknown"))
         report = _report_with_outcome(report, result)
-        _write_job_report(output_path, report)
+        if not _write_job_report(output_path, report):
+            return _report_write_failure(report, repository, base_run)
         try:
             repository.record_research_job({
                 **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -692,7 +737,7 @@ def build_snapshot_from_database(output_path: str, effective_at: str, model_vers
     repository = SnapshotRepository(lambda: connect_from_env(writer=True))
     frame = build_factor_inputs(repository, effective_at)
     if frame.empty:
-        raise ValueError("No eligible point-in-time LQ45 factor inputs were produced.")
+        raise EvidenceUnavailable()
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(".factor-inputs.csv")
@@ -810,37 +855,49 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="pasticuan-research")
     sub = parser.add_subparsers(dest="command", required=True)
     build = sub.add_parser("build-snapshot")
-    build.add_argument("--input", required=True); build.add_argument("--output", required=True)
-    build.add_argument("--effective-at", required=True); build.add_argument("--model-version", default="lq45-factor-v1")
+    build.add_argument("--input", required=True)
+    build.add_argument("--output", required=True)
+    build.add_argument("--effective-at", required=True)
+    build.add_argument("--model-version", default="lq45-factor-v1")
     approve = sub.add_parser("approve-snapshot")
-    approve.add_argument("--candidate", required=True); approve.add_argument("--output", required=True)
+    approve.add_argument("--candidate", required=True)
+    approve.add_argument("--output", required=True)
     approve.add_argument("--status", choices=["SHADOW", "VALIDATED_RESEARCH"], default="SHADOW")
     approve.add_argument("--validation-run-id")
     build_db = sub.add_parser("build-snapshot-from-database")
-    build_db.add_argument("--output", required=True); build_db.add_argument("--effective-at", required=True)
+    build_db.add_argument("--output", required=True)
+    build_db.add_argument("--effective-at", required=True)
     build_db.add_argument("--model-version", default="lq45-factor-v1")
     ingest = sub.add_parser("ingest-manifest")
-    ingest.add_argument("--manifest", required=True); ingest.add_argument("--report", required=True)
-    ingest.add_argument("--archive-directory"); ingest.add_argument("--r2", action="store_true")
+    ingest.add_argument("--manifest", required=True)
+    ingest.add_argument("--report", required=True)
+    ingest.add_argument("--archive-directory")
+    ingest.add_argument("--r2", action="store_true")
     ingest_idx = sub.add_parser("ingest-idx-xbrl")
-    ingest_idx.add_argument("--manifest", required=True); ingest_idx.add_argument("--report", required=True)
-    ingest_idx.add_argument("--archive-directory"); ingest_idx.add_argument("--r2", action="store_true")
+    ingest_idx.add_argument("--manifest", required=True)
+    ingest_idx.add_argument("--report", required=True)
+    ingest_idx.add_argument("--archive-directory")
+    ingest_idx.add_argument("--r2", action="store_true")
     discover_idx = sub.add_parser("discover-idx-xbrl")
-    discover_idx.add_argument("--output", required=True); discover_idx.add_argument("--as-of", required=True)
+    discover_idx.add_argument("--output", required=True)
+    discover_idx.add_argument("--as-of", required=True)
     discover_idx.add_argument("--year", type=int)
     discover_idx.add_argument("--period", default="auto", choices=["auto", "tw1", "tw2", "tw3"])
     discover_idx.add_argument("--annual-start-year", type=int)
     discover_idx.add_argument("--annual-end-year", type=int)
     backup = sub.add_parser("backup")
-    backup.add_argument("--output", required=True); backup.add_argument("--r2", action="store_true")
+    backup.add_argument("--output", required=True)
+    backup.add_argument("--r2", action="store_true")
     publish = sub.add_parser("publish-snapshot")
     publish.add_argument("--snapshot", required=True)
     publish_shadow = sub.add_parser("publish-reviewed-shadow")
-    publish_shadow.add_argument("--candidate", required=True); publish_shadow.add_argument("--output", required=True)
+    publish_shadow.add_argument("--candidate", required=True)
+    publish_shadow.add_argument("--output", required=True)
     check = sub.add_parser("check-candidate")
     check.add_argument("--snapshot", required=True)
     validate = sub.add_parser("validate-quant")
-    validate.add_argument("--scores", required=True); validate.add_argument("--bars", required=True)
+    validate.add_argument("--scores", required=True)
+    validate.add_argument("--bars", required=True)
     validate.add_argument("--output", required=True)
     validate.add_argument("--persist", action="store_true")
     validate.add_argument("--model-version", default="lq45-factor-v1")
@@ -859,8 +916,10 @@ def main(argv=None) -> int:
     check_release.add_argument("--release", default=DEFAULT_RELEASE_PATH)
     check_release.add_argument("--base-ref")
     rebuild = sub.add_parser("rebuild-monthly-panel")
-    rebuild.add_argument("--start", required=True); rebuild.add_argument("--end", required=True)
-    rebuild.add_argument("--scores-output", required=True); rebuild.add_argument("--bars-output", required=True)
+    rebuild.add_argument("--start", required=True)
+    rebuild.add_argument("--end", required=True)
+    rebuild.add_argument("--scores-output", required=True)
+    rebuild.add_argument("--bars-output", required=True)
     sub.add_parser("evaluate-signal-outcomes")
     args = parser.parse_args(argv)
     if args.command == "build-snapshot":

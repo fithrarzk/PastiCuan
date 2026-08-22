@@ -74,17 +74,19 @@ class JobOutcome:
         return PERSISTED_STATUSES[self.outcome].value
 
     def to_dict(self) -> dict[str, Any]:
-        return _json_safe({
-            "outcome": self.outcome.value,
-            "code": self.code,
-            "stage": self.stage,
-            "retryable": self.retryable,
-            "summary": self.summary,
-            "action": self.action,
-            "details": self.details,
-            "exit_code": self.exit_code,
-            "persisted_status": self.persisted_status,
-        })
+        return _json_safe(
+            {
+                "outcome": self.outcome.value,
+                "code": self.code,
+                "stage": self.stage,
+                "retryable": self.retryable,
+                "summary": self.summary,
+                "action": self.action,
+                "details": self.details,
+                "exit_code": self.exit_code,
+                "persisted_status": self.persisted_status,
+            }
+        )
 
 
 class OutcomeFailure(Exception):
@@ -93,6 +95,13 @@ class OutcomeFailure(Exception):
     def __init__(self, result: JobOutcome):
         self.result = result
         super().__init__(result.code)
+
+
+class EvidenceUnavailable(Exception):
+    """Raised only when the point-in-time input set is structurally empty."""
+
+    def __init__(self) -> None:
+        super().__init__("point-in-time evidence unavailable")
 
 
 def outcome(
@@ -110,7 +119,10 @@ def outcome(
 
 def unknown_failure(stage: str) -> JobOutcome:
     return outcome(
-        Outcome.INFRASTRUCTURE, "UNKNOWN_FAILURE", stage, retryable=False,
+        Outcome.INFRASTRUCTURE,
+        "UNKNOWN_FAILURE",
+        stage,
+        retryable=False,
         summary="The research job encountered an unexpected infrastructure failure.",
         action="Inspect the redacted stage result and incident record.",
     )
@@ -121,25 +133,37 @@ def infrastructure_failure(exc: Exception, stage: str) -> JobOutcome:
     sqlstate = getattr(exc, "pgcode", None) or getattr(exc, "sqlstate", None)
     if sqlstate in {"57014", "55P03"} or isinstance(exc, TimeoutError):
         return outcome(
-            Outcome.INFRASTRUCTURE, "DATABASE_TIMEOUT", stage, retryable=True,
+            Outcome.INFRASTRUCTURE,
+            "DATABASE_TIMEOUT",
+            stage,
+            retryable=True,
             summary="A required infrastructure operation timed out.",
             action="Retry within the bounded operational policy.",
         )
     if sqlstate:
         return outcome(
-            Outcome.INFRASTRUCTURE, "DATABASE_ERROR", stage, retryable=False,
+            Outcome.INFRASTRUCTURE,
+            "DATABASE_ERROR",
+            stage,
+            retryable=False,
             summary="A required database operation failed.",
             action="Inspect the redacted stage result and database health.",
         )
     if isinstance(exc, ImportError):
         return outcome(
-            Outcome.INFRASTRUCTURE, "DEPENDENCY_MISSING", stage, retryable=False,
+            Outcome.INFRASTRUCTURE,
+            "DEPENDENCY_MISSING",
+            stage,
+            retryable=False,
             summary="A required runtime dependency is unavailable.",
             action="Restore the pinned job dependency and rerun.",
         )
     if isinstance(exc, (OSError, IOError)):
         return outcome(
-            Outcome.INFRASTRUCTURE, "FILESYSTEM_ERROR", stage, retryable=False,
+            Outcome.INFRASTRUCTURE,
+            "FILESYSTEM_ERROR",
+            stage,
+            retryable=False,
             summary="A required filesystem operation failed.",
             action="Inspect the runner workspace and rerun.",
         )

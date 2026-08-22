@@ -1,6 +1,6 @@
 # REG-001: Stable research-job outcomes and production regression locks
 
-- Status: active
+- Status: review
 - Priority: P0
 - Owner/model: Luna implementation from Sol design; Sol independent review
 - Reasoning effort: high implementation, high review
@@ -12,7 +12,7 @@
 - Branch: `fix/REG-001-operational-outcomes`
 - Worktree: `../PastiCuan-wt/reg-001-operational-outcomes`
 - Depends on: CI-002
-- File ownership: `operations/job_outcomes.py` (new), `operations/research_cli.py`, `analysis/contracts.py`, `storage/repository.py`, `.github/workflows/research-daily.yml`, `tests/test_reg_001.py` (new), `tests/test_workflow_policy.py`, this task card, and `docs/tasks/CLAIMS.md` (root orchestrator only)
+- File ownership: `operations/job_outcomes.py` (new), `operations/research_cli.py`, `analysis/contracts.py`, `storage/repository.py`, `.github/workflows/research-daily.yml`, `tests/test_reg_001.py` (new), `tests/test_workflow_policy.py`, `tests/test_research_automation.py`, this task card, and `docs/tasks/CLAIMS.md` (root orchestrator only)
 - Merge policy: autonomous
 
 ## Outcome
@@ -21,7 +21,7 @@ Give research automation a stable, machine-readable, redacted outcome/exit contr
 
 ## Non-goals
 
-- Apply migrations or grants; change formulas, thresholds, freshness, source quality, risk, or publication policy; promote/publish a model; redesign provider retry or durable ingestion; or retrofit every legacy CLI subcommand.
+- Apply migrations or grants; change formulas, thresholds, freshness, source quality, risk, or publication policy; promote/publish a model; redesign provider retry or durable ingestion; retrofit every legacy CLI subcommand; or redesign the current non-atomic quant/scan publication path (REL-001).
 - Claim production recovery from tests or merge.
 
 ## Current evidence
@@ -30,7 +30,7 @@ The CLI currently collapses expected unavailability, policy rejection, privilege
 
 ## Invariants
 
-- Last-good snapshots remain active for every non-success. `WAITING`, `UNAVAILABLE`, and `POLICY_GATE` publish nothing.
+- Last-good snapshots remain active for every non-success. Candidate readiness rejection publishes nothing. A later scan `POLICY_GATE` may follow a persisted quant snapshot on the current non-atomic path; the partial quant ID is disclosed and the last-good scan remains active. Atomic quant/scan publication is REL-001 and out of scope here.
 - Missing/non-finite numeric evidence becomes JSON `null`, never zero, text, or an estimate, and cannot become eligible through sanitization.
 - Infrastructure failure never masquerades as evidence unavailability. Unknown exception text, credentials, provider bodies, and connection details never enter reports/stdout/metrics.
 - Preflight is read-only and applies no migration or grant. Existing database status constraints and research/publication semantics remain unchanged.

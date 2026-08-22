@@ -10,7 +10,9 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from enum import Enum
 import json
-from typing import Any
+from decimal import Decimal
+import math
+from typing import Any, cast
 
 
 ANALYSIS_VERSION = "4.0.0-shadow"
@@ -153,8 +155,14 @@ class ScanBundle:
 
 def _json_safe(value: Any) -> Any:
     """Convert pandas/numpy/datetime values without inventing replacements."""
+    if value.__class__.__name__ in {"NAType", "NaTType"}:
+        return None
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            return None
+        return float(value)
     if value is None or isinstance(value, (str, int, float, bool)):
-        if isinstance(value, float) and (value != value or abs(value) == float("inf")):
+        if isinstance(value, float) and not math.isfinite(value):
             return None
         return value
     if isinstance(value, Enum):
@@ -179,4 +187,6 @@ def strict_json_dumps(value: Any, **kwargs: Any) -> str:
     """Serialize a contract without allowing NaN or infinity JSON tokens."""
     options = {"sort_keys": True, "allow_nan": False}
     options.update(kwargs)
-    return json.dumps(_json_safe(value), **options)
+    options["allow_nan"] = False
+    dumps = cast(Any, json.dumps)
+    return dumps(_json_safe(value), **options)

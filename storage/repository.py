@@ -18,12 +18,12 @@ from analysis.scan_snapshots import ScanResearchSnapshot
 def _migration_preflight_error(exc: Exception, *, scope: str = "ledger") -> dict:
     """Translate DB-API SQLSTATE without exposing provider/connection text."""
     code = getattr(exc, "pgcode", None) or getattr(exc, "sqlstate", None)
-    if code in {"42501", "42502"}:
+    if isinstance(exc, TimeoutError) or code in {"57014", "55P03"}:
+        stable = "LEDGER_TIMEOUT"
+    elif code in {"42501", "42502"}:
         stable = f"LEDGER_{scope.upper()}_PRIVILEGE_DENIED"
     elif code in {"42P01", "3F000"}:
         stable = "LEDGER_ABSENT"
-    elif code in {"57014", "55P03"}:
-        stable = "LEDGER_TIMEOUT"
     else:
         stable = "LEDGER_DATABASE_ERROR"
     return {"ok": False, "code": stable, "missing_versions": []}

@@ -72,7 +72,7 @@ class CalendarPolicyTests(unittest.TestCase):
 
 
 class DailyOrchestrationTests(unittest.TestCase):
-    def _run_not_ready(self, final_attempt):
+    def _run_not_ready(self, final_attempt, *, session_age=1, membership_count=45):
         repository = SimpleNamespace(
             record_research_job=lambda value: None,
             applied_schema_migrations=lambda: [],
@@ -80,8 +80,8 @@ class DailyOrchestrationTests(unittest.TestCase):
         market = {
             "ready": False, "observed": datetime(2026, 8, 18, 12, tzinfo=timezone.utc),
             "on_date": "2026-08-18", "session_date": "2026-08-14",
-            "coverage_pct": 100.0, "membership_count": 45, "imported_count": 0,
-            "session_age": 2, "reason": "Provider has not completed the expected session.",
+            "coverage_pct": 100.0, "membership_count": membership_count, "imported_count": 0,
+            "session_age": session_age, "reason": "Current session is not complete.",
             "bases": [], "same_session": [], "excluded": [],
         }
         provenance = {
@@ -91,8 +91,8 @@ class DailyOrchestrationTests(unittest.TestCase):
         }
         with TemporaryDirectory() as root, \
                 patch.dict("os.environ", {
-                    "SUPABASE_WRITER_DATABASE_URL": "postgresql://test",
-                    "SNAPSHOT_ED25519_PRIVATE_KEY": "configured",
+                    "SUPABASE_WRITER_DATABASE_URL": "database-configured",
+                    "SNAPSHOT_ED25519_PRIVATE_KEY": "enabled",
                 }, clear=False), \
                 patch("storage.database.connect_from_env"), \
                 patch("storage.repository.SnapshotRepository", return_value=repository), \
@@ -106,11 +106,21 @@ class DailyOrchestrationTests(unittest.TestCase):
         self.assertEqual(result, persisted)
         return result
 
-    def test_early_attempt_waits_without_publication(self):
-        self.assertEqual(self._run_not_ready(False)["status"], "WAITING")
+    def test_early_current_session_waits_without_publication(self):
+        result = self._run_not_ready(False)
+        self.assertEqual(result["outcome"]["exit_code"], 10)
+        self.assertEqual(result["outcome"]["persisted_status"], "DEGRADED")
 
     def test_final_attempt_fails_closed(self):
-        self.assertEqual(self._run_not_ready(True)["status"], "FAILED")
+        result = self._run_not_ready(True)
+        self.assertEqual(result["outcome"]["exit_code"], 20)
+        self.assertEqual(result["outcome"]["persisted_status"], "DEGRADED")
+
+    def test_stale_or_short_market_is_unavailable_even_before_final_attempt(self):
+        stale = self._run_not_ready(False, session_age=2)
+        short = self._run_not_ready(False, membership_count=44)
+        self.assertEqual(stale["outcome"]["exit_code"], 20)
+        self.assertEqual(short["outcome"]["exit_code"], 20)
 
     def test_matching_primary_session_is_an_idempotent_noop(self):
         digest = "b" * 64
@@ -137,8 +147,8 @@ class DailyOrchestrationTests(unittest.TestCase):
         }
         with TemporaryDirectory() as root, \
                 patch.dict("os.environ", {
-                    "SUPABASE_WRITER_DATABASE_URL": "postgresql://test",
-                    "SNAPSHOT_ED25519_PRIVATE_KEY": "configured",
+                    "SUPABASE_WRITER_DATABASE_URL": "database-configured",
+                    "SNAPSHOT_ED25519_PRIVATE_KEY": "enabled",
                 }, clear=False), \
                 patch("storage.database.connect_from_env"), \
                 patch("storage.repository.SnapshotRepository", return_value=repository), \
