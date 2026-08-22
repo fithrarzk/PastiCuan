@@ -1,6 +1,6 @@
 # CI-002: Required pull-request gates
 
-- Status: active
+- Status: blocked
 - Priority: P0
 - Owner/model: Luna implementation, Sol security review
 - Reasoning effort: high implementation, high review
@@ -11,7 +11,7 @@
 - Base SHA: `693af474baa11d73ad41d116b626a1bb44e5ed3d`; synchronized through `a60a561c0c70192979107777843f420b941db67a`
 - Branch: `feat/CI-002-required-gates`
 - Worktree: `../PastiCuan-wt/ci-002-required-gates`
-- Depends on: CI-001, CI-002A
+- Depends on: CI-001, CI-002A, CI-002B
 - File ownership: `.github/workflows/test.yml`, `.github/workflows/validate-branch.yml`, `.github/workflows/ci.yml` (new), `.dockerignore` (new), `Dockerfile`, `requirements-ci.txt` (new), `scripts/ci/check_migrations.py` (new), `scripts/ci/check_workflow_policy.py` (new), `scripts/ci/validate_manifest.py` (new), `scripts/ci/check_security.py` (new correction seam), `scripts/ci/check_dependencies.sh` (new correction seam), `scripts/ci/container_smoke.sh` (new correction seam), `tests/test_ci_gates.py` (new), `tests/test_workflow_policy.py`, this task card, and `docs/tasks/CLAIMS.md` (root orchestrator only)
 - Merge policy: autonomous
 
@@ -60,4 +60,4 @@ Land workflows while retaining the old `test` producer. Observe all new checks o
 
 ## Handoff
 
-CI-002A merged as `a60a561`, restoring a supported dependency chain without an advisory waiver. A fourth and final correction cycle was authorized after independent review found that generated stable jobs could skip behind legacy `test`, repository SQL-ASCII byte values were not compared exactly, database-URL placeholders could overmatch, and container/dependency negative paths were not proved. Record timings, cache behavior, check names, ruleset state, failure fixtures, and runner-cost estimate after the synchronized gates are verified.
+CI-002A merged as `a60a561`, restoring a supported dependency chain without an advisory waiver. The fourth correction closed generated-check fanout, credential scanning, quality-path, and failure-path findings. The now-strict migration gate correctly fails because `SnapshotRepository.applied_schema_migrations()` stringifies SQL-ASCII bytes; CI-002B must fix that storage boundary without weakening this gate. Record timings, cache behavior, check names, ruleset state, failure fixtures, and runner-cost estimate after CI-002B is merged and the synchronized gates are verified.
