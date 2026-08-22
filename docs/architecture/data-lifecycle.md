@@ -2,7 +2,7 @@
 
 ## Implemented path
 
-1. A reviewed source or filing manifest identifies canonical sources, issuer, period, publication time, and URL. `discover-idx-xbrl` produces a review draft; it does not import it.
+1. A reviewed source manifest identifies each canonical provider, source class, artifact type, and URL, with `published_at` when available. A reviewed filing manifest separately identifies the issuer, filing period, publication time, and official attachment URL. `discover-idx-xbrl` produces a filing-manifest review draft; it does not import it.
 2. `ingest-manifest` or `ingest-idx-xbrl` retrieves and validates artifacts. Valid artifacts are persisted with checksums and availability metadata; malformed or mismatched artifacts are quarantined and reported.
 3. Repository queries select facts, prices, corporate actions, and rates only when their `available_at` is no later than the requested `as_of`. A completed session and official calendar determine freshness.
 4. Analysis builds a candidate quant snapshot and a full-universe scan. Candidate files are diagnostic and cannot be loaded by the bot.
