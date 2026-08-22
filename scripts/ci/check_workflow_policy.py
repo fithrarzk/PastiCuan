@@ -49,6 +49,12 @@ def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> lis
         errors.append(
             f"{path}: missing jobs: {', '.join(sorted(REQUIRED_JOBS - set(jobs)))}"
         )
+    if require_required_jobs:
+        for required_name in sorted(REQUIRED_JOBS & set(jobs)):
+            if jobs[required_name].get("name") != required_name:
+                errors.append(
+                    f"{path}: job {required_name} must display name {required_name!r}"
+                )
     for job_name, job in jobs.items():
         if not isinstance(job, dict):
             errors.append(f"{path}: job {job_name} is not a mapping")
@@ -118,7 +124,14 @@ def main() -> int:
         Path(".github/workflows/test.yml"),
         Path(".github/workflows/validate-branch.yml"),
     ]
-    required_paths = set(paths) if args.paths else {Path(".github/workflows/ci.yml")}
+    required_paths = (
+        set(paths)
+        if args.paths
+        else {
+            Path(".github/workflows/ci.yml"),
+            Path(".github/workflows/validate-branch.yml"),
+        }
+    )
     if args.base_ref:
         paths = list(dict.fromkeys(paths + changed_workflows(args.base_ref)))
     errors = [

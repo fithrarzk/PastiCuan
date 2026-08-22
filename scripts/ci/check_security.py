@@ -6,6 +6,7 @@ import argparse
 import re
 import subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 
 PATTERNS = (
     (
@@ -29,21 +30,21 @@ PATTERNS = (
 )
 
 
-def _placeholder(value: str) -> bool:
-    lowered = value.lower()
-    return any(
-        token in lowered
-        for token in (
-            "example",
-            "replace_me",
-            "your_",
-            "placeholder",
-            "<secret>",
-            "localhost",
-            "pasticuan_ci",
-            "postgresql://test",
-        )
-    )
+_ALLOWED_LOCAL_DATABASE_URLS = {
+    "postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ci",
+    "postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ascii",
+}
+
+
+def _safe_database_url(value: str, path: Path) -> bool:
+    if value in _ALLOWED_LOCAL_DATABASE_URLS:
+        return True
+    if path.name == ".env.example":
+        return True
+    try:
+        return not bool(urlsplit(value).password)
+    except ValueError:
+        return False
 
 
 def scan_paths(paths: list[Path]) -> list[tuple[str, str]]:
@@ -52,7 +53,9 @@ def scan_paths(paths: list[Path]) -> list[tuple[str, str]]:
         text = path.read_text(encoding="utf-8", errors="replace")
         for category, pattern in PATTERNS:
             for match in pattern.finditer(text):
-                if category == "database URL" and _placeholder(match.group(0)):
+                if category == "database URL" and _safe_database_url(
+                    match.group(0), path
+                ):
                     continue
                 findings.append((str(path), category))
                 break

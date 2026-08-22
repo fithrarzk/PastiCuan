@@ -54,7 +54,10 @@ def normalize_version(value: object) -> str:
     """Normalize PostgreSQL text values from UTF-8 and SQL_ASCII adapters."""
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="strict")
-    return str(value)
+    rendered = str(value)
+    if rendered.startswith("b'") and rendered.endswith("'"):
+        return rendered[2:-1]
+    return rendered
 
 
 def immutable_against(directory: Path, base_ref: str) -> None:
@@ -118,7 +121,7 @@ def apply_migrations(connection: Any, directory: Path) -> dict[str, str]:
     return checksums
 
 
-def repository_compatibility(connection: Any) -> None:
+def repository_compatibility(connection: Any, expected_versions: set[str]) -> None:
     """Exercise the repository's read-only migration seam without providers."""
     project_root = str(Path.cwd())
     if project_root not in sys.path:
@@ -126,8 +129,12 @@ def repository_compatibility(connection: Any) -> None:
     from storage.repository import SnapshotRepository
 
     migrations = SnapshotRepository(lambda: connection).applied_schema_migrations()
-    if not migrations:
-        raise RuntimeError("repository cannot observe applied migrations")
+    observed = {normalize_version(version) for version in migrations}
+    if observed != expected_versions:
+        raise RuntimeError(
+            f"repository migration mismatch: expected {sorted(expected_versions)}, "
+            f"got {sorted(observed)}"
+        )
 
 
 def main() -> int:
@@ -146,7 +153,7 @@ def main() -> int:
     with psycopg.connect(args.database_url, autocommit=False) as connection:
         apply_migrations(connection, args.migrations)
         apply_migrations(connection, args.migrations)
-        repository_compatibility(connection)
+        repository_compatibility(connection, set(migration_checksums(args.migrations)))
     print(f"verified {len(migration_checksums(args.migrations))} migrations")
     return 0
 

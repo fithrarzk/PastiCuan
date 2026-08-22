@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -152,6 +153,50 @@ jobs:
             errors = validate_workflow(path)
         self.assertTrue(any("recursion" in error for error in errors))
 
+    def test_required_generated_contexts_need_stable_ids_and_names(self):
+        workflow = """
+name: validate-branch
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency: {group: validation}
+jobs:
+  unit:
+    name: renamed-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "validate-branch.yml"
+            path.write_text(workflow)
+            errors = validate_workflow(path, require_required_jobs=True)
+        self.assertTrue(any("missing jobs" in error for error in errors))
+
+    def test_generated_stable_jobs_depend_on_head_guard_not_legacy_test(self):
+        workflow = _workflow_data(ROOT / ".github/workflows/validate-branch.yml")
+        self.assertIn("verify-head", workflow["jobs"])
+        for job_name in (
+            "test",
+            "unit",
+            "quality",
+            "workflow-policy",
+            "migration",
+            "container-smoke",
+            "manifest-validate",
+            "security",
+        ):
+            self.assertEqual(workflow["jobs"][job_name].get("needs"), "verify-head")
+
+    def test_quality_discovery_is_nul_safe_and_excludes_deleted_paths(self):
+        for name in ("ci.yml", "validate-branch.yml"):
+            text = (ROOT / ".github/workflows" / name).read_text()
+            self.assertIn("--diff-filter=ACMR", text)
+            self.assertIn("--name-only -z", text)
+            self.assertIn("mapfile -d ''", text)
+            self.assertIn('"${changed[@]}"', text)
+            self.assertIn("--", text)
+
 
 class SecurityGateTests(unittest.TestCase):
     def test_secret_fixture_fails_without_disclosing_value(self):
@@ -160,6 +205,22 @@ class SecurityGateTests(unittest.TestCase):
             path.write_text("postgres" + "ql://u:password@db.internal/research\n")
             findings = scan_paths([path])
         self.assertEqual(findings, [(str(path), "database URL")])
+
+    def test_database_credentials_are_not_hidden_by_familiar_hostnames(self):
+        urls = (
+            "postgres" + "ql://u:secret@localhost/research",
+            "postgres" + "ql://u:secret@db.example/research",
+            "postgres" + "ql://pasticuan_ci:secret@db.internal/research",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            paths = []
+            for index, url in enumerate(urls):
+                path = Path(directory) / f"fixture-{index}"
+                path.write_text(url)
+                paths.append(path)
+            findings = scan_paths(paths)
+        self.assertEqual(len(findings), len(urls))
+        self.assertTrue(all("secret" not in str(finding) for finding in findings))
 
     def test_secret_categories_fail_without_returning_secret_values(self):
         values = {
@@ -189,6 +250,19 @@ class SecurityGateTests(unittest.TestCase):
         )
         self.assertTrue(all(value not in str(findings) for value in values.values()))
 
+    def test_dependency_wrapper_propagates_audit_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake = Path(directory) / "auditor"
+            fake.write_text("#!/bin/sh\nexit 23\n")
+            fake.chmod(0o755)
+            env = {**os.environ, "PIP_AUDIT_BIN": str(fake)}
+            result = subprocess.run(
+                ["bash", str(ROOT / "scripts/ci/check_dependencies.sh")],
+                env=env,
+                capture_output=True,
+            )
+        self.assertEqual(result.returncode, 23)
+
 
 class ContainerGateTests(unittest.TestCase):
     def test_smoke_uses_image_cmd_and_dynamic_port_healthcheck(self):
@@ -203,6 +277,37 @@ class ContainerGateTests(unittest.TestCase):
             capture_output=True,
         )
         self.assertNotEqual(result.returncode, 0)
+
+    def test_smoke_failure_propagates_logs_and_cleanup_with_fake_tools(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            marker = root / "marker"
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            (fake_bin / "docker").write_text(
+                "#!/bin/sh\n"
+                f"echo \"$*\" >> '{marker}'\n"
+                'case "$1" in logs) exit 0;; *) exit 0;; esac\n'
+            )
+            (fake_bin / "curl").write_text("#!/bin/sh\nexit 1\n")
+            for tool in (fake_bin / "docker", fake_bin / "curl"):
+                tool.chmod(0o755)
+            env = {
+                **os.environ,
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "SMOKE_ATTEMPTS": "1",
+            }
+            result = subprocess.run(
+                ["bash", str(ROOT / "scripts/ci/container_smoke.sh"), "ci-image"],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            calls = marker.read_text()
+            self.assertIn("run", calls)
+            self.assertIn("logs", calls)
+            self.assertIn("rm --force", calls)
 
 
 if __name__ == "__main__":

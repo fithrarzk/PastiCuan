@@ -20,8 +20,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: test
+  verify-head:
+    name: verify-head
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -42,6 +42,18 @@ jobs:
           [[ -n "$remote_sha" ]]
           [[ "$actual_sha" == "$EXPECTED_SHA" ]]
           [[ "$remote_sha" == "$EXPECTED_SHA" ]]
+  test:
+    name: test
+    needs: verify-head
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
@@ -54,7 +66,7 @@ jobs:
 
   unit:
     name: unit
-    needs: test
+    needs: verify-head
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -71,7 +83,7 @@ jobs:
 
   quality:
     name: quality
-    needs: test
+    needs: verify-head
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -83,15 +95,15 @@ jobs:
         with: {python-version: "3.12"}
       - run: pip install -r requirements-ci.txt
       - run: |
-          changed="$(git diff --name-only origin/main...HEAD -- '*.py')"
-          if [[ -z "$changed" ]]; then echo 'No changed Python files.'; exit 0; fi
-          ruff format --check $changed
-          ruff check $changed
-          mypy --follow-imports=skip --ignore-missing-imports --disable-error-code=import-untyped $changed
+          mapfile -d '' changed < <(git diff --name-only -z --diff-filter=ACMR origin/main...HEAD -- '*.py')
+          if (( ${#changed[@]} == 0 )); then echo 'No changed Python files.'; exit 0; fi
+          ruff format --check -- "${changed[@]}"
+          ruff check -- "${changed[@]}"
+          mypy --follow-imports=skip --ignore-missing-imports --disable-error-code=import-untyped -- "${changed[@]}"
 
   workflow-policy:
     name: workflow-policy
-    needs: test
+    needs: verify-head
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -106,7 +118,7 @@ jobs:
 
   migration:
     name: migration
-    needs: test
+    needs: verify-head
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -125,11 +137,19 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with: {python-version: "3.12"}
       - run: pip install -r requirements-bot.txt -r requirements-ci.txt
+      - name: Create SQL-ASCII compatibility database
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect('postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ci', autocommit=True) as connection:
+              connection.execute("CREATE DATABASE pasticuan_ascii ENCODING 'SQL_ASCII' TEMPLATE template0")
+          PY
       - run: python scripts/ci/check_migrations.py --database-url postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ci --base-ref origin/main
+      - run: python scripts/ci/check_migrations.py --database-url postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ascii --base-ref origin/main
 
   container-smoke:
     name: container-smoke
-    needs: test
+    needs: verify-head
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -141,7 +161,7 @@ jobs:
 
   manifest-validate:
     name: manifest-validate
-    needs: test
+    needs: verify-head
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -156,7 +176,7 @@ jobs:
 
   security:
     name: security
-    needs: test
+    needs: verify-head
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -168,4 +188,4 @@ jobs:
       - run: pip install -r requirements-ci.txt
       - run: python scripts/ci/check_security.py
       - run: python -m pip check
-      - run: pip-audit --requirement requirements.txt --requirement requirements-bot.txt --requirement requirements-jobs.txt --requirement requirements-ci.txt --strict --progress-spinner off
+      - run: scripts/ci/check_dependencies.sh
