@@ -84,6 +84,7 @@ class MigrationGateTests(unittest.TestCase):
             dbname = "pasticuan_ci"
             user = "pasticuan_ci"
             host = "postgres.internal.example"
+            hostaddr = "203.0.113.10"
 
         class Connection:
             info = Info()
@@ -96,6 +97,7 @@ class MigrationGateTests(unittest.TestCase):
             dbname = "pasticuan_ci"
             user = "pasticuan_ci"
             host = "localhost"
+            hostaddr = "127.0.0.1"
 
         class Cursor:
             def __enter__(self):
@@ -117,6 +119,19 @@ class MigrationGateTests(unittest.TestCase):
                 return Cursor()
 
         verify_disposable_database_identity(Connection())
+
+    def test_disposable_down_opt_in_rejects_remote_hostaddr_override(self):
+        class Info:
+            dbname = "pasticuan_ci"
+            user = "pasticuan_ci"
+            host = "localhost"
+            hostaddr = "203.0.113.10"
+
+        class Connection:
+            info = Info()
+
+        with self.assertRaisesRegex(RuntimeError, "loopback"):
+            verify_disposable_database_identity(Connection())
 
 
 class ManifestGateTests(unittest.TestCase):

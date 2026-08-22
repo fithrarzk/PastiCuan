@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import hashlib
+import ipaddress
 from pathlib import Path
 import time
 from typing import Any
@@ -547,10 +548,16 @@ def verify_disposable_database_identity(connection: Any) -> None:
     database = str(connection.info.dbname)
     user = str(connection.info.user)
     host = str(getattr(connection.info, "host", "") or "")
+    hostaddr = str(getattr(connection.info, "hostaddr", "") or "")
+    try:
+        loopback_destination = ipaddress.ip_address(hostaddr).is_loopback
+    except ValueError:
+        loopback_destination = False
     if (
         user != "pasticuan_ci"
         or database not in {"pasticuan_ci", "pasticuan_ascii"}
         or host not in {"localhost", "127.0.0.1", "::1"}
+        or not loopback_destination
     ):
         raise RuntimeError(
             "disposable down/re-up requires a named CI database on loopback"
