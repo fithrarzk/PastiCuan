@@ -43,6 +43,7 @@ jobs:
       - name: Refresh and publish verified research
         shell: bash
         run: |
+          set +e
           flags=()
           if [[ -n "$R2_BUCKET" ]]; then flags+=(--r2); fi
           if [[ "${{ github.event.schedule }}" == "0 14 * * 1-5" || "${{ inputs.final_attempt }}" == "true" ]]; then
@@ -50,6 +51,17 @@ jobs:
           fi
           python -m operations.research_cli run-daily-research \
             --output /tmp/daily-research-report.json "${flags[@]}"
+          exit_code=$?
+          set -e
+          case "$exit_code" in
+            10)
+              echo "Research attempt is waiting for the completed session; scheduled attempt is recorded."
+              exit 0
+              ;;
+            *)
+              exit "$exit_code"
+              ;;
+          esac
       - name: Add run summary
         if: always()
         run: |

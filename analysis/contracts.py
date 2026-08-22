@@ -126,7 +126,7 @@ class AnalysisBundle:
         return payload
 
     def to_json(self) -> str:
-        return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
+        return strict_json_dumps(self.to_dict(), separators=(",", ":"))
 
 
 @dataclass
@@ -165,9 +165,18 @@ def _json_safe(value: Any) -> Any:
         return {str(k): _json_safe(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(v) for v in value]
-    if hasattr(value, "item"):
-        return _json_safe(value.item())
     # DataFrames stay out of the serialized evidence contract.
     if value.__class__.__name__ in {"DataFrame", "Series"}:
         return None
+    if hasattr(value, "tolist"):
+        return _json_safe(value.tolist())
+    if hasattr(value, "item"):
+        return _json_safe(value.item())
     return str(value)
+
+
+def strict_json_dumps(value: Any, **kwargs: Any) -> str:
+    """Serialize a contract without allowing NaN or infinity JSON tokens."""
+    options = {"sort_keys": True, "allow_nan": False}
+    options.update(kwargs)
+    return json.dumps(_json_safe(value), **options)

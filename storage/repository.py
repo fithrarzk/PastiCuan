@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -11,9 +10,23 @@ from zoneinfo import ZoneInfo
 from typing import Any, Callable
 from uuid import uuid4
 
-from analysis.contracts import AnalysisBundle
+from analysis.contracts import AnalysisBundle, strict_json_dumps
 from analysis.snapshots import ResearchSnapshot
 from analysis.scan_snapshots import ScanResearchSnapshot
+
+
+def _migration_preflight_error(exc: Exception, *, scope: str = "ledger") -> dict:
+    """Translate DB-API SQLSTATE without exposing provider/connection text."""
+    code = getattr(exc, "pgcode", None) or getattr(exc, "sqlstate", None)
+    if code in {"42501", "42502"}:
+        stable = f"LEDGER_{scope.upper()}_PRIVILEGE_DENIED"
+    elif code in {"42P01", "3F000"}:
+        stable = "LEDGER_ABSENT"
+    elif code in {"57014", "55P03"}:
+        stable = "LEDGER_TIMEOUT"
+    else:
+        stable = "LEDGER_DATABASE_ERROR"
+    return {"ok": False, "code": stable, "missing_versions": []}
 
 
 class SnapshotRepository:
@@ -33,7 +46,7 @@ class SnapshotRepository:
                     VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s)
                     """,
                     (snapshot_id, issuer_id, bundle.as_of, bundle.horizon,
-                     bundle.analysis_version, json.dumps(payload),
+                     bundle.analysis_version, strict_json_dumps(payload),
                      bundle.data_quality.grade, bundle.action),
                 )
         return snapshot_id
@@ -73,6 +86,49 @@ class SnapshotRepository:
                     row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0]
                     for row in cursor.fetchall()
                 ]
+
+    def preflight_schema_migrations(self, required_versions: list[str] | tuple[str, ...]) -> dict:
+        """Read the migration ledger and return a redacted stable result."""
+        required = sorted({str(version) for version in required_versions})
+        try:
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    try:
+                        cursor.execute("SELECT has_schema_privilege(current_user, 'public', 'USAGE')")
+                        schema_privilege = cursor.fetchone()
+                    except Exception as exc:
+                        return _migration_preflight_error(exc, scope="schema")
+                    if not schema_privilege or not bool(schema_privilege[0]):
+                        return {"ok": False, "code": "LEDGER_SCHEMA_PRIVILEGE_DENIED", "missing_versions": required}
+                    try:
+                        cursor.execute("SELECT to_regclass('public.schema_migrations')")
+                        row = cursor.fetchone()
+                    except Exception as exc:
+                        return _migration_preflight_error(exc, scope="ledger")
+                    if not row or row[0] is None:
+                        return {"ok": False, "code": "LEDGER_ABSENT", "missing_versions": required}
+                    try:
+                        cursor.execute("SELECT has_table_privilege(current_user, 'public.schema_migrations', 'SELECT')")
+                        privilege = cursor.fetchone()
+                    except Exception as exc:
+                        return _migration_preflight_error(exc, scope="table")
+                    if not privilege or not bool(privilege[0]):
+                        return {"ok": False, "code": "LEDGER_TABLE_PRIVILEGE_DENIED", "missing_versions": required}
+                    try:
+                        cursor.execute("SELECT version FROM public.schema_migrations ORDER BY version")
+                        rows = cursor.fetchall()
+                    except Exception as exc:
+                        return _migration_preflight_error(exc)
+        except Exception as exc:
+            return _migration_preflight_error(exc)
+        applied = {
+            row[0].decode("utf-8") if isinstance(row[0], bytes) else str(row[0])
+            for row in rows
+        }
+        missing = [version for version in required if version not in applied]
+        if missing:
+            return {"ok": False, "code": "REQUIRED_MIGRATION_MISSING", "missing_versions": missing}
+        return {"ok": True, "code": "LEDGER_READY", "missing_versions": []}
 
     def market_bars_as_of(self, issuer_id: int, as_of: str) -> list[dict]:
         """Latest non-quarantined version known by ``as_of`` for each session."""
@@ -185,7 +241,7 @@ class SnapshotRepository:
                     "volume": volume,
                 }
                 checksum = hashlib.sha256(
-                    json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+                    strict_json_dumps(payload, separators=(",", ":")).encode()
                 ).hexdigest()
                 rows.append((
                     payload["ticker"], payload["session_date"], payload["open"],
@@ -370,7 +426,7 @@ class SnapshotRepository:
                     (run["id"], run["provider"], run["capability"], run["source_class"],
                      run["started_at"], run.get("completed_at"), run["status"], run.get("attempts", 1),
                      run.get("latency_ms"), run.get("coverage_pct"), run.get("fallback_from"),
-                     run.get("error_type"), json.dumps(run.get("metadata") or {})),
+                     run.get("error_type"), strict_json_dumps(run.get("metadata") or {})),
                 )
 
     def record_research_job(self, run: dict) -> None:
@@ -386,7 +442,7 @@ class SnapshotRepository:
                          metrics=EXCLUDED.metrics,error_type=EXCLUDED.error_type""",
                     (run["id"], run["job_type"], run.get("workflow_run_id"), run["started_at"],
                      run.get("completed_at"), run["status"], run.get("input_checksum"),
-                     run.get("output_checksum"), json.dumps(run.get("metrics") or {}),
+                     run.get("output_checksum"), strict_json_dumps(run.get("metrics") or {}),
                      run.get("error_type")),
                 )
 
@@ -474,7 +530,7 @@ class SnapshotRepository:
                      snapshot.mode, snapshot.model_status, snapshot.quant_snapshot_id,
                      snapshot.universe_coverage_pct, snapshot.schema_version,
                      snapshot.formula_version, snapshot.checksum,
-                     json.dumps(snapshot.to_dict()), snapshot.created_at),
+                     strict_json_dumps(snapshot.to_dict()), snapshot.created_at),
                 )
                 row = cursor.fetchone()
                 if row:
@@ -506,7 +562,7 @@ class SnapshotRepository:
                          candidate.get("entry_state") or "NO_RELIABLE_SETUP",
                          candidate.get("business_score"), candidate.get("entry_reference"),
                          candidate.get("stop_loss"), candidate.get("target"),
-                         json.dumps(evidence)),
+                         strict_json_dumps(evidence)),
                     )
                 return published_id
 
@@ -570,7 +626,7 @@ class SnapshotRepository:
                      outcome.get("benchmark_return"), outcome.get("excess_return"),
                      outcome.get("maximum_favorable_excursion"),
                      outcome.get("maximum_adverse_excursion"), outcome["status"],
-                     outcome["adjustment_version"], json.dumps(outcome.get("evidence") or {})),
+                     outcome["adjustment_version"], strict_json_dumps(outcome.get("evidence") or {})),
                 )
 
     def shares_as_of(self, issuer_id: int, as_of: str) -> dict | None:
@@ -653,7 +709,7 @@ class SnapshotRepository:
                     (artifact["id"], artifact["provider"], artifact["source_class"],
                      artifact["artifact_type"], artifact["source_url"], artifact.get("object_key"),
                      artifact["checksum"], artifact.get("published_at"), artifact["retrieved_at"],
-                     parse_status, json.dumps({"content_type": artifact.get("content_type"),
+                     parse_status, strict_json_dumps({"content_type": artifact.get("content_type"),
                                                "size_bytes": artifact.get("size_bytes")})),
                 )
                 return str(cursor.fetchone()[0])
@@ -846,7 +902,7 @@ class SnapshotRepository:
                                 (str(uuid4()), issuer_id, row["event_type"], row["published_at"],
                                  row["available_at"], row["title"], row["source_url"],
                                  row.get("object_key"), row["checksum"],
-                                 json.dumps(row.get("metadata") or {})),
+                                 strict_json_dumps(row.get("metadata") or {})),
                             )
                         else:
                             raise ValueError(f"Unsupported canonical artifact type {artifact_type}.")
@@ -914,7 +970,7 @@ class SnapshotRepository:
                          parameters=EXCLUDED.parameters,
                          code_checksum=EXCLUDED.code_checksum,
                          status=EXCLUDED.status""",
-                    (snapshot.model_version, snapshot.formula_version, json.dumps(parameters),
+                    (snapshot.model_version, snapshot.formula_version, strict_json_dumps(parameters),
                      code_checksum, snapshot.model_status),
                 )
                 cursor.execute(
@@ -925,7 +981,7 @@ class SnapshotRepository:
                        ON CONFLICT (checksum) DO NOTHING RETURNING id""",
                     (snapshot.snapshot_id, snapshot.model_version, snapshot.validation_run_id,
                      snapshot.effective_at, snapshot.model_status, snapshot.schema_version,
-                     snapshot.checksum, json.dumps(snapshot.to_dict())),
+                     snapshot.checksum, strict_json_dumps(snapshot.to_dict())),
                 )
                 row = cursor.fetchone()
                 return str(row[0]) if row else snapshot.snapshot_id
@@ -954,6 +1010,6 @@ class SnapshotRepository:
                          output_checksum=EXCLUDED.output_checksum
                        RETURNING id""",
                     (run_id, model_version, input_checksum, status, holdout_start, holdout_end,
-                     json.dumps(metrics), json.dumps(acceptance), output_checksum),
+                    strict_json_dumps(metrics), strict_json_dumps(acceptance), output_checksum),
                 )
                 return str(cursor.fetchone()[0])

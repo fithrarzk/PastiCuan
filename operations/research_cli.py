@@ -24,6 +24,7 @@ from analysis.scan_v2 import (
     build_full_lq45_scan, market_refresh_summary, refresh_lq45_market_history,
 )
 from analysis.snapshots import ResearchSnapshot, load_snapshot, write_snapshot
+from analysis.contracts import strict_json_dumps
 from data.ingestion import acquire_artifact, read_manifest, upload_to_r2
 from data.parsers import parse_canonical_csv
 from data.idx_xbrl import parse_idx_xbrl, validate_official_idx_url
@@ -31,6 +32,9 @@ from data.idx_reports import discover_idx_xbrl_manifest
 from operations.research_release import (
     DEFAULT_RELEASE_PATH, check_release_change, load_release, release_from_sources,
     release_provenance,
+)
+from operations.job_outcomes import (
+    JobOutcome, Outcome, OutcomeFailure, infrastructure_failure, outcome,
 )
 
 
@@ -221,7 +225,7 @@ def discover_idx_manifest(output_path: str, *, as_of: str, year: int, period: st
         annual_start_year=annual_start_year, annual_end_year=annual_end_year,
     )
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(output_path).write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    Path(output_path).write_text(strict_json_dumps(manifest, indent=2))
     return manifest
 
 
@@ -329,7 +333,7 @@ def check_candidate(path: str) -> dict:
     readiness = candidate_readiness(snapshot)
     if not readiness["ready"]:
         failed = ", ".join(key for key, passed in readiness["checks"].items() if not passed)
-        raise ValueError(f"Candidate readiness failed: {failed}. Details: {json.dumps(readiness, sort_keys=True)}")
+        raise ValueError(f"Candidate readiness failed: {failed}. Details: {strict_json_dumps(readiness)}")
     return readiness
 
 
@@ -343,7 +347,7 @@ def publish_reviewed_shadow(candidate_path: str, output_path: str) -> dict:
     readiness = candidate_readiness(candidate)
     if not readiness["ready"]:
         failed = ", ".join(key for key, passed in readiness["checks"].items() if not passed)
-        raise ValueError(f"Candidate is not publishable: {failed}. Details: {json.dumps(readiness, sort_keys=True)}")
+        raise ValueError(f"Candidate is not publishable: {failed}. Details: {strict_json_dumps(readiness)}")
     approved = approve_snapshot(candidate_path, output_path, "SHADOW", None)
     snapshot_id = publish_snapshot(output_path)
     return {"published": True, "snapshot_id": snapshot_id, "readiness": readiness,
@@ -394,7 +398,7 @@ def build_daily_scan(output_path: str, *, use_r2: bool = False) -> dict:
         snapshot = build_full_lq45_scan(repository, archive_callback=archive)
         payload = snapshot.to_dict()
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(output_path).write_text(json.dumps(payload, indent=2, sort_keys=True))
+        Path(output_path).write_text(strict_json_dumps(payload, indent=2))
         if snapshot.mode == "UNAVAILABLE":
             repository.record_research_job({**run, "completed_at": datetime.now(timezone.utc).isoformat(),
                                               "status": "DEGRADED", "output_checksum": snapshot.checksum,
@@ -421,7 +425,50 @@ def _required_migrations() -> list[str]:
 def _write_job_report(path: str, report: dict) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(report, indent=2, sort_keys=True, default=str))
+    destination.write_text(strict_json_dumps(report, indent=2))
+
+
+def _report_with_outcome(report: dict, result: JobOutcome) -> dict:
+    """Attach the stable contract while retaining legacy status consumers."""
+    payload = dict(report)
+    payload["outcome"] = result.to_dict()
+    # Existing dashboards use WAITING/FAILED. The typed outcome is canonical;
+    # this compatibility field can be removed after dashboard migration.
+    payload["status"] = (
+        "WAITING" if result.outcome is Outcome.WAITING
+        else "FAILED" if result.outcome in {Outcome.UNAVAILABLE, Outcome.POLICY_GATE,
+                                             Outcome.INFRASTRUCTURE}
+        else result.outcome.value
+    )
+    return payload
+
+
+def _infrastructure(stage: str, code: str, *, retryable: bool = False,
+                    details: dict | None = None) -> OutcomeFailure:
+    return OutcomeFailure(outcome(
+        Outcome.INFRASTRUCTURE, code, stage, retryable=retryable,
+        summary="Research infrastructure is not ready for this refresh attempt.",
+        action="Inspect the redacted stage result and incident record.", details=details,
+    ))
+
+
+def _preflight(repository, required: list[str]) -> dict:
+    """Use the explicit ledger preflight, with compatibility for older fakes."""
+    if hasattr(repository, "preflight_schema_migrations"):
+        return repository.preflight_schema_migrations(required)
+    applied = set(repository.applied_schema_migrations())
+    missing = [name for name in required if name not in applied]
+    return {"ok": not missing, "code": "REQUIRED_MIGRATION_MISSING" if missing else "LEDGER_READY",
+            "missing_versions": missing}
+
+
+def _redacted_market_summary(summary: dict) -> dict:
+    """Keep operational metrics while excluding provider detail and URLs."""
+    allowed = {
+        "ready", "session_date", "on_date", "coverage_pct", "membership_count",
+        "imported_count", "session_age",
+    }
+    return {key: summary.get(key) for key in allowed if key in summary}
 
 
 def refresh_market_history(output_path: str, *, now: datetime | None = None) -> dict:
@@ -456,15 +503,16 @@ def run_daily_research(
     report = {"status": "RUNNING", "started_at": started_at, "stages": {}}
     try:
         if not os.getenv("SUPABASE_WRITER_DATABASE_URL"):
-            raise RuntimeError("SUPABASE_WRITER_DATABASE_URL is required.")
+            raise _infrastructure("preflight", "CONFIGURATION_MISSING")
         if not os.getenv("SNAPSHOT_ED25519_PRIVATE_KEY"):
-            raise RuntimeError("SNAPSHOT_ED25519_PRIVATE_KEY is required for automatic publication.")
+            raise _infrastructure("preflight", "CONFIGURATION_MISSING")
         release = load_release(release_path)
         provenance = release_provenance(release_path)
-        applied = set(repository.applied_schema_migrations())
-        missing = [name for name in _required_migrations() if name not in applied]
-        if missing:
-            raise RuntimeError(f"Required Supabase migration is missing: {', '.join(missing)}")
+        preflight = _preflight(repository, _required_migrations())
+        if not preflight.get("ok"):
+            raise _infrastructure("preflight", preflight.get("code", "LEDGER_DATABASE_ERROR"),
+                                   retryable=preflight.get("code") in {"LEDGER_TIMEOUT", "LEDGER_DATABASE_ERROR"},
+                                   details={"missing_versions": preflight.get("missing_versions", [])})
         repository.record_research_job(base_run)
         report.update({
             "release_id": provenance["release_id"],
@@ -475,18 +523,29 @@ def run_daily_research(
 
         market = refresh_lq45_market_history(repository, now=observed)
         market_summary = market_refresh_summary(market)
-        report["stages"]["market"] = market_summary
+        safe_market_summary = _redacted_market_summary(market_summary)
+        report["stages"]["market"] = safe_market_summary
         report["session_date"] = market_summary["session_date"]
         if not market["ready"]:
-            report["status"] = "FAILED" if final_attempt else "WAITING"
-            report["reason"] = market["reason"]
+            result = outcome(
+                Outcome.UNAVAILABLE if final_attempt else Outcome.WAITING,
+                "EVIDENCE_UNAVAILABLE" if final_attempt else "MARKET_SESSION_NOT_READY",
+                "market", retryable=not final_attempt,
+                summary=("Required completed-session evidence is unavailable."
+                         if final_attempt else "The current session is not complete yet."),
+                action=("Wait for a completed session and run the next scheduled attempt."
+                        if not final_attempt else "Complete required ingestion and rerun the refresh."),
+                details={"session_date": safe_market_summary.get("session_date"),
+                         "coverage_pct": safe_market_summary.get("coverage_pct")},
+            )
+            report = _report_with_outcome(report, result)
             _write_job_report(output_path, report)
             repository.record_research_job({
                 **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
-                "status": "FAILED" if final_attempt else "DEGRADED",
+                "status": result.persisted_status,
                 "input_checksum": provenance["calculation_digest"],
-                "metrics": {"status": report["status"], "market": market_summary},
-                "error_type": "MARKET_NOT_READY",
+                "metrics": {"outcome": result.to_dict(), "market": safe_market_summary},
+                "error_type": result.code,
             })
             return report
 
@@ -500,15 +559,21 @@ def run_daily_research(
                 and latest_scan.session_date == session_date
                 and latest_scan_release.get("calculation_digest") == provenance["calculation_digest"]):
             outcomes = evaluate_signal_outcomes()
-            report.update({"status": "NOOP", "quant_snapshot_id": latest_scan.quant_snapshot_id,
+            result = outcome(
+                Outcome.NOOP, "ALREADY_CURRENT", "publication", retryable=False,
+                summary="The verified primary scan is already current.",
+                action="No publication was required.",
+            )
+            report.update({"quant_snapshot_id": latest_scan.quant_snapshot_id,
                            "scan_snapshot_id": latest_scan.snapshot_id})
             report["stages"]["outcomes"] = {"status": "SUCCEEDED", **outcomes}
+            report = _report_with_outcome(report, result)
             _write_job_report(output_path, report)
             repository.record_research_job({
                 **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
                 "status": "SUCCEEDED", "input_checksum": provenance["calculation_digest"],
                 "output_checksum": latest_scan.checksum,
-                "metrics": {"status": "NOOP", "session_date": session_date},
+                "metrics": {"outcome": result.to_dict(), "session_date": session_date},
             })
             return report
 
@@ -526,14 +591,28 @@ def run_daily_research(
             with TemporaryDirectory(prefix="pasticuan-daily-") as temporary:
                 candidate_path = str(Path(temporary) / "candidate.json.gz")
                 approved_path = str(Path(temporary) / "approved-shadow.json.gz")
-                candidate = build_snapshot_from_database(
-                    candidate_path, observed.isoformat(), release["model_version"],
-                    provenance=provenance, formula_version=release["formula_version"],
-                )
+                try:
+                    candidate = build_snapshot_from_database(
+                        candidate_path, observed.isoformat(), release["model_version"],
+                        provenance=provenance, formula_version=release["formula_version"],
+                    )
+                except ValueError as exc:
+                    raise OutcomeFailure(outcome(
+                        Outcome.UNAVAILABLE, "POINT_IN_TIME_EVIDENCE_UNAVAILABLE", "quant",
+                        retryable=True,
+                        summary="Required point-in-time factor evidence is unavailable.",
+                        action="Complete eligible ingestion and rerun the refresh.",
+                    )) from exc
                 readiness = candidate_readiness(candidate)
                 if not readiness["ready"]:
                     failed = ", ".join(key for key, passed in readiness["checks"].items() if not passed)
-                    raise ValueError(f"Candidate readiness failed: {failed}. Details: {json.dumps(readiness, sort_keys=True)}")
+                    raise OutcomeFailure(outcome(
+                        Outcome.POLICY_GATE, "QUANT_READINESS_REJECTED", "quant",
+                        retryable=False,
+                        summary="Candidate quant evidence did not pass the readiness policy.",
+                        action="Review the failed readiness checks before rerunning.",
+                        details={"failed_checks": failed.split(", ") if failed else []},
+                    ))
                 approved = approve_snapshot(candidate_path, approved_path, "SHADOW", None)
                 quant_snapshot_id = repository.publish_quant_snapshot(approved)
                 report["stages"]["quant"] = {
@@ -546,7 +625,12 @@ def run_daily_research(
             archive = lambda key, body: upload_to_r2(key, body, content_type="application/gzip")
         scan = build_full_lq45_scan(repository, market_refresh=market, archive_callback=archive)
         if scan.mode != "PRIMARY":
-            raise ValueError(f"Daily scan did not reach PRIMARY mode: {scan.mode}. Warnings: {scan.warnings}")
+            raise OutcomeFailure(outcome(
+                Outcome.POLICY_GATE, "SCAN_NOT_PRIMARY", "scan", retryable=False,
+                summary="The daily scan did not satisfy the PRIMARY publication gate.",
+                action="Resolve the disclosed scan gate failures before rerunning.",
+                details={"mode": scan.mode},
+            ))
         scan_snapshot_id = repository.publish_scan_snapshot(scan)
         report["stages"]["scan"] = {
             "status": "PUBLISHED", "snapshot_id": scan_snapshot_id,
@@ -555,25 +639,45 @@ def run_daily_research(
         }
         outcomes = evaluate_signal_outcomes()
         report["stages"]["outcomes"] = {"status": "SUCCEEDED", **outcomes}
-        report.update({"status": "SUCCEEDED", "quant_snapshot_id": quant_snapshot_id,
+        result = outcome(
+            Outcome.SUCCEEDED, "PUBLISHED", "publication", retryable=False,
+            summary="Verified research was published successfully.",
+            action="Retain the new last-good snapshot.",
+        )
+        report.update({"quant_snapshot_id": quant_snapshot_id,
                        "scan_snapshot_id": scan_snapshot_id})
+        report = _report_with_outcome(report, result)
         _write_job_report(output_path, report)
         repository.record_research_job({
             **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
             "status": "SUCCEEDED", "input_checksum": provenance["calculation_digest"],
             "output_checksum": scan.checksum,
-            "metrics": {"status": "SUCCEEDED", "session_date": session_date,
+            "metrics": {"outcome": result.to_dict(), "session_date": session_date,
                         "coverage_pct": scan.universe_coverage_pct},
         })
         return report
-    except Exception as exc:
-        report.update({"status": "FAILED", "error_type": type(exc).__name__, "reason": str(exc)})
+    except OutcomeFailure as exc:
+        result = exc.result
+        report = _report_with_outcome(report, result)
         _write_job_report(output_path, report)
         try:
             repository.record_research_job({
                 **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
-                "status": "FAILED", "metrics": {"status": "FAILED"},
-                "error_type": type(exc).__name__,
+                "status": result.persisted_status, "metrics": {"outcome": result.to_dict()},
+                "error_type": result.code,
+            })
+        except Exception:
+            pass
+        return report
+    except Exception as exc:
+        result = infrastructure_failure(exc, next(reversed(report.get("stages", {})), "unknown"))
+        report = _report_with_outcome(report, result)
+        _write_job_report(output_path, report)
+        try:
+            repository.record_research_job({
+                **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
+                "status": result.persisted_status, "metrics": {"outcome": result.to_dict()},
+                "error_type": result.code,
             })
         except Exception:
             pass
@@ -666,7 +770,7 @@ def validate_quant(scores_path: str, bars_path: str, output_path: str,
     )
     summary = {key: value for key, value in result.items() if key not in {"monthly", "observations"}}
     payload = {"metrics": summary, "acceptance": acceptance}
-    encoded = json.dumps(payload, indent=2, sort_keys=True).encode()
+    encoded = strict_json_dumps(payload, indent=2).encode()
     Path(output_path).write_bytes(encoded)
     if persist:
         from storage.database import connect_from_env
@@ -767,14 +871,14 @@ def main(argv=None) -> int:
         build_snapshot_from_database(args.output, args.effective_at, args.model_version)
     elif args.command == "ingest-manifest":
         report = ingest_manifest(args.manifest, archive_directory=args.archive_directory, use_r2=args.r2)
-        Path(args.report).write_text(json.dumps(report, indent=2, sort_keys=True))
+        Path(args.report).write_text(strict_json_dumps(report, indent=2))
         if any(item["status"] == "QUARANTINED" for item in report):
             return 2
     elif args.command == "ingest-idx-xbrl":
         report = ingest_idx_xbrl_manifest(
             args.manifest, archive_directory=args.archive_directory, use_r2=args.r2,
         )
-        Path(args.report).write_text(json.dumps(report, indent=2, sort_keys=True))
+        Path(args.report).write_text(strict_json_dumps(report, indent=2))
         if any(item["status"] == "QUARANTINED" for item in report):
             return 2
     elif args.command == "discover-idx-xbrl":
@@ -786,7 +890,7 @@ def main(argv=None) -> int:
             annual_end_year=args.annual_end_year,
         )
         missing = discovery_blockers(manifest["discovery"])
-        print(json.dumps(manifest["discovery"], sort_keys=True))
+        print(strict_json_dumps(manifest["discovery"]))
         if missing:
             return 2
     elif args.command == "backup":
@@ -794,14 +898,14 @@ def main(argv=None) -> int:
     elif args.command == "publish-snapshot":
         print(publish_snapshot(args.snapshot))
     elif args.command == "publish-reviewed-shadow":
-        print(json.dumps(publish_reviewed_shadow(args.candidate, args.output), sort_keys=True))
+        print(strict_json_dumps(publish_reviewed_shadow(args.candidate, args.output)))
     elif args.command == "check-candidate":
-        print(json.dumps(check_candidate(args.snapshot), sort_keys=True))
+        print(strict_json_dumps(check_candidate(args.snapshot)))
     elif args.command == "validate-quant":
         result = validate_quant(args.scores, args.bars, args.output, persist=args.persist,
                                 model_version=args.model_version,
                                 deterministic_rebuild=args.deterministic_rebuild)
-        print(json.dumps(result, sort_keys=True))
+        print(strict_json_dumps(result))
     elif args.command == "build-daily-scan":
         result = build_daily_scan(args.output, use_r2=args.r2)
         snapshot = result.get("snapshot") or {}
@@ -813,12 +917,12 @@ def main(argv=None) -> int:
             "warnings": snapshot.get("warnings", []),
             "excluded_count": len(snapshot.get("excluded", [])),
         })
-        print(json.dumps(summary, sort_keys=True))
+        print(strict_json_dumps(summary))
         if not result["published"]:
             return 2
     elif args.command == "refresh-market-history":
         result = refresh_market_history(args.output)
-        print(json.dumps(result, sort_keys=True))
+        print(strict_json_dumps(result))
         if not result["ready"]:
             return 2
     elif args.command == "run-daily-research":
@@ -826,19 +930,18 @@ def main(argv=None) -> int:
             args.output, release_path=args.release, use_r2=args.r2,
             final_attempt=args.final_attempt,
         )
-        print(json.dumps({key: value for key, value in result.items() if key != "stages"}, sort_keys=True))
-        if result["status"] == "FAILED":
-            return 2
+        print(strict_json_dumps({key: value for key, value in result.items() if key != "stages"}))
+        return int(result.get("outcome", {}).get("exit_code", 2))
     elif args.command == "check-research-release":
         result = release_provenance(args.release)
         if args.base_ref and set(args.base_ref) != {"0"}:
             result["change_policy"] = check_release_change(args.base_ref, args.release)
-        print(json.dumps(result, sort_keys=True))
+        print(strict_json_dumps(result))
     elif args.command == "rebuild-monthly-panel":
         result = rebuild_monthly_panel(args.start, args.end, args.scores_output, args.bars_output)
-        print(json.dumps(result, sort_keys=True))
+        print(strict_json_dumps(result))
     elif args.command == "evaluate-signal-outcomes":
-        print(json.dumps(evaluate_signal_outcomes(), sort_keys=True))
+        print(strict_json_dumps(evaluate_signal_outcomes()))
     return 0
 
 
