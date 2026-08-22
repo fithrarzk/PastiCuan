@@ -20,6 +20,10 @@ REQUIRED_JOBS = {
     "manifest-validate",
     "security",
 }
+IDX_JOB_PERMISSIONS = {
+    "discover": {"contents": "write", "pull-requests": "write", "actions": "write"},
+    "import": {"contents": "read", "actions": "write"},
+}
 
 
 def _workflow_data(path: Path) -> dict:
@@ -62,7 +66,13 @@ def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> lis
         if not job.get("timeout-minutes"):
             errors.append(f"{path}: job {job_name} has no timeout-minutes")
         job_permissions = job.get("permissions", {})
-        if any(value == "write" for value in (job_permissions or {}).values()):
+        if path.name == "idx-filings.yml" and job_name in IDX_JOB_PERMISSIONS:
+            expected = IDX_JOB_PERMISSIONS[job_name]
+            if job_permissions != expected:
+                errors.append(
+                    f"{path}: job {job_name} permissions must be exactly {expected}"
+                )
+        elif any(value == "write" for value in (job_permissions or {}).values()):
             errors.append(f"{path}: job {job_name} grants write permission")
         for service_name, service in (job.get("services") or {}).items():
             image = service.get("image", "") if isinstance(service, dict) else ""
