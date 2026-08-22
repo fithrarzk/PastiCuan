@@ -172,6 +172,7 @@ jobs:
             path.write_text(workflow)
             errors = validate_workflow(path, require_required_jobs=True)
         self.assertTrue(any("missing jobs" in error for error in errors))
+        self.assertTrue(any("must display name" in error for error in errors))
 
     def test_generated_stable_jobs_depend_on_head_guard_not_legacy_test(self):
         workflow = _workflow_data(ROOT / ".github/workflows/validate-branch.yml")
@@ -221,6 +222,15 @@ class SecurityGateTests(unittest.TestCase):
             findings = scan_paths(paths)
         self.assertEqual(len(findings), len(urls))
         self.assertTrue(all("secret" not in str(finding) for finding in findings))
+
+    def test_env_example_only_allows_the_exact_documented_placeholder(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env.example"
+            path.write_text(
+                "postgres" + "ql://user:actual-secret@pooler.example/research"
+            )
+            findings = scan_paths([path])
+        self.assertEqual(findings, [(str(path), "database URL")])
 
     def test_secret_categories_fail_without_returning_secret_values(self):
         values = {

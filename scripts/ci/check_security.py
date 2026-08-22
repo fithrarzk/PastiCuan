@@ -39,12 +39,17 @@ _ALLOWED_LOCAL_DATABASE_URLS = {
 def _safe_database_url(value: str, path: Path) -> bool:
     if value in _ALLOWED_LOCAL_DATABASE_URLS:
         return True
-    if path.name == ".env.example":
-        return True
     try:
-        return not bool(urlsplit(value).password)
+        parsed = urlsplit(value)
     except ValueError:
         return False
+    if not parsed.password:
+        return True
+    return (
+        path.name == ".env.example"
+        and parsed.hostname == "pooler.example"
+        and parsed.password == "password"
+    )
 
 
 def scan_paths(paths: list[Path]) -> list[tuple[str, str]]:
