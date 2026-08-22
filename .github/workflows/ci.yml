@@ -94,8 +94,8 @@ jobs:
           with psycopg.connect('postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ci', autocommit=True) as connection:
               connection.execute("CREATE DATABASE pasticuan_ascii ENCODING 'SQL_ASCII' TEMPLATE template0")
           PY
-      - run: python scripts/ci/check_migrations.py --database-url postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ci --base-ref "${{ github.event.pull_request.base.sha }}"
-      - run: python scripts/ci/check_migrations.py --database-url postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ascii --base-ref "${{ github.event.pull_request.base.sha }}"
+      - run: python scripts/ci/check_migrations.py --database-url postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ci --base-ref "${{ github.event.pull_request.base.sha }}" --verify-disposable-down-reup
+      - run: python scripts/ci/check_migrations.py --database-url postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ascii --base-ref "${{ github.event.pull_request.base.sha }}" --verify-disposable-down-reup
 
   container-smoke:
     name: container-smoke

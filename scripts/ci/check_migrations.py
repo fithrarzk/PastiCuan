@@ -178,7 +178,10 @@ def filing_work_behavior(connection: Any, database_url: str) -> None:
             "INSERT INTO issuers(ticker,legal_name,sector,currency,active_from) VALUES ('CIW','CI ledger','Test','IDR','2020-01-01') RETURNING id"
         )
         issuer = cursor.fetchone()[0]
+        cursor.execute("SELECT count(*) FROM filings")
+        filings_before = cursor.fetchone()[0]
     connection.commit()
+
     repo = SnapshotRepository(connect)
     base = {
         "issuer_id": issuer,
@@ -190,13 +193,32 @@ def filing_work_behavior(connection: Any, database_url: str) -> None:
         "audit_status": "UNAUDITED",
         "expected_checksum": "a" * 64,
     }
-    repo.sync_reviewed_filings([base])
+    independent = {
+        **base,
+        "filing_type": "Q4",
+        "period_end": "2025-12-31",
+        "source_url": "https://ci.example/q4.zip",
+        "expected_checksum": "f" * 64,
+    }
+    repo.sync_reviewed_filings([base, independent])
     repo.sync_reviewed_filings([base])
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT count(*) FROM filing_work_items WHERE issuer_id=%s", (issuer,)
         )
-        assert cursor.fetchone()[0] == 1
+        assert cursor.fetchone()[0] == 2
+        try:
+            cursor.execute(
+                """UPDATE filing_work_items SET state='RUNNING',attempt_count=1,lease_token='00000000-0000-0000-0000-000000000001',
+                          lease_owner='forged',lease_expires_at=clock_timestamp()+interval '1 minute'
+                   WHERE issuer_id=%s AND filing_type='Q1'""",
+                (issuer,),
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+        else:
+            raise RuntimeError("pending filing work ran without a matching attempt")
     conflict = {**base, "source_url": "https://ci.example/changed.zip"}
     try:
         repo.sync_reviewed_filings([conflict])
@@ -265,6 +287,21 @@ def filing_work_behavior(connection: Any, database_url: str) -> None:
         is None
     ):
         raise RuntimeError("matching accepted artifact was rejected")
+    independent_status = repo.get_filing_work_statuses([independent])
+    if not independent_status or independent_status[0]["state"] != "PENDING":
+        raise RuntimeError("independent filing work was changed by another item")
+    independent_claim = repo.claim_filing_work(
+        independent, "ci-independent", run_id="ci-independent"
+    )
+    if not independent_claim:
+        raise RuntimeError("independent filing lease was not acquired")
+    repo.finalize_filing_work(
+        independent,
+        independent_claim["lease_token"],
+        "RETRYABLE",
+        error_class="PROVIDER",
+        error_summary="PROVIDER_UNAVAILABLE",
+    )
     if len(repo.get_filing_attempt_history(base)) != 2:
         raise RuntimeError("filing attempt history was not retained")
 
@@ -332,12 +369,54 @@ def filing_work_behavior(connection: Any, database_url: str) -> None:
     # Terminal artifacts and completed attempts cannot be rewritten by the ingest role.
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT artifact_id FROM filing_work_items WHERE issuer_id=%s", (issuer,)
+            "SELECT artifact_id FROM filing_work_items WHERE issuer_id=%s AND state='ACCEPTED'",
+            (issuer,),
         )
         accepted_row = cursor.fetchone()
         if not accepted_row:
             raise RuntimeError("accepted filing artifact was not persisted")
         accepted_artifact = accepted_row[0]
+    lock_connection = connect()
+    lock_connection.autocommit = False
+    with lock_connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT id FROM source_artifacts WHERE id=%s FOR UPDATE",
+            (accepted_artifact,),
+        )
+
+    def racing_artifact_update():
+        contender = connect()
+        try:
+            with contender.cursor() as cursor:
+                cursor.execute("SET lock_timeout='500ms'")
+                cursor.execute(
+                    "UPDATE source_artifacts SET checksum=%s WHERE id=%s",
+                    ("e" * 64, accepted_artifact),
+                )
+            contender.commit()
+            return False
+        except Exception:
+            contender.rollback()
+            return True
+        finally:
+            contender.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        blocked_or_rejected = pool.submit(racing_artifact_update).result()
+    lock_connection.rollback()
+    lock_connection.close()
+    if not blocked_or_rejected:
+        raise RuntimeError("terminal artifact race was not blocked or rejected")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT fwi.artifact_checksum, sa.checksum
+               FROM filing_work_items fwi JOIN source_artifacts sa ON sa.id=fwi.artifact_id
+               WHERE fwi.issuer_id=%s AND fwi.state='ACCEPTED'""",
+            (issuer,),
+        )
+        agreement = cursor.fetchone()
+        if not agreement or agreement[0] != agreement[1]:
+            raise RuntimeError("terminal filing artifact rows disagree")
         for statement, params in (
             (
                 "UPDATE source_artifacts SET checksum=%s WHERE id=%s",
@@ -347,6 +426,10 @@ def filing_work_behavior(connection: Any, database_url: str) -> None:
                 "UPDATE filing_work_attempts SET outcome_state='RETRYABLE' WHERE issuer_id=%s AND attempt_number=2",
                 (issuer,),
             ),
+            (
+                "DELETE FROM filing_work_attempts WHERE issuer_id=%s AND attempt_number=2",
+                (issuer,),
+            ),
         ):
             try:
                 cursor.execute(statement, params)
@@ -354,8 +437,84 @@ def filing_work_behavior(connection: Any, database_url: str) -> None:
                 connection.rollback()
             else:
                 raise RuntimeError("terminal filing ledger mutation was allowed")
+        cursor.execute("SELECT count(*) FROM filings")
+        if cursor.fetchone()[0] != filings_before:
+            raise RuntimeError(
+                "filing ledger operations interfered with point-in-time filings"
+            )
 
     connection.commit()
+
+
+def verify_disposable_database_identity(connection: Any) -> None:
+    """Allow destructive down/re-up only for the two CI service databases."""
+    database = str(connection.info.dbname)
+    user = str(connection.info.user)
+    if user != "pasticuan_ci" or database not in {"pasticuan_ci", "pasticuan_ascii"}:
+        raise RuntimeError(
+            "disposable down/re-up requires the CI service database identity"
+        )
+
+
+def verify_filing_work_catalog(connection: Any) -> None:
+    """Check migration-007's required relations, constraints, indexes, and triggers."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT count(*) FROM pg_constraint
+               WHERE conrelid IN ('public.filing_work_items'::regclass,'public.filing_work_attempts'::regclass)"""
+        )
+        if cursor.fetchone()[0] < 15:
+            raise RuntimeError("filing ledger constraint catalog is incomplete")
+        cursor.execute(
+            """SELECT indexrelid::regclass::text FROM pg_index
+               WHERE indrelid IN ('public.filing_work_items'::regclass,'public.filing_work_attempts'::regclass)"""
+        )
+        indexes = {normalize_version(row[0]) for row in cursor.fetchall()}
+        required_indexes = {
+            "filing_work_items_state_idx",
+            "filing_work_attempts_identity_idx",
+        }
+        if not required_indexes.issubset(indexes):
+            raise RuntimeError("filing ledger indexes are incomplete")
+        cursor.execute(
+            """SELECT tgname FROM pg_trigger
+               WHERE tgrelid IN ('public.filing_work_items'::regclass,'public.filing_work_attempts'::regclass,'public.source_artifacts'::regclass)
+                 AND NOT tgisinternal"""
+        )
+        triggers = {normalize_version(row[0]) for row in cursor.fetchall()}
+        required_triggers = {
+            "filing_work_acceptance_guard",
+            "filing_work_item_clock_guard",
+            "filing_work_item_transition_guard",
+            "filing_work_attempt_insert_guard",
+            "filing_work_attempt_update_guard",
+            "filing_work_attempt_delete_guard",
+            "filing_work_artifact_drift_guard",
+            "filing_work_attempt_completion_guard",
+        }
+        if not required_triggers.issubset(triggers):
+            raise RuntimeError("filing ledger triggers are incomplete")
+
+
+def verify_filing_work_privileges(connection: Any) -> None:
+    """Verify exact direct privileges for each ledger role after role re-apply."""
+    expected = {
+        "pasticuan_ingest": (True, True, True, False),
+        "pasticuan_validator": (True, False, False, False),
+        "pasticuan_bot": (False, False, False, False),
+    }
+    with connection.cursor() as cursor:
+        for role, privileges in expected.items():
+            cursor.execute(
+                """SELECT has_table_privilege(%s,'public.filing_work_items','SELECT'),
+                          has_table_privilege(%s,'public.filing_work_items','INSERT'),
+                          has_table_privilege(%s,'public.filing_work_items','UPDATE'),
+                          has_table_privilege(%s,'public.filing_work_items','DELETE')""",
+                (role, role, role, role),
+            )
+            observed = cursor.fetchone()
+            if observed != privileges:
+                raise RuntimeError(f"unexpected filing ledger privileges for {role}")
 
 
 def main() -> int:
@@ -364,6 +523,11 @@ def main() -> int:
     parser.add_argument("--migrations", type=Path, default=Path("storage/migrations"))
     parser.add_argument(
         "--base-ref", help="git ref whose existing migrations must remain immutable"
+    )
+    parser.add_argument(
+        "--verify-disposable-down-reup",
+        action="store_true",
+        help="run migration-007 down/re-up only on a named disposable CI database",
     )
     args = parser.parse_args()
     import psycopg
@@ -380,47 +544,35 @@ def main() -> int:
             with connection.cursor() as cursor:
                 cursor.execute(read_sql(roles))
             connection.commit()
+            verify_filing_work_privileges(connection)
+            verify_filing_work_catalog(connection)
+        filing_work_behavior(connection, args.database_url)
+        if args.verify_disposable_down_reup:
+            verify_disposable_database_identity(connection)
+            down = args.migrations / "007_filing_work_ledger.down.sql"
+            up = args.migrations / "007_filing_work_ledger.up.sql"
+            with connection.cursor() as cursor:
+                cursor.execute(read_sql(down))
+                cursor.execute(read_sql(up))
+            connection.commit()
+            if roles.exists():
+                with connection.cursor() as cursor:
+                    cursor.execute(read_sql(roles))
+                connection.commit()
+                verify_filing_work_privileges(connection)
+            verify_filing_work_catalog(connection)
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT has_table_privilege('pasticuan_ingest','public.filing_work_items','UPDATE')"
+                    "SELECT to_regclass('public.filing_work_items'), to_regclass('public.filing_work_attempts')"
                 )
-                privilege = cursor.fetchone()
-                if not privilege or not privilege[0]:
-                    raise RuntimeError(
-                        "ingest role lacks filing ledger write privilege"
-                    )
-                cursor.execute(
-                    "SELECT has_table_privilege('pasticuan_bot','public.filing_work_items','SELECT')"
-                )
-                privilege = cursor.fetchone()
-                if privilege and privilege[0]:
-                    raise RuntimeError("bot role has filing ledger access")
-                cursor.execute(
-                    "SELECT has_table_privilege('pasticuan_ingest','public.filing_work_items','DELETE'), has_table_privilege('pasticuan_validator','public.filing_work_items','DELETE')"
-                )
-                delete_privileges = cursor.fetchone()
-                if delete_privileges and any(delete_privileges):
-                    raise RuntimeError("ledger role has destructive delete privilege")
-            connection.commit()
-        filing_work_behavior(connection, args.database_url)
-        down = args.migrations / "007_filing_work_ledger.down.sql"
-        up = args.migrations / "007_filing_work_ledger.up.sql"
-        with connection.cursor() as cursor:
-            cursor.execute(read_sql(down))
-            cursor.execute(read_sql(up))
-        connection.commit()
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT to_regclass('public.filing_work_items'), to_regclass('public.filing_work_attempts')"
-            )
-            relation_names = cursor.fetchone()
-            if not relation_names or tuple(
-                normalize_version(value) for value in relation_names
-            ) != (
-                "filing_work_items",
-                "filing_work_attempts",
-            ):
-                raise RuntimeError("migration-007 disposable down/re-up failed")
+                relation_names = cursor.fetchone()
+                if not relation_names or tuple(
+                    normalize_version(value) for value in relation_names
+                ) != (
+                    "filing_work_items",
+                    "filing_work_attempts",
+                ):
+                    raise RuntimeError("migration-007 disposable down/re-up failed")
     print(f"verified {len(migration_checksums(args.migrations))} migrations")
     return 0
 

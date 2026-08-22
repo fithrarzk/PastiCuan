@@ -5,7 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.ci.check_migrations import migration_checksums, repository_compatibility
+from scripts.ci.check_migrations import (
+    migration_checksums,
+    repository_compatibility,
+    verify_disposable_database_identity,
+)
 from scripts.ci.check_migrations import migration_pairs, normalize_version, read_sql
 from scripts.ci.check_security import scan_paths
 from scripts.ci.check_workflow_policy import _workflow_data, validate_workflow
@@ -63,6 +67,17 @@ class MigrationGateTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "repository migration mismatch"):
             repository_compatibility(Connection(), {"001_demo"})
+
+    def test_disposable_down_opt_in_rejects_non_ci_database_identity(self):
+        class Info:
+            dbname = "research"
+            user = "pasticuan_writer"
+
+        class Connection:
+            info = Info()
+
+        with self.assertRaisesRegex(RuntimeError, "disposable down/re-up"):
+            verify_disposable_database_identity(Connection())
 
 
 class ManifestGateTests(unittest.TestCase):

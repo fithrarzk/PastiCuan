@@ -24,6 +24,7 @@ CREATE TABLE filing_work_items (
     last_error_summary text,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    state_changed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (issuer_id, filing_type, period_end, restatement_version),
     CHECK ((state = 'RUNNING') = (lease_token IS NOT NULL AND lease_owner IS NOT NULL AND lease_owner <> '' AND lease_expires_at IS NOT NULL)),
     CHECK (state <> 'RUNNING' OR lease_expires_at > created_at),
@@ -69,6 +70,15 @@ CREATE TABLE filing_work_attempts (
 
 CREATE INDEX filing_work_items_state_idx ON filing_work_items(state, lease_expires_at, period_end, issuer_id, filing_type);
 CREATE INDEX filing_work_attempts_identity_idx ON filing_work_attempts(issuer_id, filing_type, period_end, restatement_version, attempt_number);
+
+CREATE FUNCTION set_filing_work_item_clock() RETURNS trigger AS $$
+BEGIN
+  NEW.created_at := clock_timestamp();
+  NEW.updated_at := NEW.created_at;
+  NEW.state_changed_at := NEW.created_at;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
 CREATE FUNCTION enforce_filing_work_item_transition() RETURNS trigger AS $$
 BEGIN
@@ -127,6 +137,11 @@ BEGIN
   IF NEW.state = 'RETRYABLE' AND NEW.last_error_summary IS NULL THEN
     RAISE EXCEPTION 'retryable filing work requires a stable reason';
   END IF;
+  IF NEW.state IS DISTINCT FROM OLD.state THEN
+    NEW.state_changed_at := clock_timestamp();
+  ELSE
+    NEW.state_changed_at := OLD.state_changed_at;
+  END IF;
   NEW.updated_at := clock_timestamp();
   RETURN NEW;
 END;
@@ -136,7 +151,7 @@ CREATE FUNCTION enforce_filing_work_acceptance() RETURNS trigger AS $$
 DECLARE artifact source_artifacts%ROWTYPE;
 BEGIN
   IF NEW.state IN ('ACCEPTED','QUARANTINED') THEN
-    SELECT * INTO artifact FROM source_artifacts WHERE id = NEW.artifact_id;
+    SELECT * INTO artifact FROM source_artifacts WHERE id = NEW.artifact_id FOR SHARE;
     IF NOT FOUND OR artifact.parse_status <> NEW.artifact_status OR artifact.source_url <> NEW.source_url
        OR (NEW.expected_checksum IS NOT NULL AND artifact.checksum <> NEW.expected_checksum)
        OR NEW.artifact_checksum IS DISTINCT FROM artifact.checksum OR NEW.artifact_source_url IS DISTINCT FROM artifact.source_url THEN
@@ -161,7 +176,8 @@ BEGIN
   SELECT * INTO item FROM filing_work_items
     WHERE issuer_id = NEW.issuer_id AND filing_type = NEW.filing_type AND period_end = NEW.period_end
       AND restatement_version = NEW.restatement_version FOR SHARE;
-  IF NOT FOUND OR item.state <> 'RUNNING' OR item.lease_token <> NEW.lease_token
+  IF NEW.finished_at IS NOT NULL OR NEW.outcome_state IS NOT NULL
+     OR NOT FOUND OR item.state <> 'RUNNING' OR item.lease_token <> NEW.lease_token
      OR item.attempt_count <> NEW.attempt_number OR item.lease_expires_at <> NEW.lease_expires_at THEN
     RAISE EXCEPTION 'attempt must match one active filing lease';
   END IF;
@@ -176,7 +192,7 @@ BEGIN
   IF OLD.finished_at IS NOT NULL THEN
     RAISE EXCEPTION 'completed filing attempts are immutable';
   END IF;
-  IF NEW.issuer_id <> OLD.issuer_id OR NEW.filing_type <> OLD.filing_type OR NEW.period_end <> OLD.period_end
+  IF NEW.id <> OLD.id OR NEW.issuer_id <> OLD.issuer_id OR NEW.filing_type <> OLD.filing_type OR NEW.period_end <> OLD.period_end
      OR NEW.restatement_version <> OLD.restatement_version OR NEW.attempt_number <> OLD.attempt_number
      OR NEW.lease_token <> OLD.lease_token OR NEW.worker_id <> OLD.worker_id OR NEW.run_id <> OLD.run_id
      OR NEW.lease_expires_at <> OLD.lease_expires_at OR NEW.source_url <> OLD.source_url
@@ -190,8 +206,19 @@ BEGIN
      OR NEW.outcome_state IS NULL OR NEW.finished_at IS NULL OR NEW.outcome_state <> item.state THEN
     RAISE EXCEPTION 'attempt result is not coupled to its filing work';
   END IF;
+  IF NEW.artifact_id IS DISTINCT FROM item.artifact_id OR NEW.artifact_checksum IS DISTINCT FROM item.artifact_checksum
+     OR NEW.artifact_source_url IS DISTINCT FROM item.artifact_source_url OR NEW.artifact_status IS DISTINCT FROM item.artifact_status
+     OR NEW.error_class IS DISTINCT FROM item.last_error_class OR NEW.error_summary IS DISTINCT FROM item.last_error_summary THEN
+    RAISE EXCEPTION 'attempt result snapshot does not match filing work';
+  END IF;
   NEW.finished_at := clock_timestamp();
   RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION prevent_filing_work_attempt_delete() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'filing work attempts are append-only';
 END;
 $$ LANGUAGE plpgsql;
 
@@ -207,13 +234,21 @@ $$ LANGUAGE plpgsql;
 
 CREATE FUNCTION enforce_filing_work_attempt_completion() RETURNS trigger AS $$
 BEGIN
-  IF NEW.state <> 'RUNNING' AND EXISTS (
+  IF NEW.state = 'RUNNING' AND NOT EXISTS (
     SELECT 1 FROM filing_work_attempts
     WHERE issuer_id = NEW.issuer_id AND filing_type = NEW.filing_type AND period_end = NEW.period_end
       AND restatement_version = NEW.restatement_version AND attempt_number = NEW.attempt_count
-      AND finished_at IS NULL
+      AND lease_token = NEW.lease_token AND finished_at IS NULL
   ) THEN
-    RAISE EXCEPTION 'filing work cannot leave running with an unfinished attempt';
+    RAISE EXCEPTION 'running filing work requires exactly one active attempt';
+  END IF;
+  IF NEW.state <> 'RUNNING' AND NEW.attempt_count > 0 AND NOT EXISTS (
+    SELECT 1 FROM filing_work_attempts
+    WHERE issuer_id = NEW.issuer_id AND filing_type = NEW.filing_type AND period_end = NEW.period_end
+      AND restatement_version = NEW.restatement_version AND attempt_number = NEW.attempt_count
+      AND finished_at IS NOT NULL AND outcome_state = NEW.state
+  ) THEN
+    RAISE EXCEPTION 'filing work requires exactly one completed attempt';
   END IF;
   RETURN NULL;
 END;
@@ -221,12 +256,16 @@ $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER filing_work_acceptance_guard BEFORE INSERT OR UPDATE ON filing_work_items
 FOR EACH ROW EXECUTE FUNCTION enforce_filing_work_acceptance();
+CREATE TRIGGER filing_work_item_clock_guard BEFORE INSERT ON filing_work_items
+FOR EACH ROW EXECUTE FUNCTION set_filing_work_item_clock();
 CREATE TRIGGER filing_work_item_transition_guard BEFORE UPDATE ON filing_work_items
 FOR EACH ROW EXECUTE FUNCTION enforce_filing_work_item_transition();
 CREATE TRIGGER filing_work_attempt_insert_guard BEFORE INSERT ON filing_work_attempts
 FOR EACH ROW EXECUTE FUNCTION enforce_filing_work_attempt_insert();
 CREATE TRIGGER filing_work_attempt_update_guard BEFORE UPDATE ON filing_work_attempts
 FOR EACH ROW EXECUTE FUNCTION enforce_filing_work_attempt_update();
+CREATE TRIGGER filing_work_attempt_delete_guard BEFORE DELETE ON filing_work_attempts
+FOR EACH ROW EXECUTE FUNCTION prevent_filing_work_attempt_delete();
 CREATE TRIGGER filing_work_artifact_drift_guard BEFORE UPDATE OF parse_status,checksum,source_url ON source_artifacts
 FOR EACH ROW EXECUTE FUNCTION prevent_filing_artifact_drift();
 CREATE CONSTRAINT TRIGGER filing_work_attempt_completion_guard AFTER INSERT OR UPDATE ON filing_work_items

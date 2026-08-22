@@ -334,7 +334,8 @@ class SnapshotRepository:
                     for key in sorted(set(keys), key=str):
                         cursor.execute(
                             """SELECT issuer_id,filing_type,period_end,restatement_version,state,attempt_count,
-                                      lease_expires_at,accepted_artifact_id,last_error_class,last_error_summary
+                                      lease_expires_at,accepted_artifact_id,last_error_class,last_error_summary,
+                                      created_at,updated_at,state_changed_at
                                FROM filing_work_items
                                WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s""",
                             key,
@@ -508,7 +509,7 @@ class SnapshotRepository:
                     artifact = None
                     if state in {"ACCEPTED", "QUARANTINED"}:
                         cursor.execute(
-                            "SELECT checksum,source_url,parse_status FROM source_artifacts WHERE id=%s",
+                            "SELECT checksum,source_url,parse_status FROM source_artifacts WHERE id=%s FOR SHARE",
                             (artifact_id,),
                         )
                         artifact = cursor.fetchone()
