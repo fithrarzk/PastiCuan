@@ -7,7 +7,7 @@ from pathlib import Path
 from scripts.ci.check_migrations import migration_checksums
 from scripts.ci.check_migrations import migration_pairs, normalize_version, read_sql
 from scripts.ci.check_security import scan_paths
-from scripts.ci.check_workflow_policy import validate_workflow
+from scripts.ci.check_workflow_policy import _workflow_data, validate_workflow
 from scripts.ci.validate_manifest import validate_manifest
 
 
@@ -88,13 +88,19 @@ class WorkflowGateTests(unittest.TestCase):
             ROOT / ".github/workflows/validate-branch.yml",
         )
         for path in workflow_paths:
-            text = path.read_text()
-            if "python -m unittest discover" in text:
-                self.assertIn(
-                    "pip install -r requirements-bot.txt -r requirements-ci.txt",
-                    text,
-                    path.name,
+            workflow = _workflow_data(path)
+            for job_name, job in workflow["jobs"].items():
+                runs = "\n".join(
+                    step.get("run", "")
+                    for step in job.get("steps", [])
+                    if isinstance(step, dict)
                 )
+                if "python -m unittest discover" in runs:
+                    self.assertIn(
+                        "pip install -r requirements-bot.txt -r requirements-ci.txt",
+                        runs,
+                        f"{path.name}:{job_name}",
+                    )
 
     def test_pull_request_workflow_has_all_stable_jobs_and_pins_actions(self):
         errors = validate_workflow(
