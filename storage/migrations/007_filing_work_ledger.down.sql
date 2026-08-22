@@ -3,6 +3,7 @@ DROP TRIGGER IF EXISTS filing_work_artifact_drift_guard ON source_artifacts;
 DROP TABLE IF EXISTS filing_work_attempts;
 DROP TABLE IF EXISTS filing_work_items;
 DROP FUNCTION IF EXISTS enforce_filing_work_acceptance();
+DROP FUNCTION IF EXISTS enforce_initial_filing_work_state();
 DROP FUNCTION IF EXISTS set_filing_work_item_clock();
 DROP FUNCTION IF EXISTS enforce_filing_work_item_transition();
 DROP FUNCTION IF EXISTS enforce_filing_work_attempt_insert();

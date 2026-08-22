@@ -79,6 +79,46 @@ class MigrationGateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "disposable down/re-up"):
             verify_disposable_database_identity(Connection())
 
+    def test_disposable_down_opt_in_rejects_remote_shaped_ci_identity(self):
+        class Info:
+            dbname = "pasticuan_ci"
+            user = "pasticuan_ci"
+            host = "postgres.internal.example"
+
+        class Connection:
+            info = Info()
+
+        with self.assertRaisesRegex(RuntimeError, "loopback"):
+            verify_disposable_database_identity(Connection())
+
+    def test_disposable_down_opt_in_rejects_remote_server_address(self):
+        class Info:
+            dbname = "pasticuan_ci"
+            user = "pasticuan_ci"
+            host = "localhost"
+
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def execute(self, _query):
+                return None
+
+            def fetchone(self):
+                return ("10.0.0.4/32",)
+
+        class Connection:
+            info = Info()
+
+            def cursor(self):
+                return Cursor()
+
+        with self.assertRaisesRegex(RuntimeError, "loopback"):
+            verify_disposable_database_identity(Connection())
+
 
 class ManifestGateTests(unittest.TestCase):
     def test_reviewed_manifest_has_official_identity_and_no_removals(self):

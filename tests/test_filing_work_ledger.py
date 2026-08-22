@@ -44,6 +44,8 @@ class FilingWorkLedgerContractTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             SnapshotRepository._error_fields("provider", "raw provider response body")
+        with self.assertRaises(ValueError):
+            SnapshotRepository._error_fields("provider", RuntimeError("provider body"))
 
     def test_attempt_contract_has_run_and_source_snapshots(self):
         sql = read_sql(ROOT / "storage/migrations/007_filing_work_ledger.up.sql")

@@ -1,15 +1,17 @@
 """Apply and verify the repository's PostgreSQL migrations in CI.
 
 This helper intentionally uses a database URL supplied by the ephemeral CI
-service. It never creates a production connection and never runs down
-migrations.
+service. It never creates a production connection. Migration down/re-up runs
+only with the explicit guarded disposable flag and a named CI database/user on
+a loopback PostgreSQL server.
 """
 
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import hashlib
+import ipaddress
 from pathlib import Path
 import time
 from typing import Any
@@ -178,11 +180,60 @@ def filing_work_behavior(connection: Any, database_url: str) -> None:
             "INSERT INTO issuers(ticker,legal_name,sector,currency,active_from) VALUES ('CIW','CI ledger','Test','IDR','2020-01-01') RETURNING id"
         )
         issuer = cursor.fetchone()[0]
-        cursor.execute("SELECT count(*) FROM filings")
-        filings_before = cursor.fetchone()[0]
     connection.commit()
 
     repo = SnapshotRepository(connect)
+    future_filing_checksum = "9" * 64
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """INSERT INTO filings
+               (issuer_id,filing_type,period_end,published_at,available_at,consolidated,audit_status,
+                restatement_version,source_url,object_key,document_checksum)
+               VALUES (%s,'FUTURE','2099-12-31','2099-12-31T00:00:00Z','2099-12-31T00:00:00Z',true,
+                       'AUDITED',1,'https://ci.example/future.zip','ci/future.zip',%s)
+               RETURNING id""",
+            (issuer, future_filing_checksum),
+        )
+        future_filing_id = cursor.fetchone()[0]
+        cursor.execute(
+            """INSERT INTO statement_facts
+               (filing_id,taxonomy,concept,normalized_concept,period_start,period_end,published_at,available_at,
+                value,currency,scale,unit,consolidated,audit_status,source_url,document_checksum,restatement_version)
+               VALUES (%s,'CI','FutureConcept','future_concept','2099-01-01','2099-12-31','2099-12-31T00:00:00Z',
+                       '2099-12-31T00:00:00Z',123.45,'IDR',0,'IDR',true,'AUDITED','https://ci.example/future.zip',%s,1)""",
+            (future_filing_id, future_filing_checksum),
+        )
+    connection.commit()
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT count(*) FROM filings")
+        filings_before = cursor.fetchone()[0]
+    if repo.facts_as_of(issuer, "2090-01-01T00:00:00Z"):
+        raise RuntimeError("future filing leaked before its available_at cutoff")
+    if len(repo.facts_as_of(issuer, "2100-01-01T00:00:00Z")) != 1:
+        raise RuntimeError(
+            "future filing was not visible after its available_at cutoff"
+        )
+
+    ingest_connection = connect()
+    try:
+        with ingest_connection.cursor() as cursor:
+            cursor.execute("SET ROLE pasticuan_ingest")
+            cursor.execute(
+                """INSERT INTO filing_work_items
+                   (issuer_id,filing_type,period_end,restatement_version,source_url,published_at,audit_status,
+                    state,attempt_count,lease_token,lease_owner,lease_expires_at)
+                   VALUES (%s,'FORGED','2025-01-01',1,'https://ci.example/forged.zip','2025-01-02T00:00:00Z',
+                           'UNAUDITED','RUNNING',1,'00000000-0000-0000-0000-000000000002','forged',clock_timestamp()+interval '1 minute')""",
+                (issuer,),
+            )
+        ingest_connection.commit()
+    except Exception:
+        ingest_connection.rollback()
+    else:
+        raise RuntimeError("ingest role inserted non-pending filing work")
+    finally:
+        ingest_connection.close()
+
     base = {
         "issuer_id": issuer,
         "filing_type": "Q1",
@@ -366,32 +417,71 @@ def filing_work_behavior(connection: Any, database_url: str) -> None:
     if repo.get_filing_work_counts()["PENDING"] != 0:
         raise RuntimeError("filing work aggregate counts are incorrect")
 
-    # Terminal artifacts and completed attempts cannot be rewritten by the ingest role.
+    # Exercise the repository finalize seam while a contender holds an artifact update lock.
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT artifact_id FROM filing_work_items WHERE issuer_id=%s AND state='ACCEPTED'",
+            "SELECT artifact_id FROM filing_work_items WHERE issuer_id=%s AND filing_type='Q1' AND state='ACCEPTED'",
             (issuer,),
         )
         accepted_row = cursor.fetchone()
         if not accepted_row:
             raise RuntimeError("accepted filing artifact was not persisted")
         accepted_artifact = accepted_row[0]
-    lock_connection = connect()
-    lock_connection.autocommit = False
-    with lock_connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT id FROM source_artifacts WHERE id=%s FOR UPDATE",
-            (accepted_artifact,),
+    race_item = {
+        **base,
+        "filing_type": "RACE",
+        "period_end": "2025-11-30",
+        "source_url": "https://ci.example/race.zip",
+        "expected_checksum": "8" * 64,
+    }
+    repo.sync_reviewed_filings([race_item])
+    race_artifact = artifact(
+        race_item["source_url"], race_item["expected_checksum"], "ACCEPTED"
+    )
+    race_claim = repo.claim_filing_work(race_item, "ci-race", run_id="ci-race")
+    if not race_claim:
+        raise RuntimeError("artifact race filing lease was not acquired")
+    contender = connect()
+    try:
+        with contender.cursor() as cursor:
+            cursor.execute(
+                "UPDATE source_artifacts SET checksum=%s WHERE id=%s",
+                ("e" * 64, race_artifact),
+            )
+        finalize_pool = ThreadPoolExecutor(max_workers=1)
+        finalize_future = finalize_pool.submit(
+            repo.finalize_filing_work,
+            race_item,
+            race_claim["lease_token"],
+            "ACCEPTED",
+            artifact_id=race_artifact,
+            checksum=race_item["expected_checksum"],
         )
+        try:
+            finalize_future.result(timeout=0.3)
+        except FuturesTimeoutError:
+            pass
+        else:
+            raise RuntimeError(
+                "repository finalize did not lock the contested artifact"
+            )
+        contender.rollback()
+        contender.close()
+        if finalize_future.result(timeout=3) is None:
+            raise RuntimeError("repository finalize lost the artifact race")
+        finalize_pool.shutdown(wait=True)
+    finally:
+        if not contender.closed:
+            contender.rollback()
+            contender.close()
 
     def racing_artifact_update():
         contender = connect()
         try:
             with contender.cursor() as cursor:
-                cursor.execute("SET lock_timeout='500ms'")
                 cursor.execute(
                     "UPDATE source_artifacts SET checksum=%s WHERE id=%s",
-                    ("e" * 64, accepted_artifact),
+                    ("e" * 64, race_artifact),
                 )
             contender.commit()
             return False
@@ -403,20 +493,27 @@ def filing_work_behavior(connection: Any, database_url: str) -> None:
 
     with ThreadPoolExecutor(max_workers=1) as pool:
         blocked_or_rejected = pool.submit(racing_artifact_update).result()
-    lock_connection.rollback()
-    lock_connection.close()
     if not blocked_or_rejected:
-        raise RuntimeError("terminal artifact race was not blocked or rejected")
+        raise RuntimeError("terminal artifact race was not rejected")
     with connection.cursor() as cursor:
         cursor.execute(
             """SELECT fwi.artifact_checksum, sa.checksum
                FROM filing_work_items fwi JOIN source_artifacts sa ON sa.id=fwi.artifact_id
-               WHERE fwi.issuer_id=%s AND fwi.state='ACCEPTED'""",
+               WHERE fwi.issuer_id=%s AND fwi.filing_type='Q1' AND fwi.state='ACCEPTED'""",
             (issuer,),
         )
         agreement = cursor.fetchone()
         if not agreement or agreement[0] != agreement[1]:
             raise RuntimeError("terminal filing artifact rows disagree")
+        cursor.execute(
+            """SELECT fwi.artifact_checksum, sa.checksum
+               FROM filing_work_items fwi JOIN source_artifacts sa ON sa.id=fwi.artifact_id
+               WHERE fwi.issuer_id=%s AND fwi.filing_type='RACE' AND fwi.state='ACCEPTED'""",
+            (issuer,),
+        )
+        race_agreement = cursor.fetchone()
+        if not race_agreement or race_agreement[0] != race_agreement[1]:
+            raise RuntimeError("artifact race final rows disagree")
         for statement, params in (
             (
                 "UPDATE source_artifacts SET checksum=%s WHERE id=%s",
@@ -447,53 +544,212 @@ def filing_work_behavior(connection: Any, database_url: str) -> None:
 
 
 def verify_disposable_database_identity(connection: Any) -> None:
-    """Allow destructive down/re-up only for the two CI service databases."""
+    """Allow down/re-up only for named CI databases on a loopback server."""
     database = str(connection.info.dbname)
     user = str(connection.info.user)
-    if user != "pasticuan_ci" or database not in {"pasticuan_ci", "pasticuan_ascii"}:
+    host = str(getattr(connection.info, "host", "") or "")
+    if (
+        user != "pasticuan_ci"
+        or database not in {"pasticuan_ci", "pasticuan_ascii"}
+        or host not in {"localhost", "127.0.0.1", "::1"}
+    ):
         raise RuntimeError(
-            "disposable down/re-up requires the CI service database identity"
+            "disposable down/re-up requires a named CI database on loopback"
         )
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT inet_server_addr()::text")
+        server_address = cursor.fetchone()[0]
+    if server_address:
+        address = normalize_version(server_address).split("/", 1)[0]
+        try:
+            loopback = ipaddress.ip_address(address).is_loopback
+        except ValueError as exc:
+            raise RuntimeError(
+                "disposable down/re-up requires a loopback PostgreSQL server"
+            ) from exc
+        if not loopback:
+            raise RuntimeError(
+                "disposable down/re-up requires a loopback PostgreSQL server"
+            )
 
 
 def verify_filing_work_catalog(connection: Any) -> None:
     """Check migration-007's required relations, constraints, indexes, and triggers."""
     with connection.cursor() as cursor:
         cursor.execute(
-            """SELECT count(*) FROM pg_constraint
+            """SELECT conname,contype,pg_get_constraintdef(oid)
+               FROM pg_constraint
                WHERE conrelid IN ('public.filing_work_items'::regclass,'public.filing_work_attempts'::regclass)"""
         )
-        if cursor.fetchone()[0] < 15:
-            raise RuntimeError("filing ledger constraint catalog is incomplete")
-        cursor.execute(
-            """SELECT indexrelid::regclass::text FROM pg_index
-               WHERE indrelid IN ('public.filing_work_items'::regclass,'public.filing_work_attempts'::regclass)"""
-        )
-        indexes = {normalize_version(row[0]) for row in cursor.fetchall()}
-        required_indexes = {
-            "filing_work_items_state_idx",
-            "filing_work_attempts_identity_idx",
+        constraints = {
+            normalize_version(row[0]): (
+                normalize_version(row[1]),
+                normalize_version(row[2]),
+            )
+            for row in cursor.fetchall()
         }
-        if not required_indexes.issubset(indexes):
+        required_constraints = {
+            "filing_work_identity_pkey": (
+                "p",
+                "PRIMARY KEY (issuer_id, filing_type, period_end, restatement_version)",
+            ),
+            "filing_work_state_check": (
+                "c",
+                "state = ANY",
+                "PENDING",
+                "RUNNING",
+                "ACCEPTED",
+                "QUARANTINED",
+                "RETRYABLE",
+            ),
+            "filing_work_lease_fields_check": (
+                "c",
+                "state = 'RUNNING'",
+                "lease_token IS NOT NULL",
+                "lease_owner IS NOT NULL",
+                "lease_expires_at IS NOT NULL",
+            ),
+            "filing_work_quarantine_reason_check": (
+                "c",
+                "state <> 'QUARANTINED'",
+                "artifact_status = 'QUARANTINED'",
+                "last_error_summary IS NOT NULL",
+                "btrim(last_error_summary)",
+            ),
+            "filing_work_accepted_artifact_check": (
+                "c",
+                "state <> 'ACCEPTED'",
+                "accepted_artifact_id = artifact_id",
+            ),
+            "filing_work_accepted_checksum_check": (
+                "c",
+                "state <> 'ACCEPTED'",
+                "accepted_checksum = artifact_checksum",
+            ),
+            "filing_work_accepted_status_check": (
+                "c",
+                "state <> 'ACCEPTED'",
+                "artifact_status = 'ACCEPTED'",
+            ),
+            "filing_work_attempt_lease_unique": (
+                "u",
+                "UNIQUE (issuer_id, filing_type, period_end, restatement_version, lease_token)",
+            ),
+            "filing_work_attempt_number_unique": (
+                "u",
+                "UNIQUE (issuer_id, filing_type, period_end, restatement_version, attempt_number)",
+            ),
+            "filing_work_attempt_identity_fkey": (
+                "f",
+                "FOREIGN KEY (issuer_id, filing_type, period_end, restatement_version)",
+            ),
+            "filing_work_attempt_completion_check": (
+                "c",
+                "finished_at IS NULL",
+                "outcome_state IS NULL",
+            ),
+            "filing_work_attempt_error_class_check": ("c", "error_class = ANY"),
+            "filing_work_attempt_error_summary_check": (
+                "c",
+                "error_summary = ANY",
+                "PROVIDER_UNAVAILABLE",
+                "UNKNOWN_FAILURE",
+            ),
+            "filing_work_error_class_length_check": (
+                "c",
+                "length(last_error_class) <= 32",
+            ),
+            "filing_work_error_summary_length_check": (
+                "c",
+                "length(last_error_summary) <= 64",
+            ),
+            "filing_work_attempt_error_class_length_check": (
+                "c",
+                "length(error_class) <= 32",
+            ),
+            "filing_work_attempt_error_summary_length_check": (
+                "c",
+                "length(error_summary) <= 64",
+            ),
+        }
+        for name, expected in required_constraints.items():
+            kind, *fragments = expected
+            observed = constraints.get(name)
+            if (
+                not observed
+                or observed[0] != kind
+                or any(
+                    fragment.lower() not in observed[1].lower()
+                    for fragment in fragments
+                )
+            ):
+                raise RuntimeError(
+                    f"filing ledger constraint identity is incomplete: {name}"
+                )
+        cursor.execute(
+            """SELECT i.indexrelid::regclass::text,i.indisunique,
+                      array_agg(a.attname ORDER BY columns.ordinality)
+               FROM pg_index i
+               CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS columns(attnum,ordinality)
+               JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=columns.attnum
+               WHERE i.indrelid IN ('public.filing_work_items'::regclass,'public.filing_work_attempts'::regclass)
+               GROUP BY i.indexrelid,i.indisunique"""
+        )
+        indexes = {
+            normalize_version(row[0]): (
+                bool(row[1]),
+                tuple(normalize_version(column) for column in row[2]),
+            )
+            for row in cursor.fetchall()
+        }
+        required_indexes = {
+            "filing_work_items_state_idx": (
+                False,
+                ("state", "lease_expires_at", "period_end", "issuer_id", "filing_type"),
+            ),
+            "filing_work_attempts_identity_idx": (
+                False,
+                (
+                    "issuer_id",
+                    "filing_type",
+                    "period_end",
+                    "restatement_version",
+                    "attempt_number",
+                ),
+            ),
+        }
+        if any(
+            name not in indexes
+            or indexes[name][0] != unique
+            or indexes[name][1] != columns
+            for name, (unique, columns) in required_indexes.items()
+        ):
             raise RuntimeError("filing ledger indexes are incomplete")
         cursor.execute(
-            """SELECT tgname FROM pg_trigger
+            """SELECT tgname,pg_get_triggerdef(oid) FROM pg_trigger
                WHERE tgrelid IN ('public.filing_work_items'::regclass,'public.filing_work_attempts'::regclass,'public.source_artifacts'::regclass)
                  AND NOT tgisinternal"""
         )
-        triggers = {normalize_version(row[0]) for row in cursor.fetchall()}
-        required_triggers = {
-            "filing_work_acceptance_guard",
-            "filing_work_item_clock_guard",
-            "filing_work_item_transition_guard",
-            "filing_work_attempt_insert_guard",
-            "filing_work_attempt_update_guard",
-            "filing_work_attempt_delete_guard",
-            "filing_work_artifact_drift_guard",
-            "filing_work_attempt_completion_guard",
+        triggers = {
+            normalize_version(row[0]): normalize_version(row[1]).lower()
+            for row in cursor.fetchall()
         }
-        if not required_triggers.issubset(triggers):
-            raise RuntimeError("filing ledger triggers are incomplete")
+        required_triggers = {
+            "filing_work_acceptance_guard": "before insert or update",
+            "filing_work_initial_state_guard": "before insert",
+            "filing_work_item_clock_guard": "before insert",
+            "filing_work_item_transition_guard": "before update",
+            "filing_work_attempt_insert_guard": "before insert",
+            "filing_work_attempt_update_guard": "before update",
+            "filing_work_attempt_delete_guard": "before delete",
+            "filing_work_artifact_drift_guard": "before update of parse_status, checksum, source_url",
+            "filing_work_attempt_completion_guard": "deferrable initially deferred",
+        }
+        if any(
+            name not in triggers or fragment not in triggers[name]
+            for name, fragment in required_triggers.items()
+        ):
+            raise RuntimeError("filing ledger trigger identity is incomplete")
 
 
 def verify_filing_work_privileges(connection: Any) -> None:
@@ -504,17 +760,29 @@ def verify_filing_work_privileges(connection: Any) -> None:
         "pasticuan_bot": (False, False, False, False),
     }
     with connection.cursor() as cursor:
-        for role, privileges in expected.items():
-            cursor.execute(
-                """SELECT has_table_privilege(%s,'public.filing_work_items','SELECT'),
-                          has_table_privilege(%s,'public.filing_work_items','INSERT'),
-                          has_table_privilege(%s,'public.filing_work_items','UPDATE'),
-                          has_table_privilege(%s,'public.filing_work_items','DELETE')""",
-                (role, role, role, role),
-            )
-            observed = cursor.fetchone()
-            if observed != privileges:
-                raise RuntimeError(f"unexpected filing ledger privileges for {role}")
+        for table in ("filing_work_items", "filing_work_attempts"):
+            for role, privileges in expected.items():
+                cursor.execute(
+                    """SELECT has_table_privilege(%s,%s,'SELECT'),
+                              has_table_privilege(%s,%s,'INSERT'),
+                              has_table_privilege(%s,%s,'UPDATE'),
+                              has_table_privilege(%s,%s,'DELETE')""",
+                    (
+                        role,
+                        f"public.{table}",
+                        role,
+                        f"public.{table}",
+                        role,
+                        f"public.{table}",
+                        role,
+                        f"public.{table}",
+                    ),
+                )
+                observed = cursor.fetchone()
+                if observed != privileges:
+                    raise RuntimeError(
+                        f"unexpected filing ledger privileges for {role} on {table}"
+                    )
 
 
 def main() -> int:

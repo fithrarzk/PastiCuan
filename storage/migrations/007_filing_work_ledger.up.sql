@@ -2,15 +2,15 @@ BEGIN;
 
 CREATE TABLE filing_work_items (
     issuer_id bigint NOT NULL REFERENCES issuers(id),
-    filing_type text NOT NULL CHECK (filing_type <> '' AND filing_type = btrim(filing_type) AND filing_type = upper(filing_type)),
+    filing_type text NOT NULL CONSTRAINT filing_work_filing_type_check CHECK (filing_type <> '' AND filing_type = btrim(filing_type) AND filing_type = upper(filing_type)),
     period_end date NOT NULL,
-    restatement_version integer NOT NULL CHECK (restatement_version > 0),
-    source_url text NOT NULL CHECK (source_url <> '' AND source_url = btrim(source_url)),
+    restatement_version integer NOT NULL CONSTRAINT filing_work_restatement_check CHECK (restatement_version > 0),
+    source_url text NOT NULL CONSTRAINT filing_work_source_url_check CHECK (source_url <> '' AND source_url = btrim(source_url)),
     published_at timestamptz NOT NULL,
-    audit_status text NOT NULL CHECK (audit_status IN ('AUDITED','UNAUDITED','REVIEWED','UNKNOWN')),
+    audit_status text NOT NULL CONSTRAINT filing_work_audit_status_check CHECK (audit_status IN ('AUDITED','UNAUDITED','REVIEWED','UNKNOWN')),
     expected_checksum text,
-    state text NOT NULL DEFAULT 'PENDING' CHECK (state IN ('PENDING','RUNNING','ACCEPTED','QUARANTINED','RETRYABLE')),
-    attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    state text NOT NULL DEFAULT 'PENDING' CONSTRAINT filing_work_state_check CHECK (state IN ('PENDING','RUNNING','ACCEPTED','QUARANTINED','RETRYABLE')),
+    attempt_count integer NOT NULL DEFAULT 0 CONSTRAINT filing_work_attempt_count_check CHECK (attempt_count >= 0),
     lease_token uuid,
     lease_owner text,
     lease_expires_at timestamptz,
@@ -25,16 +25,18 @@ CREATE TABLE filing_work_items (
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     state_changed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-    PRIMARY KEY (issuer_id, filing_type, period_end, restatement_version),
-    CHECK ((state = 'RUNNING') = (lease_token IS NOT NULL AND lease_owner IS NOT NULL AND lease_owner <> '' AND lease_expires_at IS NOT NULL)),
-    CHECK (state <> 'RUNNING' OR lease_expires_at > created_at),
-    CHECK (state IN ('PENDING','RUNNING','RETRYABLE') OR artifact_id IS NOT NULL),
-    CHECK (state <> 'ACCEPTED' OR artifact_status = 'ACCEPTED'),
-    CHECK (state <> 'QUARANTINED' OR (artifact_status = 'QUARANTINED' AND last_error_summary IS NOT NULL AND btrim(last_error_summary) <> '')),
-    CHECK (state <> 'ACCEPTED' OR accepted_artifact_id = artifact_id),
-    CHECK (state <> 'ACCEPTED' OR accepted_checksum = artifact_checksum),
-    CHECK (last_error_class IS NULL OR last_error_class IN ('TRANSIENT','PROVIDER','DATABASE','VALIDATION','SCHEMA','PROVENANCE','CONFLICT','UNKNOWN')),
-    CHECK (last_error_summary IS NULL OR last_error_summary IN ('LEASE_EXPIRED','PROVIDER_UNAVAILABLE','DATABASE_UNAVAILABLE','VALIDATION_FAILED','SCHEMA_INVALID','PROVENANCE_CONFLICT','ARTIFACT_MISMATCH','UNKNOWN_FAILURE'))
+    CONSTRAINT filing_work_identity_pkey PRIMARY KEY (issuer_id, filing_type, period_end, restatement_version),
+    CONSTRAINT filing_work_lease_fields_check CHECK ((state = 'RUNNING') = (lease_token IS NOT NULL AND lease_owner IS NOT NULL AND lease_owner <> '' AND lease_expires_at IS NOT NULL)),
+    CONSTRAINT filing_work_running_expiry_check CHECK (state <> 'RUNNING' OR lease_expires_at > created_at),
+    CONSTRAINT filing_work_terminal_artifact_check CHECK (state IN ('PENDING','RUNNING','RETRYABLE') OR artifact_id IS NOT NULL),
+    CONSTRAINT filing_work_accepted_status_check CHECK (state <> 'ACCEPTED' OR artifact_status = 'ACCEPTED'),
+    CONSTRAINT filing_work_quarantine_reason_check CHECK (state <> 'QUARANTINED' OR (artifact_status = 'QUARANTINED' AND last_error_summary IS NOT NULL AND btrim(last_error_summary) <> '')),
+    CONSTRAINT filing_work_accepted_artifact_check CHECK (state <> 'ACCEPTED' OR accepted_artifact_id = artifact_id),
+    CONSTRAINT filing_work_accepted_checksum_check CHECK (state <> 'ACCEPTED' OR accepted_checksum = artifact_checksum),
+    CONSTRAINT filing_work_error_class_check CHECK (last_error_class IS NULL OR last_error_class IN ('TRANSIENT','PROVIDER','DATABASE','VALIDATION','SCHEMA','PROVENANCE','CONFLICT','UNKNOWN')),
+    CONSTRAINT filing_work_error_summary_check CHECK (last_error_summary IS NULL OR last_error_summary IN ('LEASE_EXPIRED','PROVIDER_UNAVAILABLE','DATABASE_UNAVAILABLE','VALIDATION_FAILED','SCHEMA_INVALID','PROVENANCE_CONFLICT','ARTIFACT_MISMATCH','UNKNOWN_FAILURE')),
+    CONSTRAINT filing_work_error_class_length_check CHECK (last_error_class IS NULL OR length(last_error_class) <= 32),
+    CONSTRAINT filing_work_error_summary_length_check CHECK (last_error_summary IS NULL OR length(last_error_summary) <= 64)
 );
 
 CREATE TABLE filing_work_attempts (
@@ -43,10 +45,10 @@ CREATE TABLE filing_work_attempts (
     filing_type text NOT NULL,
     period_end date NOT NULL,
     restatement_version integer NOT NULL,
-    attempt_number integer NOT NULL CHECK (attempt_number > 0),
+    attempt_number integer NOT NULL CONSTRAINT filing_work_attempt_number_check CHECK (attempt_number > 0),
     lease_token uuid NOT NULL,
-    worker_id text NOT NULL CHECK (worker_id <> ''),
-    run_id text NOT NULL CHECK (run_id <> ''),
+    worker_id text NOT NULL CONSTRAINT filing_work_attempt_worker_check CHECK (worker_id <> ''),
+    run_id text NOT NULL CONSTRAINT filing_work_attempt_run_check CHECK (run_id <> ''),
     lease_expires_at timestamptz NOT NULL,
     source_url text NOT NULL,
     expected_checksum text,
@@ -59,13 +61,15 @@ CREATE TABLE filing_work_attempts (
     artifact_checksum text,
     artifact_source_url text,
     artifact_status text CHECK (artifact_status IS NULL OR artifact_status IN ('ACCEPTED','QUARANTINED')),
-    UNIQUE (issuer_id, filing_type, period_end, restatement_version, lease_token),
-    UNIQUE (issuer_id, filing_type, period_end, restatement_version, attempt_number),
-    FOREIGN KEY (issuer_id, filing_type, period_end, restatement_version)
+    CONSTRAINT filing_work_attempt_lease_unique UNIQUE (issuer_id, filing_type, period_end, restatement_version, lease_token),
+    CONSTRAINT filing_work_attempt_number_unique UNIQUE (issuer_id, filing_type, period_end, restatement_version, attempt_number),
+    CONSTRAINT filing_work_attempt_identity_fkey FOREIGN KEY (issuer_id, filing_type, period_end, restatement_version)
       REFERENCES filing_work_items(issuer_id, filing_type, period_end, restatement_version),
-    CHECK ((finished_at IS NULL) = (outcome_state IS NULL)),
-    CHECK (error_class IS NULL OR error_class IN ('TRANSIENT','PROVIDER','DATABASE','VALIDATION','SCHEMA','PROVENANCE','CONFLICT','UNKNOWN')),
-    CHECK (error_summary IS NULL OR error_summary IN ('LEASE_EXPIRED','PROVIDER_UNAVAILABLE','DATABASE_UNAVAILABLE','VALIDATION_FAILED','SCHEMA_INVALID','PROVENANCE_CONFLICT','ARTIFACT_MISMATCH','UNKNOWN_FAILURE'))
+    CONSTRAINT filing_work_attempt_completion_check CHECK ((finished_at IS NULL) = (outcome_state IS NULL)),
+    CONSTRAINT filing_work_attempt_error_class_check CHECK (error_class IS NULL OR error_class IN ('TRANSIENT','PROVIDER','DATABASE','VALIDATION','SCHEMA','PROVENANCE','CONFLICT','UNKNOWN')),
+    CONSTRAINT filing_work_attempt_error_summary_check CHECK (error_summary IS NULL OR error_summary IN ('LEASE_EXPIRED','PROVIDER_UNAVAILABLE','DATABASE_UNAVAILABLE','VALIDATION_FAILED','SCHEMA_INVALID','PROVENANCE_CONFLICT','ARTIFACT_MISMATCH','UNKNOWN_FAILURE')),
+    CONSTRAINT filing_work_attempt_error_class_length_check CHECK (error_class IS NULL OR length(error_class) <= 32),
+    CONSTRAINT filing_work_attempt_error_summary_length_check CHECK (error_summary IS NULL OR length(error_summary) <= 64)
 );
 
 CREATE INDEX filing_work_items_state_idx ON filing_work_items(state, lease_expires_at, period_end, issuer_id, filing_type);
@@ -76,6 +80,19 @@ BEGIN
   NEW.created_at := clock_timestamp();
   NEW.updated_at := NEW.created_at;
   NEW.state_changed_at := NEW.created_at;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION enforce_initial_filing_work_state() RETURNS trigger AS $$
+BEGIN
+  IF NEW.state <> 'PENDING' OR NEW.attempt_count <> 0 OR NEW.lease_token IS NOT NULL
+     OR NEW.lease_owner IS NOT NULL OR NEW.lease_expires_at IS NOT NULL OR NEW.artifact_id IS NOT NULL
+     OR NEW.artifact_checksum IS NOT NULL OR NEW.artifact_source_url IS NOT NULL OR NEW.artifact_status IS NOT NULL
+     OR NEW.accepted_artifact_id IS NOT NULL OR NEW.accepted_checksum IS NOT NULL
+     OR NEW.last_error_class IS NOT NULL OR NEW.last_error_summary IS NOT NULL THEN
+    RAISE EXCEPTION 'filing work must be inserted as clean pending work';
+  END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -92,12 +109,14 @@ BEGIN
     IF NEW.state <> OLD.state OR NEW.attempt_count <> OLD.attempt_count
        OR NEW.artifact_id IS DISTINCT FROM OLD.artifact_id OR NEW.artifact_checksum IS DISTINCT FROM OLD.artifact_checksum
        OR NEW.artifact_source_url IS DISTINCT FROM OLD.artifact_source_url OR NEW.artifact_status IS DISTINCT FROM OLD.artifact_status
+       OR NEW.accepted_artifact_id IS DISTINCT FROM OLD.accepted_artifact_id OR NEW.accepted_checksum IS DISTINCT FROM OLD.accepted_checksum
        OR NEW.last_error_class IS DISTINCT FROM OLD.last_error_class OR NEW.last_error_summary IS DISTINCT FROM OLD.last_error_summary THEN
       RAISE EXCEPTION 'terminal filing work is immutable';
     END IF;
   ELSIF OLD.state = 'RUNNING' AND NEW.state = 'RUNNING' THEN
     IF NEW.artifact_id IS DISTINCT FROM OLD.artifact_id OR NEW.artifact_checksum IS DISTINCT FROM OLD.artifact_checksum
        OR NEW.artifact_source_url IS DISTINCT FROM OLD.artifact_source_url OR NEW.artifact_status IS DISTINCT FROM OLD.artifact_status
+       OR NEW.accepted_artifact_id IS DISTINCT FROM OLD.accepted_artifact_id OR NEW.accepted_checksum IS DISTINCT FROM OLD.accepted_checksum
        OR NEW.last_error_class IS DISTINCT FROM OLD.last_error_class OR NEW.last_error_summary IS DISTINCT FROM OLD.last_error_summary
        OR NEW.lease_expires_at <= OLD.lease_expires_at THEN
       RAISE EXCEPTION 'active filing lease fields are immutable';
@@ -129,7 +148,8 @@ BEGIN
     IF OLD.state IN ('PENDING','RETRYABLE') AND NEW.state = OLD.state
        AND (NEW.attempt_count <> OLD.attempt_count OR NEW.artifact_id IS DISTINCT FROM OLD.artifact_id
             OR NEW.artifact_checksum IS DISTINCT FROM OLD.artifact_checksum OR NEW.artifact_source_url IS DISTINCT FROM OLD.artifact_source_url
-            OR NEW.artifact_status IS DISTINCT FROM OLD.artifact_status OR NEW.last_error_class IS DISTINCT FROM OLD.last_error_class
+            OR NEW.artifact_status IS DISTINCT FROM OLD.artifact_status OR NEW.accepted_artifact_id IS DISTINCT FROM OLD.accepted_artifact_id
+            OR NEW.accepted_checksum IS DISTINCT FROM OLD.accepted_checksum OR NEW.last_error_class IS DISTINCT FROM OLD.last_error_class
             OR NEW.last_error_summary IS DISTINCT FROM OLD.last_error_summary) THEN
       RAISE EXCEPTION 'unclaimed filing work fields are immutable';
     END IF;
@@ -178,7 +198,8 @@ BEGIN
       AND restatement_version = NEW.restatement_version FOR SHARE;
   IF NEW.finished_at IS NOT NULL OR NEW.outcome_state IS NOT NULL
      OR NOT FOUND OR item.state <> 'RUNNING' OR item.lease_token <> NEW.lease_token
-     OR item.attempt_count <> NEW.attempt_number OR item.lease_expires_at <> NEW.lease_expires_at THEN
+     OR item.attempt_count <> NEW.attempt_number OR item.lease_expires_at <> NEW.lease_expires_at
+     OR item.source_url <> NEW.source_url OR item.expected_checksum IS DISTINCT FROM NEW.expected_checksum THEN
     RAISE EXCEPTION 'attempt must match one active filing lease';
   END IF;
   NEW.started_at := clock_timestamp();
@@ -256,6 +277,8 @@ $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER filing_work_acceptance_guard BEFORE INSERT OR UPDATE ON filing_work_items
 FOR EACH ROW EXECUTE FUNCTION enforce_filing_work_acceptance();
+CREATE TRIGGER filing_work_initial_state_guard BEFORE INSERT ON filing_work_items
+FOR EACH ROW EXECUTE FUNCTION enforce_initial_filing_work_state();
 CREATE TRIGGER filing_work_item_clock_guard BEFORE INSERT ON filing_work_items
 FOR EACH ROW EXECUTE FUNCTION set_filing_work_item_clock();
 CREATE TRIGGER filing_work_item_transition_guard BEFORE UPDATE ON filing_work_items

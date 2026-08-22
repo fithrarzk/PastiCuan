@@ -234,8 +234,12 @@ class SnapshotRepository:
     def _error_fields(cls, error_class: str | None, error_summary: str | None) -> tuple:
         if error_class is None and error_summary is None:
             return None, None
-        clean_class = str(error_class or "UNKNOWN").strip().upper()
-        clean_summary = str(error_summary or "").strip().upper()
+        if error_class is not None and not isinstance(error_class, str):
+            raise ValueError("invalid stable filing error")
+        if error_summary is not None and not isinstance(error_summary, str):
+            raise ValueError("invalid stable filing error")
+        clean_class = (error_class or "UNKNOWN").strip().upper()
+        clean_summary = (error_summary or "").strip().upper()
         if (
             clean_class not in cls._ERROR_CLASSES
             or clean_summary not in cls._ERROR_SUMMARIES
