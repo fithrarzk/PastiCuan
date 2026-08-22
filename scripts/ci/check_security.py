@@ -31,6 +31,7 @@ PATTERNS = (
 
 
 _ALLOWED_LOCAL_DATABASE_URLS = {
+    "postgresql://test",
     "postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ci",
     "postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ascii",
 }
@@ -43,8 +44,6 @@ def _safe_database_url(value: str, path: Path) -> bool:
         parsed = urlsplit(value)
     except ValueError:
         return False
-    if not parsed.password:
-        return True
     return (
         path.name == ".env.example"
         and parsed.hostname == "pooler.example"

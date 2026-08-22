@@ -54,10 +54,7 @@ def normalize_version(value: object) -> str:
     """Normalize PostgreSQL text values from UTF-8 and SQL_ASCII adapters."""
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="strict")
-    rendered = str(value)
-    if rendered.startswith("b'") and rendered.endswith("'"):
-        return rendered[2:-1]
-    return rendered
+    return str(value)
 
 
 def immutable_against(directory: Path, base_ref: str) -> None:
@@ -129,7 +126,7 @@ def repository_compatibility(connection: Any, expected_versions: set[str]) -> No
     from storage.repository import SnapshotRepository
 
     migrations = SnapshotRepository(lambda: connection).applied_schema_migrations()
-    observed = {normalize_version(version) for version in migrations}
+    observed = set(migrations)
     if observed != expected_versions:
         raise RuntimeError(
             f"repository migration mismatch: expected {sorted(expected_versions)}, "

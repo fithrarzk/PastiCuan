@@ -45,11 +45,14 @@ jobs:
   test:
     name: test
     needs: verify-head
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.sha }}
@@ -67,9 +70,12 @@ jobs:
   unit:
     name: unit
     needs: verify-head
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.sha }}
@@ -84,9 +90,12 @@ jobs:
   quality:
     name: quality
     needs: verify-head
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.sha }}
@@ -104,9 +113,12 @@ jobs:
   workflow-policy:
     name: workflow-policy
     needs: verify-head
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.sha }}
@@ -119,6 +131,7 @@ jobs:
   migration:
     name: migration
     needs: verify-head
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -130,6 +143,8 @@ jobs:
           --health-cmd "pg_isready -U pasticuan_ci -d pasticuan_ci"
           --health-interval 5s --health-timeout 5s --health-retries 20
     steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.sha }}
@@ -150,9 +165,12 @@ jobs:
   container-smoke:
     name: container-smoke
     needs: verify-head
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.sha }}
@@ -162,9 +180,12 @@ jobs:
   manifest-validate:
     name: manifest-validate
     needs: verify-head
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.sha }}
@@ -177,9 +198,12 @@ jobs:
   security:
     name: security
     needs: verify-head
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.sha }}

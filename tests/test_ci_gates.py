@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.ci.check_migrations import migration_checksums
+from scripts.ci.check_migrations import migration_checksums, repository_compatibility
 from scripts.ci.check_migrations import migration_pairs, normalize_version, read_sql
 from scripts.ci.check_security import scan_paths
 from scripts.ci.check_workflow_policy import _workflow_data, validate_workflow
@@ -35,6 +35,34 @@ class MigrationGateTests(unittest.TestCase):
                 read_sql(root / "001_demo.up.sql")
         self.assertEqual(normalize_version(b"001_demo"), "001_demo")
         self.assertEqual(normalize_version("001_demo"), "001_demo")
+        self.assertEqual(normalize_version("b'001_demo'"), "b'001_demo'")
+
+    def test_repository_compatibility_rejects_stringified_bytes(self):
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def execute(self, _query):
+                return None
+
+            def fetchall(self):
+                return [(b"001_demo",)]
+
+        class Connection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def cursor(self):
+                return Cursor()
+
+        with self.assertRaisesRegex(RuntimeError, "repository migration mismatch"):
+            repository_compatibility(Connection(), {"001_demo"})
 
 
 class ManifestGateTests(unittest.TestCase):
@@ -187,7 +215,15 @@ jobs:
             "manifest-validate",
             "security",
         ):
-            self.assertEqual(workflow["jobs"][job_name].get("needs"), "verify-head")
+            job = workflow["jobs"][job_name]
+            self.assertEqual(job.get("needs"), "verify-head")
+            self.assertEqual(job.get("if"), "${{ always() }}")
+            runs = "\n".join(
+                step.get("run", "")
+                for step in job.get("steps", [])
+                if isinstance(step, dict)
+            )
+            self.assertIn('test "${{ needs.verify-head.result }}" = success', runs)
 
     def test_quality_discovery_is_nul_safe_and_excludes_deleted_paths(self):
         for name in ("ci.yml", "validate-branch.yml"):
@@ -229,6 +265,13 @@ class SecurityGateTests(unittest.TestCase):
             path.write_text(
                 "postgres" + "ql://user:actual-secret@pooler.example/research"
             )
+            findings = scan_paths([path])
+        self.assertEqual(findings, [(str(path), "database URL")])
+
+    def test_passwordless_private_database_url_is_not_allowed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "fixture.txt"
+            path.write_text("postgres" + "ql://user@db.internal/research")
             findings = scan_paths([path])
         self.assertEqual(findings, [(str(path), "database URL")])
 
