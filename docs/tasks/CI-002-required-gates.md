@@ -5,14 +5,14 @@
 - Owner/model: Luna implementation, Sol security review
 - Reasoning effort: high implementation, high review
 - Context budget: `AGENTS.md`, `CONTEXT.md`, `.agents/skills/tdd/{SKILL,tests,mocking}.md`, this card, `docs/specs/ci-cd-contract.md`, and the exact owned files; maximum 28k tokens
-- Retry ceiling: three bounded implementation cycles; security findings do not auto-waive
+- Retry ceiling: four bounded implementation cycles; the fourth is authorized only for the final-review cross-job, SQL-ASCII repository, credential-bypass, and failure-path findings; security findings do not auto-waive
 - Escalation condition: a required external service cannot run on GitHub's free runner or ruleset administration is unavailable
 - Parallelism: one Luna implementation agent; one root integration owner; two later read-only reviewers. No nested writers.
 - Base SHA: `693af474baa11d73ad41d116b626a1bb44e5ed3d`; synchronized through `a60a561c0c70192979107777843f420b941db67a`
 - Branch: `feat/CI-002-required-gates`
 - Worktree: `../PastiCuan-wt/ci-002-required-gates`
 - Depends on: CI-001, CI-002A
-- File ownership: `.github/workflows/test.yml`, `.github/workflows/validate-branch.yml`, `.github/workflows/ci.yml` (new), `.dockerignore` (new), `Dockerfile`, `requirements-ci.txt` (new), `scripts/ci/check_migrations.py` (new), `scripts/ci/check_workflow_policy.py` (new), `scripts/ci/validate_manifest.py` (new), `scripts/ci/check_security.py` (new correction seam), `scripts/ci/container_smoke.sh` (new correction seam), `tests/test_ci_gates.py` (new), `tests/test_workflow_policy.py`, this task card, and `docs/tasks/CLAIMS.md` (root orchestrator only)
+- File ownership: `.github/workflows/test.yml`, `.github/workflows/validate-branch.yml`, `.github/workflows/ci.yml` (new), `.dockerignore` (new), `Dockerfile`, `requirements-ci.txt` (new), `scripts/ci/check_migrations.py` (new), `scripts/ci/check_workflow_policy.py` (new), `scripts/ci/validate_manifest.py` (new), `scripts/ci/check_security.py` (new correction seam), `scripts/ci/check_dependencies.sh` (new correction seam), `scripts/ci/container_smoke.sh` (new correction seam), `tests/test_ci_gates.py` (new), `tests/test_workflow_policy.py`, this task card, and `docs/tasks/CLAIMS.md` (root orchestrator only)
 - Merge policy: autonomous
 
 ## Outcome
@@ -60,4 +60,4 @@ Land workflows while retaining the old `test` producer. Observe all new checks o
 
 ## Handoff
 
-CI-002A merged as `a60a561`, restoring a supported dependency chain without an advisory waiver. Record timings, cache behavior, check names, ruleset state, failure fixtures, and runner-cost estimate after the synchronized gates are verified.
+CI-002A merged as `a60a561`, restoring a supported dependency chain without an advisory waiver. A fourth and final correction cycle was authorized after independent review found that generated stable jobs could skip behind legacy `test`, repository SQL-ASCII byte values were not compared exactly, database-URL placeholders could overmatch, and container/dependency negative paths were not proved. Record timings, cache behavior, check names, ruleset state, failure fixtures, and runner-cost estimate after the synchronized gates are verified.
