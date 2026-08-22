@@ -348,6 +348,8 @@ class ContainerGateTests(unittest.TestCase):
         self.assertEqual(len(from_line.split()), 2)
         smoke = (ROOT / "scripts/ci/container_smoke.sh").read_text()
         self.assertIn("os.getenv('PORT','8080')", dockerfile)
+        self.assertIn("HEALTHCHECK", dockerfile)
+        self.assertNotIn("CMD-SHELL", dockerfile)
         self.assertIn("UVICORN_LIFESPAN=off", smoke)
         self.assertIn("docker run --detach", smoke)
         self.assertNotIn("uvicorn bot_webhook", smoke)
