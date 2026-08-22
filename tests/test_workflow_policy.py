@@ -20,7 +20,7 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
     def test_discovery_reuses_one_review_branch_and_pr(self):
         self.assertIn('branch="idx-manifest-review"', IDX_WORKFLOW)
         self.assertRegex(IDX_WORKFLOW, r"gh pr list .*--head \"\$branch\"")
-        self.assertIn("if [[ -z \"$pr_number\" ]]", IDX_WORKFLOW)
+        self.assertIn('if [[ -z "$pr_number" ]]', IDX_WORKFLOW)
         self.assertNotIn("GITHUB_RUN_ID", IDX_WORKFLOW)
 
     def test_existing_review_branch_is_synchronized_with_main(self):
@@ -47,7 +47,9 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
             "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0",
             VALIDATE_WORKFLOW,
         )
-        self.assertNotRegex(VALIDATE_WORKFLOW, r"(?m)^\s+- uses: [^\n]+@(v\d|main|master)\b")
+        self.assertNotRegex(
+            VALIDATE_WORKFLOW, r"(?m)^\s+- uses: [^\n]+@(v\d|main|master)\b"
+        )
         self.assertIn("git rev-parse HEAD", VALIDATE_WORKFLOW)
         self.assertIn("git ls-remote origin", VALIDATE_WORKFLOW)
         self.assertIn("EXPECTED_SHA", VALIDATE_WORKFLOW)

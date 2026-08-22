@@ -20,8 +20,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: test
+  verify-head:
+    name: verify-head
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -42,12 +42,174 @@ jobs:
           [[ -n "$remote_sha" ]]
           [[ "$actual_sha" == "$EXPECTED_SHA" ]]
           [[ "$remote_sha" == "$EXPECTED_SHA" ]]
+  test:
+    name: test
+    needs: verify-head
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements-bot.txt
+      - run: pip install -r requirements-bot.txt -r requirements-ci.txt
       - run: python -m compileall -q analysis data storage operations telegram_utils bot.py bot_webhook.py
       - name: Check reviewed calculation release
         run: python -m operations.research_cli check-research-release --base-ref origin/main
       - run: python -m unittest discover -s tests -v
+
+  unit:
+    name: unit
+    needs: verify-head
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -r requirements-bot.txt -r requirements-ci.txt
+      - run: python -m compileall -q analysis data storage operations telegram_utils bot.py bot_webhook.py
+      - run: python -m operations.research_cli check-research-release --base-ref origin/main
+      - run: python -m unittest discover -s tests -v
+
+  quality:
+    name: quality
+    needs: verify-head
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with: {python-version: "3.12"}
+      - run: pip install -r requirements-ci.txt
+      - run: |
+          mapfile -d '' changed < <(git diff --name-only -z --diff-filter=ACMR origin/main...HEAD -- '*.py')
+          if (( ${#changed[@]} == 0 )); then echo 'No changed Python files.'; exit 0; fi
+          ruff format --check -- "${changed[@]}"
+          ruff check -- "${changed[@]}"
+          mypy --follow-imports=skip --ignore-missing-imports --disable-error-code=import-untyped -- "${changed[@]}"
+
+  workflow-policy:
+    name: workflow-policy
+    needs: verify-head
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with: {python-version: "3.12"}
+      - run: pip install -r requirements-ci.txt
+      - run: python scripts/ci/check_workflow_policy.py --base-ref origin/main --required-jobs
+
+  migration:
+    name: migration
+    needs: verify-head
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16@sha256:56f243d2355bad7d2016b1e78b80da8ac9e7967b766be2bfbff84fe85ffa30bc # PostgreSQL 16 amd64
+        env: {POSTGRES_USER: pasticuan_ci, POSTGRES_PASSWORD: pasticuan_ci, POSTGRES_DB: pasticuan_ci}
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U pasticuan_ci -d pasticuan_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with: {python-version: "3.12"}
+      - run: pip install -r requirements-bot.txt -r requirements-ci.txt
+      - name: Create SQL-ASCII compatibility database
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect('postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ci', autocommit=True) as connection:
+              connection.execute("CREATE DATABASE pasticuan_ascii ENCODING 'SQL_ASCII' TEMPLATE template0")
+          PY
+      - run: python scripts/ci/check_migrations.py --database-url postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ci --base-ref origin/main
+      - run: python scripts/ci/check_migrations.py --database-url postgresql://pasticuan_ci:pasticuan_ci@localhost:5432/pasticuan_ascii --base-ref origin/main
+
+  container-smoke:
+    name: container-smoke
+    needs: verify-head
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.sha }}
+      - run: docker build --pull=false --tag pasticuan-validation:${{ inputs.sha }} .
+      - run: PORT=18080 scripts/ci/container_smoke.sh "pasticuan-validation:${{ inputs.sha }}"
+
+  manifest-validate:
+    name: manifest-validate
+    needs: verify-head
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+      - run: |
+          git fetch origin main --depth=1
+          python scripts/ci/validate_manifest.py data/idx_filing_manifest.json --kind filing --baseline <(git show origin/main:data/idx_filing_manifest.json)
+          python scripts/ci/validate_manifest.py data/source_manifest.json --kind source --baseline <(git show origin/main:data/source_manifest.json)
+
+  security:
+    name: security
+    needs: verify-head
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require verified branch head
+        run: test "${{ needs.verify-head.result }}" = success
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with: {python-version: "3.12"}
+      - run: pip install -r requirements-ci.txt
+      - run: python scripts/ci/check_security.py
+      - run: python -m pip check
+      - run: scripts/ci/check_dependencies.sh
