@@ -49,7 +49,7 @@ class MigrationGateTests(unittest.TestCase):
                 return None
 
             def fetchall(self):
-                return [(b"001_demo",)]
+                return [("b'001_demo'",)]
 
         class Connection:
             def __enter__(self):
