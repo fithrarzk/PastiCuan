@@ -34,8 +34,8 @@ jobs:
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
           cache: pip
@@ -43,6 +43,7 @@ jobs:
       - name: Refresh and publish verified research
         shell: bash
         run: |
+          set +e
           flags=()
           if [[ -n "$R2_BUCKET" ]]; then flags+=(--r2); fi
           if [[ "${{ github.event.schedule }}" == "0 14 * * 1-5" || "${{ inputs.final_attempt }}" == "true" ]]; then
@@ -50,6 +51,17 @@ jobs:
           fi
           python -m operations.research_cli run-daily-research \
             --output /tmp/daily-research-report.json "${flags[@]}"
+          exit_code=$?
+          set -e
+          case "$exit_code" in
+            10)
+              echo "Research attempt is waiting for the completed session; scheduled attempt is recorded."
+              exit 0
+              ;;
+            *)
+              exit "$exit_code"
+              ;;
+          esac
       - name: Add run summary
         if: always()
         run: |
@@ -58,7 +70,7 @@ jobs:
             python -m json.tool /tmp/daily-research-report.json >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: daily-research-${{ github.run_id }}

@@ -10,7 +10,9 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from enum import Enum
 import json
-from typing import Any
+from decimal import Decimal
+import math
+from typing import Any, cast
 
 
 ANALYSIS_VERSION = "4.0.0-shadow"
@@ -126,7 +128,7 @@ class AnalysisBundle:
         return payload
 
     def to_json(self) -> str:
-        return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
+        return strict_json_dumps(self.to_dict(), separators=(",", ":"))
 
 
 @dataclass
@@ -153,8 +155,42 @@ class ScanBundle:
 
 def _json_safe(value: Any) -> Any:
     """Convert pandas/numpy/datetime values without inventing replacements."""
+    if value.__class__.__name__ in {"NAType", "NaTType"}:
+        return None
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            return None
+        return float(value)
+    if isinstance(value, complex):
+        return (
+            None
+            if not math.isfinite(value.real) or not math.isfinite(value.imag)
+            else str(value)
+        )
+    type_name = value.__class__.__name__
+    if type_name == "longdouble":
+        number = float(value)
+        return number if math.isfinite(number) else None
+    if type_name == "clongdouble":
+        real, imaginary = float(value.real), float(value.imag)
+        return (
+            None
+            if not math.isfinite(real) or not math.isfinite(imaginary)
+            else str(complex(real, imaginary))
+        )
+    dtype_name = str(getattr(value, "dtype", ""))
+    if dtype_name in {"float128", "longdouble"}:
+        number = float(value)
+        return number if math.isfinite(number) else None
+    if "complex" in dtype_name:
+        real, imaginary = float(value.real), float(value.imag)
+        return (
+            None
+            if not math.isfinite(real) or not math.isfinite(imaginary)
+            else str(complex(real, imaginary))
+        )
     if value is None or isinstance(value, (str, int, float, bool)):
-        if isinstance(value, float) and (value != value or abs(value) == float("inf")):
+        if isinstance(value, float) and not math.isfinite(value):
             return None
         return value
     if isinstance(value, Enum):
@@ -165,9 +201,20 @@ def _json_safe(value: Any) -> Any:
         return {str(k): _json_safe(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(v) for v in value]
-    if hasattr(value, "item"):
-        return _json_safe(value.item())
     # DataFrames stay out of the serialized evidence contract.
     if value.__class__.__name__ in {"DataFrame", "Series"}:
         return None
+    if hasattr(value, "tolist"):
+        return _json_safe(value.tolist())
+    if hasattr(value, "item"):
+        return _json_safe(value.item())
     return str(value)
+
+
+def strict_json_dumps(value: Any, **kwargs: Any) -> str:
+    """Serialize a contract without allowing NaN or infinity JSON tokens."""
+    options = {"sort_keys": True, "allow_nan": False}
+    options.update(kwargs)
+    options["allow_nan"] = False
+    dumps = cast(Any, json.dumps)
+    return dumps(_json_safe(value), **options)

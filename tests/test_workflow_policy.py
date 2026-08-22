@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 IDX_WORKFLOW = (ROOT / ".github/workflows/idx-filings.yml").read_text()
 VALIDATE_WORKFLOW = (ROOT / ".github/workflows/validate-branch.yml").read_text()
+RESEARCH_WORKFLOW = (ROOT / ".github/workflows/research-daily.yml").read_text()
 
 
 class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
@@ -55,6 +56,25 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("EXPECTED_SHA", VALIDATE_WORKFLOW)
         self.assertRegex(VALIDATE_WORKFLOW, r"(?m)^\s+test:\s*$")
         self.assertIn("python -m unittest discover -s tests -v", VALIDATE_WORKFLOW)
+
+    def test_research_job_normalizes_only_waiting_exit(self):
+        self.assertIn(
+            "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1",
+            RESEARCH_WORKFLOW,
+        )
+        self.assertIn(
+            "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0",
+            RESEARCH_WORKFLOW,
+        )
+        self.assertIn(
+            "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2",
+            RESEARCH_WORKFLOW,
+        )
+        self.assertIn('case "$exit_code" in', RESEARCH_WORKFLOW)
+        self.assertIn("10)", RESEARCH_WORKFLOW)
+        self.assertIn("exit 0", RESEARCH_WORKFLOW)
+        self.assertIn('exit "$exit_code"', RESEARCH_WORKFLOW)
+        self.assertIn("--output /tmp/daily-research-report.json", RESEARCH_WORKFLOW)
 
 
 if __name__ == "__main__":
