@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from data.filing_manifest import ManifestError, exact_identity, merge_manifests
+from scripts.ci.check_workflow_policy import validate_workflow
 
 
 def filing(version=1, ticker="TEST", **changes):
@@ -22,6 +23,55 @@ def filing(version=1, ticker="TEST", **changes):
 
 
 class FilingManifestTests(unittest.TestCase):
+    def test_idx_workflow_syncs_before_merge_and_policy_allowlist_is_exact(self):
+        workflow_path = (
+            Path(__file__).resolve().parents[1] / ".github/workflows/idx-filings.yml"
+        )
+        text = workflow_path.read_text()
+        self.assertLess(
+            text.index('git checkout -b "$branch" origin/main'),
+            text.index("python -m data.filing_manifest"),
+        )
+        self.assertNotIn(
+            "cp /tmp/idx_filing_manifest.json data/idx_filing_manifest.json", text
+        )
+        self.assertNotRegex(
+            text, r"uses: actions/(checkout|setup-python|upload-artifact)@v"
+        )
+        self.assertEqual(validate_workflow(workflow_path), [])
+
+        minimal = """name: idx-filings
+on: workflow_dispatch
+permissions: {contents: read}
+concurrency: {group: idx}
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {contents: write, pull-requests: write, actions: write}
+    steps: [{uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5}]
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {contents: read, actions: write}
+    steps: [{uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5}]
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "idx-filings.yml"
+            path.write_text(minimal)
+            self.assertEqual(validate_workflow(path), [])
+            path.write_text(
+                minimal.replace(
+                    "contents: read, actions: write", "contents: write, actions: write"
+                )
+            )
+            self.assertTrue(
+                any(
+                    "permissions must be exactly" in error
+                    for error in validate_workflow(path)
+                )
+            )
+
     def test_merge_preserves_baseline_and_appends_restatement(self):
         result = merge_manifests(
             {"discovery": {"year": 2026}, "filings": [filing()]},

@@ -12,7 +12,7 @@
 - Branch: `feat/ING-001-cumulative-filing-manifest`
 - Worktree: `../PastiCuan-wt/ing-001-cumulative-filing-manifest`
 - Depends on: CI-002
-- File ownership: `data/filing_manifest.py` (new), `scripts/ci/validate_manifest.py`, `.github/workflows/idx-filings.yml`, `tests/test_filing_manifest.py` (new), `docs/architecture/data-lifecycle.md`, `docs/reference/command-data-dictionary.md`, `docs/runbooks/backfill.md`, this task card, and `docs/tasks/CLAIMS.md` (root orchestrator only)
+- File ownership: `data/filing_manifest.py` (new), `scripts/ci/validate_manifest.py`, `scripts/ci/check_workflow_policy.py`, `.github/workflows/idx-filings.yml`, `tests/test_filing_manifest.py` (new), `docs/architecture/data-lifecycle.md`, `docs/reference/command-data-dictionary.md`, `docs/runbooks/backfill.md`, this task card; `tests/test_workflow_policy.py` is excluded (REG-001 ownership), and `docs/tasks/CLAIMS.md` is root orchestrator only
 - Merge policy: autonomous
 
 ## Outcome
