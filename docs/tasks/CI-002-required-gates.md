@@ -1,6 +1,6 @@
 # CI-002: Required pull-request gates
 
-- Status: active
+- Status: review
 - Priority: P0
 - Owner/model: Luna implementation, Sol security review
 - Reasoning effort: high implementation, high review
@@ -60,4 +60,4 @@ Land workflows while retaining the old `test` producer. Observe all new checks o
 
 ## Handoff
 
-CI-002A merged as `a60a561`, restoring a supported dependency chain without an advisory waiver. The fourth correction closed generated-check fanout, credential scanning, quality-path, and failure-path findings. CI-002B merged as `6484912`, fixing SQL-ASCII migration identity decoding at the storage boundary without weakening the exact gate. Record timings, cache behavior, check names, ruleset state, failure fixtures, and runner-cost estimate after the synchronized gates are verified.
+CI-002A merged as `a60a561`, restoring a supported dependency chain without an advisory waiver. The fourth correction closed generated-check fanout, credential scanning, quality-path, and failure-path findings. CI-002B merged as `6484912`, fixing SQL-ASCII migration identity decoding at the storage boundary without weakening the exact gate. Final local evidence at `20560c2`: 119 clean Python 3.12 tests; six migrations applied twice and compared exactly in both UTF-8 and SQL-ASCII; strict four-profile audit, workflow policy, secret scan, manifest checks, Ruff, Mypy, shell syntax, compilation, release, and diff checks passed. Independent Standards and Spec reviews report zero findings. Docker build/start, real PR/generated check timings, current-head check names, ruleset transition, and post-merge evidence remain rollout obligations.
