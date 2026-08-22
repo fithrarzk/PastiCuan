@@ -50,7 +50,7 @@ def build_snapshot(input_path: str, output_path: str, effective_at: str, model_v
         frame, as_of=effective_at, min_universe=10, allow_global_fallback=True,
     )
     if result["status"] != "AVAILABLE":
-        raise ValueError(result["reason"])
+        raise EvidenceUnavailable()
     business = compute_business_scores(frame)
     business_map = {}
     if business["status"] == "AVAILABLE":
@@ -458,6 +458,7 @@ def _report_write_failure(report: dict, repository, base_run: dict) -> dict:
     fallback = _report_with_outcome({"status": "RUNNING", "started_at": report.get("started_at"),
                                      "stages": {}}, result)
     print(strict_json_dumps({key: value for key, value in fallback.items() if key != "stages"}))
+    fallback["_stdout_emitted"] = True
     try:
         repository.record_research_job({
             **base_run, "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -500,9 +501,12 @@ def _redacted_market_summary(summary: dict) -> dict:
 def _is_genuine_current_session_wait(market: dict) -> bool:
     """Only a complete, current universe may use the retryable timing outcome."""
     try:
-        return (int(market.get("session_age", 99)) <= 1
-                and int(market.get("membership_count", 0)) == 45
-                and float(market.get("coverage_pct", 0)) >= 90.0)
+        if int(market.get("membership_count", 0)) != 45:
+            return False
+        if market.get("session_age") is not None and int(market["session_age"]) > 1:
+            return False
+        return (market.get("session_date") == market.get("on_date")
+                and float(market.get("coverage_pct", 0)) < 90.0)
     except (TypeError, ValueError):
         return False
 
@@ -923,11 +927,27 @@ def main(argv=None) -> int:
     sub.add_parser("evaluate-signal-outcomes")
     args = parser.parse_args(argv)
     if args.command == "build-snapshot":
-        build_snapshot(args.input, args.output, args.effective_at, args.model_version)
+        try:
+            build_snapshot(args.input, args.output, args.effective_at, args.model_version)
+        except EvidenceUnavailable:
+            print(strict_json_dumps(outcome(
+                Outcome.UNAVAILABLE, "POINT_IN_TIME_EVIDENCE_UNAVAILABLE", "quant",
+                retryable=True, summary="Required point-in-time factor evidence is unavailable.",
+                action="Complete eligible ingestion and rerun the refresh.",
+            ).to_dict()))
+            return 20
     elif args.command == "approve-snapshot":
         approve_snapshot(args.candidate, args.output, args.status, args.validation_run_id)
     elif args.command == "build-snapshot-from-database":
-        build_snapshot_from_database(args.output, args.effective_at, args.model_version)
+        try:
+            build_snapshot_from_database(args.output, args.effective_at, args.model_version)
+        except EvidenceUnavailable:
+            print(strict_json_dumps(outcome(
+                Outcome.UNAVAILABLE, "POINT_IN_TIME_EVIDENCE_UNAVAILABLE", "quant",
+                retryable=True, summary="Required point-in-time factor evidence is unavailable.",
+                action="Complete eligible ingestion and rerun the refresh.",
+            ).to_dict()))
+            return 20
     elif args.command == "ingest-manifest":
         report = ingest_manifest(args.manifest, archive_directory=args.archive_directory, use_r2=args.r2)
         Path(args.report).write_text(strict_json_dumps(report, indent=2))
@@ -989,7 +1009,8 @@ def main(argv=None) -> int:
             args.output, release_path=args.release, use_r2=args.r2,
             final_attempt=args.final_attempt,
         )
-        print(strict_json_dumps({key: value for key, value in result.items() if key != "stages"}))
+        if not result.pop("_stdout_emitted", False):
+            print(strict_json_dumps({key: value for key, value in result.items() if key != "stages"}))
         return int(result.get("outcome", {}).get("exit_code", 2))
     elif args.command == "check-research-release":
         result = release_provenance(args.release)

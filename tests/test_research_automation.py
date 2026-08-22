@@ -79,8 +79,8 @@ class DailyOrchestrationTests(unittest.TestCase):
         )
         market = {
             "ready": False, "observed": datetime(2026, 8, 18, 12, tzinfo=timezone.utc),
-            "on_date": "2026-08-18", "session_date": "2026-08-14",
-            "coverage_pct": 100.0, "membership_count": membership_count, "imported_count": 0,
+            "on_date": "2026-08-18", "session_date": "2026-08-18",
+            "coverage_pct": 80.0, "membership_count": membership_count, "imported_count": 0,
             "session_age": session_age, "reason": "Current session is not complete.",
             "bases": [], "same_session": [], "excluded": [],
         }

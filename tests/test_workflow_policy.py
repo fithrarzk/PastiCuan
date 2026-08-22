@@ -6,7 +6,6 @@ ROOT = Path(__file__).resolve().parents[1]
 IDX_WORKFLOW = (ROOT / ".github/workflows/idx-filings.yml").read_text()
 VALIDATE_WORKFLOW = (ROOT / ".github/workflows/validate-branch.yml").read_text()
 RESEARCH_WORKFLOW = (ROOT / ".github/workflows/research-daily.yml").read_text()
-RESEARCH_WORKFLOW = (ROOT / ".github/workflows/research-daily.yml").read_text()
 
 
 class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):

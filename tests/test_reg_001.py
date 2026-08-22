@@ -4,13 +4,16 @@ from contextlib import redirect_stdout
 from decimal import Decimal
 from io import StringIO
 import unittest
+from tempfile import TemporaryDirectory
+from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 
 from analysis.contracts import strict_json_dumps
-from operations.job_outcomes import EXIT_CODES, PERSISTED_STATUSES, Outcome
-from operations.research_cli import _report_write_failure
+from operations.job_outcomes import EXIT_CODES, PERSISTED_STATUSES, EvidenceUnavailable, Outcome
+from operations.research_cli import _report_write_failure, build_snapshot, main
 from storage.repository import SnapshotRepository
 
 
@@ -49,6 +52,16 @@ class OperationalOutcomeContractTests(unittest.TestCase):
         self.assertEqual(json.loads(encoded), {
             "missing": [None, None], "decimal": [None, None, 1.25]
         })
+
+    def test_strict_encoder_handles_longdouble_and_complex_nonfinite_values(self):
+        payload = {
+            "longdouble": np.longdouble("inf"),
+            "complex": [complex(float("nan"), 1), np.clongdouble("inf+1j")],
+        }
+        encoded = strict_json_dumps(payload)
+        decoded = json.loads(encoded)
+        self.assertIsNone(decoded["longdouble"])
+        self.assertEqual(decoded["complex"], [None, None])
 
 
 class MigrationPreflightTests(unittest.TestCase):
@@ -155,6 +168,39 @@ class ReportFailureTests(unittest.TestCase):
         self.assertEqual(result["outcome"]["code"], "REPORT_WRITE_FAILED")
         self.assertEqual(len(recorded), 1)
         self.assertNotIn("/", stream.getvalue())
+
+    def test_cli_does_not_duplicate_already_emitted_report_failure(self):
+        stream = StringIO()
+        result = {"status": "FAILED", "_stdout_emitted": True,
+                  "outcome": {"exit_code": 40}, "stages": {}}
+        def failed_run(*args, **kwargs):
+            print('{"outcome":{"exit_code":40}}')
+            return result
+        with patch("operations.research_cli.run_daily_research", side_effect=failed_run), \
+                redirect_stdout(stream):
+            code = main(["run-daily-research", "--output", "unused.json"])
+        self.assertEqual(code, 40)
+        self.assertEqual(len(stream.getvalue().splitlines()), 1)
+
+
+class SnapshotEvidenceTests(unittest.TestCase):
+    def test_computed_unavailable_snapshot_raises_typed_evidence_failure(self):
+        with TemporaryDirectory() as root:
+            input_path = Path(root) / "inputs.csv"
+            input_path.write_text("ticker,close\nTEST,1\n")
+            with patch("operations.research_cli.compute_cross_sectional_factors",
+                       return_value={"status": "UNAVAILABLE", "reason": "not used"}):
+                with self.assertRaises(EvidenceUnavailable):
+                    build_snapshot(str(input_path), str(Path(root) / "snapshot.json"),
+                                   "2026-08-22T00:00:00+00:00", "test-model")
+
+    def test_build_snapshot_cli_maps_typed_evidence_failure_to_exit20(self):
+        with patch("operations.research_cli.build_snapshot", side_effect=EvidenceUnavailable()), \
+                redirect_stdout(StringIO()) as stream:
+            code = main(["build-snapshot", "--input", "inputs.csv", "--output", "snapshot.json",
+                         "--effective-at", "2026-08-22T00:00:00+00:00"])
+        self.assertEqual(code, 20)
+        self.assertEqual(len(stream.getvalue().splitlines()), 1)
 
 
 if __name__ == "__main__":
