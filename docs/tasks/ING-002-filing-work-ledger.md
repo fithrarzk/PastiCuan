@@ -12,7 +12,7 @@
 - Branch/worktree: `feat/ING-002-filing-work-ledger` / `../PastiCuan-wt/ing-002-filing-work-ledger`
 - Issue: #28
 - Depends on: ING-001, verified as `5d8817f`
-- File ownership: `storage/migrations/007_filing_work_ledger.{up,down}.sql` (new), `storage/repository.py`, `storage/supabase_roles.sql`, `scripts/ci/check_migrations.py`, `.github/workflows/ci.yml` (only the disposable migration-check invocation), `tests/test_filing_work_ledger.py` (new), `tests/test_ci_gates.py`, `docs/runbooks/backfill.md`, this card, and `docs/tasks/CLAIMS.md` (root only)
+- File ownership: `storage/migrations/007_filing_work_ledger.{up,down}.sql` (new), `storage/repository.py`, `storage/supabase_roles.sql`, `scripts/ci/check_migrations.py`, `.github/workflows/{ci,validate-branch}.yml` (only disposable migration-check invocations), `tests/test_filing_work_ledger.py` (new), `tests/test_ci_gates.py`, `docs/runbooks/backfill.md`, this card, and `docs/tasks/CLAIMS.md` (root only)
 - Merge policy: autonomous with migration gates
 
 ## Outcome and non-goals
