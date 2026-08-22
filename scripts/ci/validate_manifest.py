@@ -4,12 +4,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any
 
+try:
+    from data.filing_manifest import exact_identity, validate_filing_row
+except ModuleNotFoundError:  # direct execution from scripts/ci in GitHub Actions
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from data.filing_manifest import exact_identity, validate_filing_row
 
-FILING_REQUIRED = {"ticker", "source_url", "published_at", "filing_type", "period_end"}
+
+FILING_REQUIRED = {
+    "ticker",
+    "source_url",
+    "published_at",
+    "filing_type",
+    "period_end",
+    "restatement_version",
+    "audit_status",
+}
 SOURCE_REQUIRED = {"source_url"}
 
 
@@ -38,6 +53,29 @@ def validate_manifest(
         missing = required - set(entry)
         if missing:
             errors.append(f"entry {index} missing: {', '.join(sorted(missing))}")
+            if not is_source_manifest:
+                fallback = (
+                    str(entry.get("ticker", "")).strip().upper().removesuffix(".JK"),
+                    str(entry.get("filing_type", "")).strip().upper(),
+                    str(entry.get("period_end", "")).strip(),
+                    entry.get("restatement_version"),
+                )
+                if fallback in identities:
+                    errors.append(f"duplicate filing identity: {fallback}")
+                identities.add(fallback)
+            continue
+        if not is_source_manifest:
+            errors.extend(
+                f"entry {index} {error}" for error in validate_filing_row(entry)
+            )
+            try:
+                normalized = exact_identity(entry)
+            except ValueError:
+                normalized = None
+            if normalized is not None and normalized in identities:
+                errors.append(f"duplicate filing identity: {normalized}")
+            if normalized is not None:
+                identities.add(normalized)
             continue
         ticker = str(entry.get("ticker", "")).strip().upper().replace(".JK", "")
         parsed = urlparse(str(entry["source_url"]))
@@ -61,7 +99,11 @@ def validate_manifest(
             errors.append(f"entry {index} has an empty filing identity")
         if not is_source_manifest:
             version = entry.get("restatement_version")
-            if isinstance(version, bool) or not isinstance(version, int) or version <= 0:
+            if (
+                isinstance(version, bool)
+                or not isinstance(version, int)
+                or version <= 0
+            ):
                 errors.append(
                     f"entry {index} restatement_version must be a positive integer"
                 )
@@ -140,23 +182,38 @@ def validate_manifest(
             errors.append(f"filing identities removed: {sorted(removed)[:5]}")
         if not is_source_manifest:
             old_versions = {
-                base_identity(entry): int(entry["restatement_version"])
+                base_identity(entry): max(
+                    int(previous["restatement_version"])
+                    for previous in old
+                    if base_identity(previous) == base_identity(entry)
+                    and type(previous.get("restatement_version")) is int
+                    and previous["restatement_version"] > 0
+                )
                 for entry in old
-                if isinstance(entry.get("restatement_version"), int)
-                and not isinstance(entry.get("restatement_version"), bool)
-                and entry["restatement_version"] > 0
-            }
-            new_versions = {
-                base_identity(entry): int(entry["restatement_version"])
-                for entry in current
-                if isinstance(entry.get("restatement_version"), int)
-                and not isinstance(entry.get("restatement_version"), bool)
+                if type(entry.get("restatement_version")) is int
                 and entry["restatement_version"] > 0
             }
             regressions = [
-                identity
-                for identity in old_versions.keys() & new_versions.keys()
-                if new_versions[identity] < old_versions[identity]
+                base_identity(entry)
+                for entry in current
+                if type(entry.get("restatement_version")) is int
+                and base_identity(entry) in old_versions
+                and (
+                    str(entry.get("ticker", "")).upper().replace(".JK", ""),
+                    entry.get("filing_type"),
+                    entry.get("period_end"),
+                    entry.get("restatement_version"),
+                )
+                not in {
+                    (
+                        str(previous.get("ticker", "")).upper().replace(".JK", ""),
+                        previous.get("filing_type"),
+                        previous.get("period_end"),
+                        previous.get("restatement_version"),
+                    )
+                    for previous in old
+                }
+                and entry["restatement_version"] < old_versions[base_identity(entry)]
             ]
             if regressions:
                 errors.append(
@@ -184,7 +241,12 @@ def validate_manifest(
                 if any(
                     old_by_exact[identity].get(field)
                     != new_by_exact[identity].get(field)
-                    for field in ("source_url", "published_at", "audit_status", "checksum")
+                    for field in (
+                        "source_url",
+                        "published_at",
+                        "audit_status",
+                        "checksum",
+                    )
                 ):
                     errors.append(f"filing provenance conflict: {identity}")
     return errors

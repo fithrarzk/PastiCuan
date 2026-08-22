@@ -28,6 +28,18 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("git merge --no-edit origin/main", IDX_WORKFLOW)
         self.assertIn('git checkout -b "$branch" origin/main', IDX_WORKFLOW)
 
+    def test_cumulative_merge_follows_branch_checkout_without_direct_replacement(self):
+        checkout = IDX_WORKFLOW.index('git checkout -b "$branch" origin/main')
+        merge = IDX_WORKFLOW.index("python -m data.filing_manifest")
+        self.assertLess(checkout, merge)
+        self.assertNotIn(
+            "cp /tmp/idx_filing_manifest.json data/idx_filing_manifest.json",
+            IDX_WORKFLOW,
+        )
+        self.assertNotRegex(
+            IDX_WORKFLOW, r"uses: actions/(checkout|setup-python|upload-artifact)@v"
+        )
+
     def test_validation_is_explicit_dispatch_only(self):
         self.assertRegex(VALIDATE_WORKFLOW, r"(?m)^on:\s*$")
         self.assertIn("workflow_dispatch:", VALIDATE_WORKFLOW)
