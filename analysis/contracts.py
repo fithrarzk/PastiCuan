@@ -162,24 +162,33 @@ def _json_safe(value: Any) -> Any:
             return None
         return float(value)
     if isinstance(value, complex):
-        return (None if not math.isfinite(value.real) or not math.isfinite(value.imag)
-                else str(value))
+        return (
+            None
+            if not math.isfinite(value.real) or not math.isfinite(value.imag)
+            else str(value)
+        )
     type_name = value.__class__.__name__
     if type_name == "longdouble":
         number = float(value)
         return number if math.isfinite(number) else None
     if type_name == "clongdouble":
         real, imaginary = float(value.real), float(value.imag)
-        return (None if not math.isfinite(real) or not math.isfinite(imaginary)
-                else str(complex(real, imaginary)))
+        return (
+            None
+            if not math.isfinite(real) or not math.isfinite(imaginary)
+            else str(complex(real, imaginary))
+        )
     dtype_name = str(getattr(value, "dtype", ""))
     if dtype_name in {"float128", "longdouble"}:
         number = float(value)
         return number if math.isfinite(number) else None
     if "complex" in dtype_name:
         real, imaginary = float(value.real), float(value.imag)
-        return (None if not math.isfinite(real) or not math.isfinite(imaginary)
-                else str(complex(real, imaginary)))
+        return (
+            None
+            if not math.isfinite(real) or not math.isfinite(imaginary)
+            else str(complex(real, imaginary))
+        )
     if value is None or isinstance(value, (str, int, float, bool)):
         if isinstance(value, float) and not math.isfinite(value):
             return None
