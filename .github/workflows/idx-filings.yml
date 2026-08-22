@@ -87,7 +87,10 @@ jobs:
           else
             git checkout -b "$branch" origin/main
           fi
-          cp /tmp/idx_filing_manifest.json data/idx_filing_manifest.json
+          python -m data.filing_manifest \
+            --baseline data/idx_filing_manifest.json \
+            --discovered /tmp/idx_filing_manifest.json \
+            --output data/idx_filing_manifest.json
           if git diff --quiet -- data/idx_filing_manifest.json; then
             echo "Official manifest is unchanged." >> "$GITHUB_STEP_SUMMARY"
             exit 0

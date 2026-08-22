@@ -1,6 +1,6 @@
 # ING-001: Cumulative filing identity and manifest merge
 
-- Status: active
+- Status: implemented
 - Priority: P0
 - Owner/model: Luna implementation from Sol design; Sol independent review
 - Reasoning effort: medium implementation, high review

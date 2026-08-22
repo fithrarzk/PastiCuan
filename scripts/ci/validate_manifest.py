@@ -59,6 +59,12 @@ def validate_manifest(
             or not str(entry["period_end"]).strip()
         ):
             errors.append(f"entry {index} has an empty filing identity")
+        if not is_source_manifest:
+            version = entry.get("restatement_version")
+            if isinstance(version, bool) or not isinstance(version, int) or version <= 0:
+                errors.append(
+                    f"entry {index} restatement_version must be a positive integer"
+                )
         if is_source_manifest and (
             not str(entry.get("provider", "")).strip()
             or not str(entry.get("artifact_type", "")).strip()
@@ -78,7 +84,7 @@ def validate_manifest(
                 ticker,
                 entry["filing_type"],
                 entry["period_end"],
-                entry.get("restatement_version", 1),
+                entry.get("restatement_version"),
             )
         if identity in identities:
             errors.append(f"duplicate filing identity: {identity}")
@@ -99,19 +105,53 @@ def validate_manifest(
                 entry.get("period_end"),
             )
 
-        old_ids = {base_identity(entry) for entry in old}
-        new_ids = {base_identity(entry) for entry in current}
+        old_ids = {
+            (
+                entry.get("provider"),
+                entry.get("artifact_type"),
+                str(entry.get("source_url")),
+            )
+            if is_source_manifest
+            else (
+                str(entry.get("ticker", "")).upper().replace(".JK", ""),
+                entry.get("filing_type"),
+                entry.get("period_end"),
+                entry.get("restatement_version"),
+            )
+            for entry in old
+        }
+        new_ids = {
+            (
+                entry.get("provider"),
+                entry.get("artifact_type"),
+                str(entry.get("source_url")),
+            )
+            if is_source_manifest
+            else (
+                str(entry.get("ticker", "")).upper().replace(".JK", ""),
+                entry.get("filing_type"),
+                entry.get("period_end"),
+                entry.get("restatement_version"),
+            )
+            for entry in current
+        }
         removed = old_ids - new_ids
         if removed:
             errors.append(f"filing identities removed: {sorted(removed)[:5]}")
         if not is_source_manifest:
             old_versions = {
-                base_identity(entry): int(entry.get("restatement_version", 1))
+                base_identity(entry): int(entry["restatement_version"])
                 for entry in old
+                if isinstance(entry.get("restatement_version"), int)
+                and not isinstance(entry.get("restatement_version"), bool)
+                and entry["restatement_version"] > 0
             }
             new_versions = {
-                base_identity(entry): int(entry.get("restatement_version", 1))
+                base_identity(entry): int(entry["restatement_version"])
                 for entry in current
+                if isinstance(entry.get("restatement_version"), int)
+                and not isinstance(entry.get("restatement_version"), bool)
+                and entry["restatement_version"] > 0
             }
             regressions = [
                 identity
@@ -122,6 +162,31 @@ def validate_manifest(
                 errors.append(
                     f"filing restatement version regressed: {sorted(regressions)[:5]}"
                 )
+            old_by_exact = {
+                (
+                    str(entry.get("ticker", "")).upper().replace(".JK", ""),
+                    entry.get("filing_type"),
+                    entry.get("period_end"),
+                    entry.get("restatement_version"),
+                ): entry
+                for entry in old
+            }
+            new_by_exact = {
+                (
+                    str(entry.get("ticker", "")).upper().replace(".JK", ""),
+                    entry.get("filing_type"),
+                    entry.get("period_end"),
+                    entry.get("restatement_version"),
+                ): entry
+                for entry in current
+            }
+            for identity in old_by_exact.keys() & new_by_exact.keys():
+                if any(
+                    old_by_exact[identity].get(field)
+                    != new_by_exact[identity].get(field)
+                    for field in ("source_url", "published_at", "audit_status", "checksum")
+                ):
+                    errors.append(f"filing provenance conflict: {identity}")
     return errors
 
 
