@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements-bot.txt
+      - run: pip install -r requirements-bot.txt -r requirements-ci.txt
       - run: python -m compileall -q analysis data storage operations telegram_utils bot.py bot_webhook.py
       - name: Check reviewed calculation release
         run: python -m operations.research_cli check-research-release --base-ref "${{ github.event.pull_request.base.sha || github.event.before }}"

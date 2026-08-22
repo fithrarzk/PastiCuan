@@ -81,6 +81,21 @@ class ManifestGateTests(unittest.TestCase):
 
 
 class WorkflowGateTests(unittest.TestCase):
+    def test_unittest_jobs_install_ci_dependencies(self):
+        workflow_paths = (
+            ROOT / ".github/workflows/test.yml",
+            ROOT / ".github/workflows/ci.yml",
+            ROOT / ".github/workflows/validate-branch.yml",
+        )
+        for path in workflow_paths:
+            text = path.read_text()
+            if "python -m unittest discover" in text:
+                self.assertIn(
+                    "pip install -r requirements-bot.txt -r requirements-ci.txt",
+                    text,
+                    path.name,
+                )
+
     def test_pull_request_workflow_has_all_stable_jobs_and_pins_actions(self):
         errors = validate_workflow(
             ROOT / ".github/workflows/ci.yml", require_required_jobs=True
