@@ -1,6 +1,6 @@
 # DOC-003: Shutdown-safe program status
 
-- Status: review
+- Status: verified
 - Priority: P0
 - Owner/model: orchestrator documentation; Sol independent review
 - Reasoning effort: high
@@ -51,4 +51,9 @@ Land as a documentation-only PR. Roll back with a normal revert; no production, 
 
 ## Handoff
 
-Record final PR/check/merge state in the orchestrator response. The next implementation task is ING-003, but owner direction is to stop after documentation and leave it unclaimed.
+Legacy lane before DOC-004; elapsed time, context use, and correction count were
+not recorded.
+
+Merged as `1f14012` through PR #31. All eight required PR checks and merge
+verification run `32709997351` passed. The next production-roadmap task is
+ING-003, which remains unclaimed.
