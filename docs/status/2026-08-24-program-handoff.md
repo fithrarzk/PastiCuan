@@ -22,7 +22,7 @@ Independent Standards and Spec reviews reported zero findings on the final ING-0
 ## Still unavailable or unsafe to claim
 
 - Production research is not recovered. Merge-triggered refresh runs `32565707917`, `32566667730`, and `32571008822` failed closed at refresh/publish. The last accepted production scan remains stale unless newer accepted Supabase evidence proves otherwise.
-- Scheduled `idx-filings` run `32685938136` failed closed on 2026-08-24 while opening its review PR because discovered JPFA Q2 2026 provenance conflicted with the reviewed identity. Resolve that conflict through official evidence review; never overwrite the accepted manifest identity to make discovery pass.
+- Scheduled `idx-filings` run `32685938136` failed closed on 2026-08-24 while merging the discovered draft into its review branch, before commit, push, or PR handling, because JPFA Q2 2026 provenance conflicted with the reviewed identity. Resolve that conflict through official evidence review; never overwrite the reviewed manifest identity or provenance to make discovery pass.
 - Migration `007_filing_work_ledger` is merged but **not applied in production**. Applying it requires a verified backup, reviewed rollout declaration, protected migrator, and read-only post-apply evidence. Never run its down migration in production.
 - ING-003 is designed but not implemented. Therefore ingestion is not yet skip-before-download resumable, and a rerun is not proven to perform zero downloads for accepted work.
 - ING-004 sharding/retry/progress aggregation, OBS-001 readiness diagnostics, and ING-005 reviewed evidence completion remain open. The incident baseline of 32/45 verified profiles and 24/45 Business Scores has not been superseded by accepted evidence.
