@@ -51,6 +51,9 @@ Land as a documentation-only PR. Roll back with a normal revert; no production, 
 
 ## Handoff
 
+Legacy lane before DOC-004; elapsed time, context use, and correction count were
+not recorded.
+
 Merged as `1f14012` through PR #31. All eight required PR checks and merge
 verification run `32709997351` passed. The next production-roadmap task is
 ING-003, which remains unclaimed.

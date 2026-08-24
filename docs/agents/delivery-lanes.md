@@ -7,12 +7,13 @@ behavior in the change; a small diff is not automatically low risk.
 |---|---|---|---|
 | Fast | Documentation, comments, formatting, or a tiny non-behavioral test/config correction with no runtime, workflow, evidence, or contract effect | One root agent, one task worktree and PR, focused validation, self-review, required CI | 20 minutes, 8k context tokens, one correction cycle; stop with a recoverable handoff when exceeded |
 | Standard | A bounded application feature, bug fix, or refactor that does not meet any high-risk trigger | One root agent, a short task card, one task worktree and PR, focused TDD, self-review, required CI | 90 minutes, 30k context tokens, two correction cycles; stop with the exact blocker when exceeded |
-| High-risk | Migration/schema/grant, financial or statistical semantics, point-in-time behavior, evidence/source policy, release/publication gate, credential/security boundary, production workflow, or destructive/irreversible risk | Decision-complete task card, appropriate Sol design, bounded implementation, fresh independent Standards and Spec review, full verification and guarded rollout | 60k context tokens and a three-hour checkpoint; pause at a safe boundary if it is not merge-ready |
+| High-risk | Agent/governance contract, migration/schema/grant, financial or statistical semantics, point-in-time behavior, evidence/source policy, release/publication gate, credential/security boundary, production workflow, or destructive/irreversible risk | Decision-complete task card, appropriate Sol design, bounded implementation, fresh independent Standards and Spec review, full verification and guarded rollout | Stop at the first of 60k context tokens, three hours, or three correction cycles and leave a safe checkpoint |
 
 Time spent waiting on an external required check is recorded separately, but a
-wait does not authorize unlimited correction loops. Never change lane downward
-to avoid a safety control. Escalate upward as soon as the diff touches a
-high-risk trigger.
+wait does not authorize unlimited correction loops. A task card may set a lower
+limit; raising a lane limit requires explicit owner direction. Never change lane
+downward to avoid a safety control. Escalate upward as soon as the diff touches
+a high-risk trigger.
 
 ## Efficient execution
 

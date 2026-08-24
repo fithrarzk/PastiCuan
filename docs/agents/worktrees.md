@@ -4,6 +4,17 @@
 
 The orchestrator owns the dependency graph, task assignment, file ownership, PR ordering, and production verification. It does not ask implementation agents to rediscover the roadmap.
 
+For each Fast task:
+
+1. Fetch `origin/main` and record the base SHA in the task note.
+2. Confirm ownership cannot collide; claim it only when it is roadmap work or
+   another active writer could overlap.
+3. Create one task branch and external worktree from `origin/main`.
+4. Implement with the root agent, run focused validation, and self-review the
+   diff against the task note.
+5. File one PR, require current-head CI, squash merge, and verify only relevant
+   post-merge behavior.
+
 For each ready Standard or High-risk task:
 
 1. Fetch `origin/main` and record its SHA in the task card.
