@@ -1,6 +1,6 @@
 # CI-003: Efficient required gates and refresh triggers
 
-- Status: active
+- Status: review
 - Priority: P0
 - Lane: High-risk (production workflow)
 - Owner/model: root implementation; Sol independent review
@@ -33,6 +33,7 @@ publication gates, secrets, migrations, or production evidence.
 PR #33 ran identical full suites in `core-tests/test` and
 `pull-request-gates/unit`, each taking about 52 seconds. Its documentation-only
 merge also dispatched production `research-daily` run `32753743338`.
+That irrelevant refresh completed as a fail-closed failure.
 
 ## Invariants
 
@@ -71,5 +72,15 @@ and broad trigger; no production data or schema rollback is involved.
 
 ## Handoff
 
-Record exact red/green commands, final SHA, review, PR/check/merge state,
-post-merge workflow behavior, elapsed time, context use, and corrections.
+- Lane/model: High-risk; root implementation with Sol/high independent review.
+- Elapsed/context/corrections: under one hour through implementation; under the
+  40k task budget; two red-green correction cycles.
+- Red: three focused tests failed for duplicate full suites, absent refresh
+  filtering, and missing unsafe-ignore enforcement; the committed deletion then
+  reproduced a missing-workflow policy failure.
+- Green: 19 focused workflow tests, workflow policy for primary/generated and
+  research workflows, Ruff, mypy, security scan, research-release check, and
+  `git diff --check` passed.
+- Full local suite: 159/160 passed; the sole failure is the shared environment's
+  `yfinance 1.2.0` versus repository pin `1.5.2`. Required PR CI installs pinned
+  dependencies and remains authoritative.

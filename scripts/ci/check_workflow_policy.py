@@ -131,12 +131,21 @@ def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> lis
     return errors
 
 
-def changed_workflows(base_ref: str) -> list[Path]:
+def changed_workflows(base_ref: str, *, repository: Path = Path(".")) -> list[Path]:
     output = subprocess.run(
-        ["git", "diff", "--name-only", f"{base_ref}...HEAD", "--", ".github/workflows"],
+        [
+            "git",
+            "diff",
+            "--name-only",
+            "--diff-filter=ACMR",
+            f"{base_ref}...HEAD",
+            "--",
+            ".github/workflows",
+        ],
         check=True,
         capture_output=True,
         text=True,
+        cwd=repository,
     ).stdout.splitlines()
     return [Path(name) for name in output if name.endswith((".yml", ".yaml"))]
 
