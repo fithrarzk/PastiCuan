@@ -36,6 +36,7 @@ jobs:
     name: test
     if: ${{ always() && github.event_name == 'pull_request' }}
     needs: unit
+    permissions: {}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

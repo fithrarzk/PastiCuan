@@ -189,6 +189,7 @@ class WorkflowGateTests(unittest.TestCase):
             workflows = repository / ".github/workflows"
             workflows.mkdir(parents=True)
             (workflows / "ci.yml").write_text("name: primary\n")
+            (workflows / "research-daily.yml").write_text("name: production\n")
             (workflows / "test.yml").write_text("name: legacy\n")
             subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
             subprocess.run(
@@ -208,6 +209,7 @@ class WorkflowGateTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             ).stdout.strip()
+            (workflows / "research-daily.yml").unlink()
             (workflows / "test.yml").unlink()
             (workflows / "ci.yml").write_text("name: consolidated\n")
             subprocess.run(["git", "add", "-A"], cwd=repository, check=True)
@@ -215,7 +217,10 @@ class WorkflowGateTests(unittest.TestCase):
 
             self.assertEqual(
                 changed_workflows(base, repository=repository),
-                [Path(".github/workflows/ci.yml")],
+                [
+                    Path(".github/workflows/ci.yml"),
+                    Path(".github/workflows/research-daily.yml"),
+                ],
             )
 
     def test_primary_pr_workflow_is_the_only_full_suite_producer(self):
@@ -223,13 +228,14 @@ class WorkflowGateTests(unittest.TestCase):
         workflow = _workflow_data(ROOT / ".github/workflows/ci.yml")
         compatibility = workflow["jobs"]["test"]
         self.assertEqual(compatibility.get("needs"), "unit")
+        self.assertEqual(compatibility.get("permissions"), {})
         self.assertIn("always()", compatibility.get("if", ""))
         runs = "\n".join(
             step.get("run", "")
             for step in compatibility.get("steps", [])
             if isinstance(step, dict)
         )
-        self.assertIn("needs.unit.result", runs)
+        self.assertIn('test "${{ needs.unit.result }}" = success', runs)
         self.assertNotIn("python -m unittest discover", runs)
 
         producers = []
