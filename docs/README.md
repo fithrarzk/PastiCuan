@@ -6,6 +6,7 @@ The root [README](../README.md) describes the product. [DEPLOY_FREE](../DEPLOY_F
 
 ## Map
 
+- [Current program handoff](status/2026-08-24-program-handoff.md): verified delivery, production blockers, shutdown state, and next task.
 - [Task system](tasks/README.md): task cards, dependency rules, and status.
 - [Master roadmap](tasks/ROADMAP.md): ordered reliability, analytics, and automation work.
 - [Task claims](tasks/CLAIMS.md): the single orchestrator-owned assignment registry.

@@ -1,6 +1,6 @@
 # ING-002: Durable filing-work ledger migration and repository API
 
-- Status: active
+- Status: verified
 - Priority: P0
 - Owner/model: Sol schema design; Luna implementation; Sol independent review
 - Reasoning effort: high implementation and review
@@ -14,6 +14,9 @@
 - Depends on: ING-001, verified as `5d8817f`
 - File ownership: `storage/migrations/007_filing_work_ledger.{up,down}.sql` (new), `storage/repository.py`, `storage/supabase_roles.sql`, `scripts/ci/check_migrations.py`, `.github/workflows/{ci,validate-branch}.yml` (only disposable migration-check invocations), `tests/test_filing_work_ledger.py` (new), `tests/test_ci_gates.py`, `docs/runbooks/backfill.md`, this card, and `docs/tasks/CLAIMS.md` (root only)
 - Merge policy: autonomous with migration gates
+- Final merge: `25c6f2e691e8757b54c76787fe57ff0d5da0f629` via PR #29
+- Verification: 156 tests; PostgreSQL 16 UTF-8 and SQL-ASCII migration checks; eight required PR contexts; final-head Standards/Spec review at `3083e7b`; merge verification run `32571008743`
+- Production state: migration 007 was not applied; refresh run `32571008822` failed closed and recovery is not claimed
 
 ## Outcome and non-goals
 

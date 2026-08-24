@@ -18,6 +18,8 @@ Observed on 2026-08-22 from `origin/main` at `f5166c7` and GitHub Actions runs t
 
 ## Execution waves
 
+Current delivery and incident state is summarized in the [2026-08-24 program handoff](../status/2026-08-24-program-handoff.md). Work is paused after verified ING-002; ING-003 is ready but unclaimed. Production recovery remains open because migration 007 is unapplied, ingestion is not yet skip-before-download resumable, and recent research refreshes failed closed.
+
 | Wave | Objective | Exit condition |
 |---|---|---|
 | 0 | Agent contract and trustworthy delivery controls | Docs merged; GitHub identity/rules audited; PR checks trigger reliably |
