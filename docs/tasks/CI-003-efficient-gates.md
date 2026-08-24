@@ -1,6 +1,6 @@
 # CI-003: Efficient required gates and refresh triggers
 
-- Status: review
+- Status: verified
 - Priority: P0
 - Lane: High-risk (production workflow)
 - Owner/model: root implementation; Sol independent review
@@ -85,3 +85,9 @@ and broad trigger; no production data or schema rollback is involved.
   `requirements-bot.txt` and `requirements-ci.txt`; all 160 tests, compilation,
   research-release integrity, and `git diff --check` passed. The shared
   environment remains unchanged at its older `yfinance` version.
+- Independent Standards and Spec re-reviews reported zero findings on final PR
+  head `b0189bf`. PR #35 passed all eight required contexts and merged as
+  `6a80410`; merge verification run `32755494718` passed.
+- Merge-triggered research run `32755494807` ran because the research workflow
+  itself changed and failed closed. The following docs-only verification merge
+  is the path-filter proof and must produce no `research-daily` run.
