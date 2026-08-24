@@ -11,6 +11,7 @@ The root [README](../README.md) describes the product. [DEPLOY_FREE](../DEPLOY_F
 - [Master roadmap](tasks/ROADMAP.md): ordered reliability, analytics, and automation work.
 - [Task claims](tasks/CLAIMS.md): the single orchestrator-owned assignment registry.
 - [Worktrees and model routing](agents/worktrees.md): parallel-agent execution rules.
+- [Delivery lanes and budgets](agents/delivery-lanes.md): risk classification, time/token limits, review, and stop rules.
 - [Autonomy and authority](agents/autonomy.md): standing authorization, safety boundaries, and escalation.
 - [Handoffs](agents/handoffs.md): the evidence required between agents.
 - [Stale snapshot runbook](runbooks/stale-snapshot.md): diagnose `/scan` and dependent-command unavailability.

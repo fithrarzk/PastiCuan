@@ -20,6 +20,11 @@ Observed on 2026-08-22 from `origin/main` at `f5166c7` and GitHub Actions runs t
 
 Current delivery and incident state is summarized in the [2026-08-24 program handoff](../status/2026-08-24-program-handoff.md). Work is paused after verified ING-002; ING-003 is ready but unclaimed. Production recovery remains open because migration 007 is unapplied, ingestion is not yet skip-before-download resumable, and recent research refreshes failed closed.
 
+Delivery-process work is tracked separately from the production dependency
+graph: DOC-004 introduces risk-tiered execution lanes, followed by CI-003 to
+remove duplicate PR testing and irrelevant production refresh triggers. Neither
+task claims research recovery or changes the ING-003 dependency order.
+
 | Wave | Objective | Exit condition |
 |---|---|---|
 | 0 | Agent contract and trustworthy delivery controls | Docs merged; GitHub identity/rules audited; PR checks trigger reliably |

@@ -6,7 +6,7 @@ The repository owner delegates routine software delivery to the orchestrator. Wi
 
 This authorization is durable repository guidance. It does not override GitHub, host, sandbox, billing, or secret-management controls.
 
-Current-state warning: until roadmap task `ING-003` is verified, IDX filing ingestion is idempotent at storage but not runtime-resumable and may re-download accepted entries. Do not dispatch it as though safe resume already exists.
+Current-state warning: until roadmap task `ING-003` is verified, IDX filing ingestion is idempotent at storage but not runtime-resumable and may re-download accepted entries. Do not dispatch it as though safe resume already exists. Delivery effort is selected through [risk-tiered lanes](delivery-lanes.md); autonomy never lowers a safety boundary.
 
 ## Standing authorization
 
@@ -39,7 +39,7 @@ When a boundary is reached, finish every safe prerequisite and provide one exact
 
 | Class | Examples | Merge | Production action |
 |---|---|---|---|
-| Routine | docs, tests, bounded fixes, non-production refactor | Autonomous after green review | Automatic smoke checks |
+| Routine | docs, tests, bounded fixes, non-production refactor | Fast/Standard lane after root diff review and green required checks | Only relevant smoke checks |
 | Research | formula, threshold, factor, range, validation semantics | Autonomous merge only with release revision and independent research review | Shadow only until exact-digest validation |
 | Data | manifest, parser, source policy, issuer profile | Autonomous after semantic validation | Resume is allowed only after `ING-003` is verified; publication gates remain closed until ready |
 | Platform | workflow, additive migration, deploy configuration | Autonomous after security and migration checks | Protected environment and last-good recovery |

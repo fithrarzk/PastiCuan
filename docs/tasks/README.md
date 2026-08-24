@@ -1,6 +1,9 @@
 # Task Cards
 
-Every implementation begins from one task card and produces one PR. The roadmap controls dependency order; task cards control execution.
+Every concern produces one PR and starts by selecting a
+[delivery lane](../agents/delivery-lanes.md). Fast non-roadmap work may use a
+compact task note in the PR body; Standard and High-risk work begins from one
+task card. The roadmap controls dependency order; task cards control execution.
 
 Required fields:
 
@@ -33,5 +36,10 @@ Required fields:
 ```
 
 Tasks are parallel-ready only when dependencies are verified and file ownership does not overlap another active task. Status `merged` is not `verified` until required post-merge evidence exists.
+
+Fast task notes contain the outcome, non-goals, changed paths, lane
+justification, focused validation, and rollback. Their default limit is one
+correction cycle; scope growth promotes the work to Standard or High-risk before
+further editing.
 
 Only the orchestrator edits [CLAIMS.md](CLAIMS.md) or assigns task issues. Implementation and review agents receive an existing claim; they never choose one themselves.
