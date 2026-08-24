@@ -3,6 +3,19 @@ name: research-daily
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - ".agents/**"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/test.yml"
+      - ".github/workflows/validate-branch.yml"
+      - "AGENTS.md"
+      - "CONTEXT.md"
+      - "DEPLOY_FREE.md"
+      - "README.md"
+      - "docs/**"
+      - "requirements-ci.txt"
+      - "scripts/ci/**"
+      - "tests/**"
   schedule:
     - cron: "0 12 * * 1-5"
     - cron: "0 13 * * 1-5"

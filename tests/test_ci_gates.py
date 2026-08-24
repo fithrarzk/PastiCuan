@@ -12,7 +12,11 @@ from scripts.ci.check_migrations import (
 )
 from scripts.ci.check_migrations import migration_pairs, normalize_version, read_sql
 from scripts.ci.check_security import scan_paths
-from scripts.ci.check_workflow_policy import _workflow_data, validate_workflow
+from scripts.ci.check_workflow_policy import (
+    _workflow_data,
+    changed_workflows,
+    validate_workflow,
+)
 from scripts.ci.validate_manifest import validate_manifest
 
 
@@ -179,6 +183,74 @@ class ManifestGateTests(unittest.TestCase):
 
 
 class WorkflowGateTests(unittest.TestCase):
+    def test_changed_workflows_excludes_deleted_legacy_producers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            workflows = repository / ".github/workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "ci.yml").write_text("name: primary\n")
+            (workflows / "research-daily.yml").write_text("name: production\n")
+            (workflows / "test.yml").write_text("name: legacy\n")
+            subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "ci@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "CI"], cwd=repository, check=True
+            )
+            subprocess.run(["git", "add", "."], cwd=repository, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=repository, check=True)
+            base = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            (workflows / "research-daily.yml").unlink()
+            (workflows / "test.yml").unlink()
+            (workflows / "ci.yml").write_text("name: consolidated\n")
+            subprocess.run(["git", "add", "-A"], cwd=repository, check=True)
+            subprocess.run(["git", "commit", "-qm", "head"], cwd=repository, check=True)
+
+            self.assertEqual(
+                changed_workflows(base, repository=repository),
+                [
+                    Path(".github/workflows/ci.yml"),
+                    Path(".github/workflows/research-daily.yml"),
+                ],
+            )
+
+    def test_primary_pr_workflow_is_the_only_full_suite_producer(self):
+        self.assertFalse((ROOT / ".github/workflows/test.yml").exists())
+        workflow = _workflow_data(ROOT / ".github/workflows/ci.yml")
+        compatibility = workflow["jobs"]["test"]
+        self.assertEqual(compatibility.get("needs"), "unit")
+        self.assertEqual(compatibility.get("permissions"), {})
+        self.assertIn("always()", compatibility.get("if", ""))
+        runs = "\n".join(
+            step.get("run", "")
+            for step in compatibility.get("steps", [])
+            if isinstance(step, dict)
+        )
+        self.assertIn('test "${{ needs.unit.result }}" = success', runs)
+        self.assertNotIn("python -m unittest discover", runs)
+
+        producers = []
+        for job_name, job in workflow["jobs"].items():
+            if "pull_request" not in str(job.get("if", "")):
+                continue
+            job_runs = "\n".join(
+                step.get("run", "")
+                for step in job.get("steps", [])
+                if isinstance(step, dict)
+            )
+            if "python -m unittest discover" in job_runs:
+                producers.append(job_name)
+        self.assertEqual(producers, ["unit"])
+
     def test_base_ref_jobs_fetch_complete_history(self):
         for name in ("ci.yml", "validate-branch.yml"):
             workflow = _workflow_data(ROOT / ".github/workflows" / name)
@@ -203,7 +275,6 @@ class WorkflowGateTests(unittest.TestCase):
 
     def test_unittest_jobs_install_ci_dependencies(self):
         workflow_paths = (
-            ROOT / ".github/workflows/test.yml",
             ROOT / ".github/workflows/ci.yml",
             ROOT / ".github/workflows/validate-branch.yml",
         )
@@ -228,9 +299,10 @@ class WorkflowGateTests(unittest.TestCase):
         )
         self.assertEqual(errors, [])
 
-    def test_legacy_and_generated_workflows_remain_policy_safe(self):
-        for name in ("test.yml", "validate-branch.yml"):
-            self.assertEqual(validate_workflow(ROOT / ".github/workflows" / name), [])
+    def test_generated_workflow_remains_policy_safe(self):
+        self.assertEqual(
+            validate_workflow(ROOT / ".github/workflows/validate-branch.yml"), []
+        )
 
     def test_workflow_negative_permissions_timeout_action_and_trigger(self):
         workflow = """

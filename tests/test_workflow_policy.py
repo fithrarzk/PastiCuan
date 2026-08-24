@@ -1,14 +1,53 @@
+import tempfile
 import unittest
 from pathlib import Path
+
+from scripts.ci.check_workflow_policy import _workflow_data, validate_workflow
 
 
 ROOT = Path(__file__).resolve().parents[1]
 IDX_WORKFLOW = (ROOT / ".github/workflows/idx-filings.yml").read_text()
 VALIDATE_WORKFLOW = (ROOT / ".github/workflows/validate-branch.yml").read_text()
 RESEARCH_WORKFLOW = (ROOT / ".github/workflows/research-daily.yml").read_text()
+RESEARCH_WORKFLOW_PATH = ROOT / ".github/workflows/research-daily.yml"
 
 
 class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
+    def test_research_push_ignores_only_reviewed_non_runtime_paths(self):
+        workflow = _workflow_data(RESEARCH_WORKFLOW_PATH)
+        trigger = workflow.get("on", workflow.get(True, {}))
+        push = trigger["push"]
+        self.assertEqual(push["branches"], ["main"])
+        self.assertEqual(
+            set(push["paths-ignore"]),
+            {
+                ".agents/**",
+                ".github/workflows/ci.yml",
+                ".github/workflows/test.yml",
+                ".github/workflows/validate-branch.yml",
+                "AGENTS.md",
+                "CONTEXT.md",
+                "DEPLOY_FREE.md",
+                "README.md",
+                "docs/**",
+                "requirements-ci.txt",
+                "scripts/ci/**",
+                "tests/**",
+            },
+        )
+        self.assertEqual(validate_workflow(RESEARCH_WORKFLOW_PATH), [])
+
+    def test_research_policy_rejects_runtime_path_exclusions(self):
+        unsafe = RESEARCH_WORKFLOW.replace(
+            '      - "docs/**"',
+            '      - "analysis/**"',
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "research-daily.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(any("safe paths-ignore" in error for error in errors))
+
     def test_discovery_dispatches_validation_for_the_pushed_head(self):
         self.assertIn("actions: write", IDX_WORKFLOW)
         self.assertRegex(

@@ -32,6 +32,17 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
 
+  test:
+    name: test
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: unit
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Preserve required test context from the unit result
+        run: test "${{ needs.unit.result }}" = success
+
   quality:
     name: quality
     if: github.event_name == 'pull_request'

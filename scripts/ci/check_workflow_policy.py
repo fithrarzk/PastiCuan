@@ -12,6 +12,7 @@ import yaml
 
 SHA_ACTION = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}(?:\s+#.*)?$")
 REQUIRED_JOBS = {
+    "test",
     "unit",
     "quality",
     "workflow-policy",
@@ -19,6 +20,20 @@ REQUIRED_JOBS = {
     "container-smoke",
     "manifest-validate",
     "security",
+}
+SAFE_RESEARCH_PUSH_IGNORES = {
+    ".agents/**",
+    ".github/workflows/ci.yml",
+    ".github/workflows/test.yml",
+    ".github/workflows/validate-branch.yml",
+    "AGENTS.md",
+    "CONTEXT.md",
+    "DEPLOY_FREE.md",
+    "README.md",
+    "docs/**",
+    "requirements-ci.txt",
+    "scripts/ci/**",
+    "tests/**",
 }
 IDX_JOB_PERMISSIONS = {
     "discover": {"contents": "write", "pull-requests": "write", "actions": "write"},
@@ -86,16 +101,24 @@ def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> lis
                 errors.append(f"{path}: action is not immutable: {action}")
     trigger = workflow.get("on", workflow.get(True, {}))
     trigger = trigger if isinstance(trigger, dict) else {}
-    if path.name in {"ci.yml", "test.yml"}:
+    if path.name == "ci.yml":
         if "pull_request" not in trigger:
             errors.append(f"{path}: pull_request trigger is required")
-        if "push" in trigger and path.name == "test.yml":
-            errors.append(f"{path}: legacy test must not duplicate push execution")
     if path.name == "ci.yml" and "push" in trigger:
         push = trigger["push"] or {}
         branches = push.get("branches", []) if isinstance(push, dict) else []
         if branches != ["main"]:
             errors.append(f"{path}: push trigger must be restricted to main")
+    if path.name == "research-daily.yml":
+        push = trigger.get("push") or {}
+        branches = push.get("branches", []) if isinstance(push, dict) else []
+        ignored = set(push.get("paths-ignore", [])) if isinstance(push, dict) else set()
+        if branches != ["main"]:
+            errors.append(f"{path}: research push must be restricted to main")
+        if ignored != SAFE_RESEARCH_PUSH_IGNORES:
+            errors.append(
+                f"{path}: research push must use the exact safe paths-ignore set"
+            )
     if path.name == "validate-branch.yml":
         if set(trigger) != {"workflow_dispatch"}:
             errors.append(f"{path}: generated validation must be dispatch-only")
@@ -108,14 +131,29 @@ def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> lis
     return errors
 
 
-def changed_workflows(base_ref: str) -> list[Path]:
-    output = subprocess.run(
-        ["git", "diff", "--name-only", f"{base_ref}...HEAD", "--", ".github/workflows"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.splitlines()
-    return [Path(name) for name in output if name.endswith((".yml", ".yaml"))]
+def changed_workflows(base_ref: str, *, repository: Path = Path(".")) -> list[Path]:
+    def names(diff_filter: str) -> list[str]:
+        return subprocess.run(
+            [
+                "git",
+                "diff",
+                "--name-only",
+                f"--diff-filter={diff_filter}",
+                f"{base_ref}...HEAD",
+                "--",
+                ".github/workflows",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=repository,
+        ).stdout.splitlines()
+
+    changed = names("ACMR")
+    deleted = [name for name in names("D") if name != ".github/workflows/test.yml"]
+    return [
+        Path(name) for name in changed + deleted if name.endswith((".yml", ".yaml"))
+    ]
 
 
 def main() -> int:
@@ -126,12 +164,11 @@ def main() -> int:
         "--base-ref", help="include every workflow changed relative to this ref"
     )
     args = parser.parse_args()
-    # The PR policy owns the three workflows that can produce required checks.
+    # The PR policy owns the primary and generated required-check producers.
     # Operational workflows are reviewed by their own task cards and can be
     # passed explicitly when their policy is being changed.
     paths = args.paths or [
         Path(".github/workflows/ci.yml"),
-        Path(".github/workflows/test.yml"),
         Path(".github/workflows/validate-branch.yml"),
     ]
     required_paths = (
