@@ -1,6 +1,6 @@
 # DOC-004: Risk-tiered delivery lanes
 
-- Status: review
+- Status: verified
 - Priority: P0
 - Lane: High-risk (agent contract)
 - Owner/model: root implementation; Sol independent review
@@ -66,6 +66,8 @@ normally if it produces unsafe classification or worse delivery evidence.
 - Lane/model: High-risk; root implementation with Sol/high independent review.
 - Elapsed/context/corrections: under one hour through first review; under the
   30k task budget; one correction cycle.
+- Merged as `93d3086` through PR #33; all eight required checks and merge
+  verification run `32753743403` passed; issue #32 was released.
 - Focused Markdown link validation: all repository-local links resolved.
 - `git diff --check`: passed.
 - Full suite: 155/156 passed locally; the only failure was the pre-existing

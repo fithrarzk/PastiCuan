@@ -16,6 +16,7 @@ Routine code changes do not rerun official filing import unless their declared p
 
 Stable required check names:
 
+- `test`: lightweight compatibility context that fails unless `unit` succeeds;
 - `unit`: compile, unit tests, deterministic release check, diff whitespace;
 - `quality`: formatting, lint, and type checks with pinned tool versions;
 - `workflow-policy`: YAML syntax, least privilege, pinned actions, concurrency, timeout, and recursion policy;
@@ -24,7 +25,11 @@ Stable required check names:
 - `manifest-validate`: conditional official-host, identity, duplicate, regression, and removal checks;
 - `security`: secret and dependency scanning.
 
-Feature branches run checks once through `pull_request`; avoid duplicate push suites. Bot-generated PRs must receive the same checks. Use a GitHub App token or explicit validation dispatch because pushes made by `GITHUB_TOKEN` do not recursively trigger ordinary workflow runs.
+Feature branches run the full suite once through `unit`; `test` preserves the
+existing required context without repeating it. Avoid duplicate push suites.
+Bot-generated PRs must receive the same checks. Use a GitHub App token or
+explicit validation dispatch because pushes made by `GITHUB_TOKEN` do not
+recursively trigger ordinary workflow runs.
 
 ## Merge policy
 
@@ -36,6 +41,9 @@ Feature branches run checks once through `pull_request`; avoid duplicate push su
 
 ## Main orchestration
 
+- Main pushes limited to documentation, tests, agent metadata, or CI-only files
+  do not dispatch production research. Runtime paths, schedules, and manual
+  dispatch retain the research workflow.
 - Serialize production database writers with a PostgreSQL advisory lock.
 - Apply only reviewed additive migrations after a verified backup.
 - For manifest/data changes, complete resumable import before research refresh.

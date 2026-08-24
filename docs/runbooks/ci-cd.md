@@ -6,10 +6,10 @@ Use a task branch and pull request. Read [the CI/CD contract](../specs/ci-cd-con
 
 ## Procedure
 
-1. Run the current core checks locally: compile, unit tests, research-release check, and diff whitespace. Pull requests produce the required `test`, `unit`, `quality`, `workflow-policy`, `migration`, `container-smoke`, `manifest-validate`, and `security` contexts. Generated-branch validation additionally verifies the requested remote head before producing those same stable contexts.
+1. Run lane-appropriate focused checks locally. Pull requests produce the required `test`, `unit`, `quality`, `workflow-policy`, `migration`, `container-smoke`, `manifest-validate`, and `security` contexts. `unit` is the only ordinary PR full-suite producer; the lightweight `test` context requires its success. Generated-branch validation additionally verifies the requested remote head before producing those same stable contexts.
 2. Obtain independent spec/standards review and resolve all threads. Missing, cancelled, neutral, or stale checks are not green.
 3. Confirm the active ruleset requires all eight stable contexts with strict current-head freshness and no bypass, then squash-merge only after those checks pass. The merge may trigger Railway and research workflows independently.
-4. Inspect `research-daily`, `idx-filings`, and backup workflow outcomes; record code SHA, release, snapshot IDs, and last-good state.
+4. Inspect only relevant post-merge workflows. A main change limited to documentation, tests, agent metadata, or CI-only files intentionally does not dispatch `research-daily`; record it as not applicable. Otherwise inspect `research-daily`, `idx-filings`, and backup outcomes and record code SHA, release, snapshot IDs, and last-good state.
 
 ## Verification and stop
 

@@ -179,6 +179,33 @@ class ManifestGateTests(unittest.TestCase):
 
 
 class WorkflowGateTests(unittest.TestCase):
+    def test_primary_pr_workflow_is_the_only_full_suite_producer(self):
+        self.assertFalse((ROOT / ".github/workflows/test.yml").exists())
+        workflow = _workflow_data(ROOT / ".github/workflows/ci.yml")
+        compatibility = workflow["jobs"]["test"]
+        self.assertEqual(compatibility.get("needs"), "unit")
+        self.assertIn("always()", compatibility.get("if", ""))
+        runs = "\n".join(
+            step.get("run", "")
+            for step in compatibility.get("steps", [])
+            if isinstance(step, dict)
+        )
+        self.assertIn("needs.unit.result", runs)
+        self.assertNotIn("python -m unittest discover", runs)
+
+        producers = []
+        for job_name, job in workflow["jobs"].items():
+            if "pull_request" not in str(job.get("if", "")):
+                continue
+            job_runs = "\n".join(
+                step.get("run", "")
+                for step in job.get("steps", [])
+                if isinstance(step, dict)
+            )
+            if "python -m unittest discover" in job_runs:
+                producers.append(job_name)
+        self.assertEqual(producers, ["unit"])
+
     def test_base_ref_jobs_fetch_complete_history(self):
         for name in ("ci.yml", "validate-branch.yml"):
             workflow = _workflow_data(ROOT / ".github/workflows" / name)
@@ -203,7 +230,6 @@ class WorkflowGateTests(unittest.TestCase):
 
     def test_unittest_jobs_install_ci_dependencies(self):
         workflow_paths = (
-            ROOT / ".github/workflows/test.yml",
             ROOT / ".github/workflows/ci.yml",
             ROOT / ".github/workflows/validate-branch.yml",
         )
@@ -228,9 +254,10 @@ class WorkflowGateTests(unittest.TestCase):
         )
         self.assertEqual(errors, [])
 
-    def test_legacy_and_generated_workflows_remain_policy_safe(self):
-        for name in ("test.yml", "validate-branch.yml"):
-            self.assertEqual(validate_workflow(ROOT / ".github/workflows" / name), [])
+    def test_generated_workflow_remains_policy_safe(self):
+        self.assertEqual(
+            validate_workflow(ROOT / ".github/workflows/validate-branch.yml"), []
+        )
 
     def test_workflow_negative_permissions_timeout_action_and_trigger(self):
         workflow = """
