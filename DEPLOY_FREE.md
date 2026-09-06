@@ -24,11 +24,8 @@ Supabase Free may pause an inactive project and does not provide downloadable
 automatic backups. The bot therefore falls back to its bundled approved
 snapshot, and the research workflow provides explicit `pg_dump` to R2 backup.
 
-This repository is split into two independently deployable services:
-
-- `railway.json` + `bot_webhook.py` + `Dockerfile`: Telegram webhook on
-  Railway Free.
-- `app.py` + `requirements.txt`: app on Streamlit Community Cloud.
+This repository deploys one user-facing service: `railway.json` +
+`bot_webhook.py` + `Dockerfile` provide the Telegram webhook on Railway Free.
 
 Railway is the primary bot path when Render cannot accept your card. Railway's
 current Free plan costs $0 and includes $1 of resource credit each month. New
@@ -216,26 +213,7 @@ TELEGRAM_BOT_TOKEN=... python bot.py
 Do not run local polling while a webhook is registered. Telegram permits only
 one delivery method at a time. To return to polling, call `deleteWebhook` first.
 
-## 3. Deploy the app on Streamlit Community Cloud
-
-1. Sign in at <https://share.streamlit.io> and choose **Create app**.
-2. Select this GitHub repository and branch.
-3. Set the entrypoint to `app.py` and Python to **3.12**.
-4. In Advanced settings, add these secrets:
-
-   ```toml
-   AI_PROVIDER = "off"
-   RESEARCH_SNAPSHOT_PATH = "data/snapshots/latest.json.gz"
-   ```
-
-5. Deploy. Community Cloud automatically installs the root
-   `requirements.txt`; it does not install the heavier bot dependency file.
-
-The app and bot currently use Yahoo as a clearly flagged fallback and therefore
-remain `RESEARCH_ONLY`. They do not need PostgreSQL or object storage merely to
-launch. Add Supabase and R2 only when enabling durable official-source ingestion.
-
-## 4. Optional free persistence
+## 3. Optional free persistence
 
 For the point-in-time data pipeline:
 
@@ -325,7 +303,7 @@ use an API token with Object Read & Write access scoped to the configured bucket
 Supabase size is reported by `/status`: `WARNING` starts at 350 MiB and
 `CRITICAL` at 425 MiB. Original filings stay in R2 rather than PostgreSQL.
 
-## 5. Keep the deployment free
+## 4. Keep the deployment free
 
 - On Railway, keep the subscription on **Free** and check monthly resource usage.
   The recurring credit is $1 and does not roll over.
@@ -341,5 +319,5 @@ Supabase size is reported by `/status`: `WARNING` starts at 350 MiB and
   limited free storage, and stale images accumulate after repeated deploys.
 - Watch Cloud Run request time, outbound bandwidth, Secret Manager accesses,
   and Artifact Registry storage in Billing reports.
-- Streamlit and Cloud Run filesystems are ephemeral. Never use local CSV or
+- Railway and Cloud Run filesystems are ephemeral. Never use local CSV or
   SQLite files as durable production storage.

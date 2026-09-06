@@ -14,7 +14,7 @@ from analysis.contracts import DataQualityReport
 from analysis.decision import build_decision_report
 from analysis.fundamental import analyze_fundamental
 from analysis.financials import growth, ttm, valuation_multiple, ytd_to_discrete
-from analysis.presentation import decision_view, scan_view
+from analysis.presentation import scan_view
 from analysis.portfolio import allocate_lots
 from analysis.quant import compute_cross_sectional_factors
 from analysis.scanner import normalize_scan_tickers, run_scan
@@ -156,14 +156,6 @@ class CausalityAndGateTests(unittest.TestCase):
         self.assertEqual(decision["final_verdict"], "RESEARCH_ONLY")
         self.assertIsNone(decision["action"])
 
-    def test_shared_presentation_contract(self):
-        decision = {"final_score": 61, "final_verdict": "RESEARCH_ONLY",
-                    "coverage_pct": 80, "decision_components": {"technical": 61},
-                    "warnings": ["gate"]}
-        streamlit_values = decision_view(decision)
-        telegram_values = decision_view(decision)
-        self.assertEqual(streamlit_values, telegram_values)
-
     def test_narrative_cannot_create_action_label(self):
         text = generate_ai_analysis(
             {"decision_label": "RESEARCH_ONLY", "overall": "Peer valuation unavailable"},
@@ -277,7 +269,7 @@ class ScannerTests(unittest.TestCase):
         self.assertTrue(any(row["ticker"] == "T4" for row in first["excluded"]))
         self.assertTrue(all(row["policy_label"] == "RESEARCH_ONLY" for row in first["candidates"]))
 
-    def test_streamlit_and_telegram_consume_identical_scan_contract(self):
+    def test_scan_view_accepts_typed_and_serialized_contract(self):
         from analysis.contracts import ScanBundle
         bundle = ScanBundle(
             as_of="2026-08-14T16:15:00+07:00", requested_tickers=["BBCA"],

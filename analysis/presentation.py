@@ -1,4 +1,4 @@
-"""Pure presentation model shared by Streamlit and Telegram."""
+"""Pure presentation model consumed by Telegram delivery."""
 
 from __future__ import annotations
 

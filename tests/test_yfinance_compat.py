@@ -51,10 +51,9 @@ class YfinanceCompatibilityTests(unittest.TestCase):
             "curl-cffi": "0.16.1",
             "cryptography": "50.0.0",
         }
-        for filename in ("requirements.txt", "requirements-bot.txt"):
-            requirements = Path(filename).read_text()
-            for package, version in expected.items():
-                self.assertIn(f"{package}=={version}", requirements)
+        requirements = Path("requirements-bot.txt").read_text()
+        for package, version in expected.items():
+            self.assertIn(f"{package}=={version}", requirements)
 
     def test_installed_public_surface_and_curl_metadata_are_compatible(self):
         self.assertTrue(callable(yfinance.Ticker))

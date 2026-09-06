@@ -122,7 +122,7 @@ class AnalysisBundle:
 
     def to_dict(self) -> dict[str, Any]:
         payload = _json_safe(asdict(self))
-        # v2 compatibility aliases remain until Streamlit and Telegram have
+        # v2 compatibility aliases remain until every Telegram command has
         # fully migrated to the v4 timing fields.
         payload["as_of"] = payload.get("analysis_as_of") or payload["as_of"]
         return payload

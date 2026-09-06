@@ -480,6 +480,29 @@ class SecurityGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 23)
 
 
+class DeliverySurfaceTests(unittest.TestCase):
+    def test_repository_exposes_telegram_without_standalone_web_app(self):
+        for path in ("bot.py", "bot_webhook.py", "requirements-bot.txt"):
+            self.assertTrue((ROOT / path).is_file(), path)
+
+        for path in ("app.py", "requirements.txt"):
+            self.assertFalse((ROOT / path).exists(), path)
+        for path in (".streamlit", "ui"):
+            self.assertFalse(
+                any(candidate.is_file() for candidate in (ROOT / path).rglob("*")),
+                path,
+            )
+
+        dependency_audit = (ROOT / "scripts/ci/check_dependencies.sh").read_text()
+        self.assertNotIn("requirements.txt", dependency_audit)
+        for profile in (
+            "requirements-bot.txt",
+            "requirements-jobs.txt",
+            "requirements-ci.txt",
+        ):
+            self.assertIn(f"--requirement {profile}", dependency_audit)
+
+
 class ContainerGateTests(unittest.TestCase):
     def test_smoke_uses_image_cmd_and_dynamic_port_healthcheck(self):
         dockerfile = (ROOT / "Dockerfile").read_text()

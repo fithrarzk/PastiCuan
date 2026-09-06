@@ -48,7 +48,7 @@ Domain ownership:
 - `storage/`: persistence, migrations, roles, and point-in-time queries.
 - `analysis/`: models, factors, scoring, ranges, snapshots, and outcome logic.
 - `operations/`: orchestration, release policy, health, and job interfaces.
-- `bot.py`, `bot_webhook.py`, `telegram_utils/`, `ui/`: delivery and presentation only.
+- `bot.py`, `bot_webhook.py`, `telegram_utils/`: Telegram delivery and presentation only.
 - `.github/workflows/`: CI/CD and scheduled automation.
 - `docs/`: domain, specs, tasks, runbooks, decisions, and handoffs.
 

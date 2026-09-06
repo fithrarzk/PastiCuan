@@ -8,11 +8,10 @@ guarantee profit.
 
 ## Free deployment
 
-The deployment is optimized for a bot-first, scale-to-zero free-tier setup:
+The deployment is optimized for a Telegram-only, scale-to-zero free-tier setup:
 
 - Telegram bot: Railway Free webhook using `railway.json`, `Dockerfile`, and
   `requirements-bot.txt`. Cloud Run remains an optional metered alternative.
-- App: Streamlit Community Cloud using `app.py` and `requirements.txt`.
 
 Follow [DEPLOY_FREE.md](DEPLOY_FREE.md) from start to finish. The bot supports
 `/range <ticker>` for a separately reported technical zone, historical
@@ -25,13 +24,12 @@ comparison universe or trigger live provider requests. `/quant <ticker>` remains
 a separate exploratory comparison against the default watchlist and is not the
 approved quant input used by `/scan`.
 
-How to run
-`streamlit run app.py`
+For local polling, configure `TELEGRAM_BOT_TOKEN` and run `python bot.py`.
 
 ## Reliability architecture
 
-- Streamlit and Telegram share versioned analysis contracts. Their Scanner
-  views both read the same immutable full-universe snapshot.
+- Telegram commands read versioned analysis contracts and immutable published
+  snapshots.
 - Current Yahoo access is a flagged market-data fallback. It is not treated as
   authoritative fundamental data, so the action gate remains closed.
 - Canonical structured research data uses Supabase PostgreSQL; original filing

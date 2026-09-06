@@ -1,4 +1,4 @@
-"""Single orchestration path for Streamlit, Telegram, scanners and reports."""
+"""Single orchestration path for Telegram, scanners, and reports."""
 
 from __future__ import annotations
 
