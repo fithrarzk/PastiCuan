@@ -62,17 +62,21 @@ Implementation from base `1f5651d` deletes the Streamlit entry point,
 package, configuration, and dependency profile while retaining Telegram polling,
 webhook, container, and provider compatibility. The red delivery-surface test
 failed on `app.py`; after removal, 22 focused tests passed. A clean Python 3.12
-environment passed compilation, all 160 tests, research-release integrity,
+environment passed compilation, all 161 tests, research-release integrity,
 strict audits of all three retained dependency profiles, Ruff, shell syntax,
 and `git diff --check`. The initial local full-suite failure was diagnosed as
 the pre-existing developer environment having yfinance 1.2.0 instead of the
 retained 1.5.2 pin; the clean pinned environment passed. No production action,
-formula/release change, migration, or credential use occurred. PR, required
-checks initially found that `actions/setup-python` implicitly required the
+formula/release change, migration, or credential use occurred. Initial PR
+required checks found that `actions/setup-python` implicitly required the
 deleted conventional requirements file; the task escalated from Standard to
 High-risk to repair and independently review that required-check contract. PR
-review, merge SHA, and post-merge state remain to be recorded. Elapsed
-implementation time before the CI correction was approximately 25 minutes,
-context use approximately 14k tokens, and two bounded correction cycles have
-been used. Production
-research recovery is not claimed.
+review, merge SHA, and post-merge state remain to be recorded. Fresh Sol/high
+Standards review reported one medium record-provenance finding and zero code
+smells; fresh Sol/high Spec review reported one medium delivery-state finding
+and no implementation or scope findings. This update records the review
+provenance; pushing the corrected head and obtaining green required checks
+resolves the remaining finding. Elapsed implementation time before the CI
+correction was approximately 25 minutes, context use approximately 18k tokens,
+and two bounded correction cycles have been used. Production research recovery
+is not claimed.
