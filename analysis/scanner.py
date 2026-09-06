@@ -1,4 +1,4 @@
-"""Bounded research scanner consumed by Telegram delivery."""
+"""Shared, bounded research scanner for Telegram and Streamlit."""
 
 from __future__ import annotations
 

@@ -318,7 +318,9 @@ class WorkflowGateTests(unittest.TestCase):
                 self.assertEqual(settings.get("cache"), "pip")
                 configured_profiles = {
                     value.strip()
-                    for value in str(settings.get("cache-dependency-path", "")).splitlines()
+                    for value in str(
+                        settings.get("cache-dependency-path", "")
+                    ).splitlines()
                     if value.strip()
                 }
                 self.assertEqual(

@@ -2,13 +2,13 @@
 
 - Status: review
 - Priority: P1
-- Owner/model: root orchestrator (GPT-5) with independent Standards and Spec review
+- Owner/model: root orchestrator (GPT-6) with independent Sol/high Standards and Spec review
 - Reasoning effort: medium implementation, high review
 - Context budget: `AGENTS.md`, `CONTEXT.md`, `.agents/skills/tdd/{SKILL,tests,mocking}.md`, this card, `docs/agents/delivery-lanes.md`, `docs/architecture/system-map.md`, `docs/specs/ci-cd-contract.md`, `DEPLOY_FREE.md`, and exact owned files; target 30k tokens, High-risk-lane maximum 60k
 - Retry ceiling: three bounded red-green correction cycles
 - Escalation condition: any required change to Telegram webhook/runtime behavior, a production workflow, evidence/research semantics, migration/schema/grants, credentials, or publication gates
 - Parallelism: one root writer; two fresh read-only reviewers after implementation
-- Base SHA: `1f5651d33bc2d41ffe99b1c8aad0515e7b3360b5`
+- Base SHA: `26d45080689fb1d96f874ccec65532ec5789f13c` (original implementation base `1f5651d33bc2d41ffe99b1c8aad0515e7b3360b5`; merged DOC-005 without rewriting history)
 - Branch: `refactor/UX-003-telegram-only`
 - Worktree: `../PastiCuan-wt/ux-003-telegram-only`
 - Depends on: none
@@ -48,7 +48,7 @@ Do not remove or change `bot.py`, `bot_webhook.py`, FastAPI, Docker, Railway, Re
 - The repository-surface test fails before removal and passes afterward.
 - `requirements-bot.txt`, `requirements-jobs.txt`, and `requirements-ci.txt` remain strictly audited.
 - Telegram modules compile and existing Telegram/reliability tests pass.
-- `rg` finds no active Streamlit runtime/deployment references outside historical task records.
+- `rg` finds no active Streamlit runtime/deployment references outside historical task records. Legacy comments/docstrings in the four unchanged analysis modules are retained to preserve the research release identity, per owner direction.
 - Required CI is green on the current PR head.
 - Both ordinary and exact-head validation workflows use explicit existing files for every enabled pip cache.
 
@@ -80,3 +80,27 @@ resolves the remaining finding. Elapsed implementation time before the CI
 correction was approximately 25 minutes, context use approximately 18k tokens,
 and two bounded correction cycles have been used. Production research recovery
 is not claimed.
+
+### Final bounded correction — 2026-09-07
+
+Resumed PR #38 at `60fff5057e182267a133cdc21dc2543561b2c898` and
+merged `26d4508` without force-pushing; DOC-005 policy is intact. The exact-head
+quality job `101542469934` in run `34054004575` reported Ruff formatting failures
+in two analysis modules and `tests/test_{ci_gates,reliability}.py`. Restored all
+four nonessential analysis comment/docstring edits to main and formatted only
+the two flagged test files. No formula or research release revision changed.
+
+The third and final correction cycle is consumed. Python 3.12.9 with the retained
+pinned runtime passed all 161 tests in 6.675 seconds, compilation, and release
+identity generation. Ruff 0.12.11 formatting/lint, workflow policy (two
+workflows), shell syntax, and whitespace checks passed. A mypy cache-writing
+internal error in the runtime environment disappeared with cache disabled;
+the CI-only dependency environment is checked separately. Permissions,
+concurrency, timeouts, and exact-head guard remain unchanged; explicit cache
+inputs name retained profiles. Full-suite failure-path tests cover workflow
+policy rejection, head mismatch, dependency audit failure, and container cleanup.
+
+Final committed-head release policy, independent reviews, remote checks, merge,
+and post-merge verification remain pending. Stop with a recoverable handoff if
+this correction does not resolve required checks. No Supabase access or
+production writes occurred. Exact-SHA Railway deployment remains DEP-001 work.
