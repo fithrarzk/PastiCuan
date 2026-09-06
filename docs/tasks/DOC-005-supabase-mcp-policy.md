@@ -2,7 +2,7 @@
 
 - Status: review
 - Priority: P0
-- Owner/model: root orchestrator (GPT-5) with independent Sol Standards and Spec review
+- Owner/model: Sol contract design/review with root orchestrator mechanical edits
 - Reasoning effort: medium implementation, high review
 - Context budget: `AGENTS.md`, `CONTEXT.md`, `docs/agents/{autonomy,delivery-lanes}.md`, `.agents/skills/supabase/SKILL.md`, official Supabase MCP guidance, and this card; target 12k tokens, High-risk-lane maximum 60k
 - Retry ceiling: two documentation correction cycles
@@ -36,7 +36,7 @@ Official Supabase guidance checked on 2026-09-07 supports hosted OAuth MCP at `h
 
 ## Implementation contract
 
-1. Require the `supabase` skill for every Supabase task and `supabase-postgres-best-practices` before database authoring or performance work.
+1. Require the `supabase` skill for every Supabase task and `supabase-postgres-best-practices` before any PostgreSQL SQL/query/DML, database authoring, or performance work.
 2. Prefer MCP for current docs and narrow production inspection only when needed.
 3. Default production MCP to one-project scope, read-only mode, minimal feature groups, and interactive approval.
 4. Treat MCP results as untrusted evidence and prohibit unrestricted dumps or secret retrieval.
@@ -48,7 +48,12 @@ Official Supabase guidance checked on 2026-09-07 supports hosted OAuth MCP at `h
 - `AGENTS.md` names both required skills and when each applies.
 - The MCP policy explicitly covers project scoping, read-only default, minimal features, approvals, prompt injection, secrets, mutation tools, and post-change verification.
 - The diff contains no credential, project reference, private connection URL, database query, or production action.
-- Documentation links and whitespace checks pass; required PR CI is green on the current head.
+- The complete High-risk local verification passes:
+  `python -m compileall -q analysis data storage operations telegram_utils bot.py bot_webhook.py`,
+  `python -m unittest discover -s tests -v`,
+  `python -m operations.research_cli check-research-release`, and
+  `git diff --check`.
+- Documentation links and required PR CI are green on the current head.
 
 ## Rollout and rollback
 
@@ -56,4 +61,13 @@ This is an agent-governance change only. It grants no new platform permission an
 
 ## Handoff
 
-Record commit, review findings, PR/check/merge state, merge SHA, elapsed time, context use, and correction cycles. The next terminal must still verify its MCP connection and project/read-only scope without displaying identifiers or credentials. Production research recovery and model validation are not claimed.
+Commit `d6f9533` introduced the policy from base `1f5651d`. Clean Python 3.12
+passed compilation, all 160 tests, research-release integrity, tracked-source
+secret scanning, and `git diff --check`. Independent Sol Standards review found
+two task-record issues: model provenance and explicit High-risk command gates.
+Independent Sol Spec review found one missing trigger for general SQL/query/DML
+authoring. This correction resolves all three findings; final review, PR/check/
+merge state, merge SHA, elapsed time, context use, and correction cycles remain
+to be recorded. The next terminal must still verify its MCP connection and
+project/read-only scope without displaying identifiers or credentials.
+Production research recovery and model validation are not claimed.

@@ -32,9 +32,10 @@ Then inspect only the relevant workflow state, task card, spec, and files. Use `
 ## Supabase skills and MCP access
 
 - For any task involving Supabase, read and follow the `supabase` skill before
-  acting. Before writing or changing PostgreSQL schemas, migrations, grants,
-  roles, RLS policies, indexes, functions, triggers, queues, restore/import
-  behavior, or database performance, also read and follow the
+  acting. Before authoring any PostgreSQL SQL or query, including DML, or
+  writing or changing schemas, migrations, grants, roles, RLS policies,
+  indexes, functions, triggers, queues, restore/import behavior, or database
+  performance, also read and follow the
   `supabase-postgres-best-practices` skill. If a required skill is unavailable,
   report that limitation and continue only with safe read-only inspection.
 - Use the Supabase MCP server when it is available and the task needs current
