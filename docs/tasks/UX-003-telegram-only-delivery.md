@@ -12,7 +12,7 @@
 - Branch: `refactor/UX-003-telegram-only`
 - Worktree: `../PastiCuan-wt/ux-003-telegram-only`
 - Depends on: none
-- File ownership: `.dockerignore`, `.env.example`, `.github/workflows/{ci,validate-branch}.yml`, `.gitignore`, `.streamlit/config.toml`, `AGENTS.md`, `DEPLOY_FREE.md`, `README.md`, `app.py`, `analysis/{contracts,engine,presentation,scanner}.py`, `requirements.txt`, `scripts/ci/check_dependencies.sh`, `tests/test_ci_gates.py`, `tests/test_reliability.py`, `tests/test_yfinance_compat.py`, `ui/**`, `docs/architecture/system-map.md`, `docs/tasks/ROADMAP.md`, `docs/tasks/CLAIMS.md`, and this card
+- File ownership: `.dockerignore`, `.env.example`, `.github/workflows/{ci,validate-branch}.yml`, `.gitignore`, `.streamlit/config.toml`, `DEPLOY_FREE.md`, `README.md`, `app.py`, `analysis/{contracts,engine,presentation,scanner}.py`, `requirements.txt`, `scripts/ci/check_dependencies.sh`, `tests/test_ci_gates.py`, `tests/test_reliability.py`, `tests/test_yfinance_compat.py`, `ui/**`, `docs/architecture/system-map.md`, `docs/tasks/ROADMAP.md`, `docs/tasks/CLAIMS.md`, and this card
 - Merge policy: autonomous
 
 ## Outcome
