@@ -2,17 +2,17 @@
 
 - Status: review
 - Priority: P1
-- Owner/model: root orchestrator (GPT-5)
-- Reasoning effort: medium
-- Context budget: `AGENTS.md`, `CONTEXT.md`, `.agents/skills/tdd/{SKILL,tests,mocking}.md`, this card, `docs/agents/delivery-lanes.md`, `docs/architecture/system-map.md`, `DEPLOY_FREE.md`, and exact owned files; target 20k tokens, Standard-lane maximum 30k
-- Retry ceiling: two bounded red-green correction cycles
+- Owner/model: root orchestrator (GPT-5) with independent Standards and Spec review
+- Reasoning effort: medium implementation, high review
+- Context budget: `AGENTS.md`, `CONTEXT.md`, `.agents/skills/tdd/{SKILL,tests,mocking}.md`, this card, `docs/agents/delivery-lanes.md`, `docs/architecture/system-map.md`, `docs/specs/ci-cd-contract.md`, `DEPLOY_FREE.md`, and exact owned files; target 30k tokens, High-risk-lane maximum 60k
+- Retry ceiling: three bounded red-green correction cycles
 - Escalation condition: any required change to Telegram webhook/runtime behavior, a production workflow, evidence/research semantics, migration/schema/grants, credentials, or publication gates
-- Parallelism: one root writer; no sub-agents
+- Parallelism: one root writer; two fresh read-only reviewers after implementation
 - Base SHA: `1f5651d33bc2d41ffe99b1c8aad0515e7b3360b5`
 - Branch: `refactor/UX-003-telegram-only`
 - Worktree: `../PastiCuan-wt/ux-003-telegram-only`
 - Depends on: none
-- File ownership: `.dockerignore`, `.env.example`, `.gitignore`, `.streamlit/config.toml`, `AGENTS.md`, `DEPLOY_FREE.md`, `README.md`, `app.py`, `analysis/{contracts,engine,presentation,scanner}.py`, `requirements.txt`, `scripts/ci/check_dependencies.sh`, `tests/test_ci_gates.py`, `tests/test_reliability.py`, `tests/test_yfinance_compat.py`, `ui/**`, `docs/architecture/system-map.md`, `docs/tasks/ROADMAP.md`, `docs/tasks/CLAIMS.md`, and this card
+- File ownership: `.dockerignore`, `.env.example`, `.github/workflows/{ci,validate-branch}.yml`, `.gitignore`, `.streamlit/config.toml`, `AGENTS.md`, `DEPLOY_FREE.md`, `README.md`, `app.py`, `analysis/{contracts,engine,presentation,scanner}.py`, `requirements.txt`, `scripts/ci/check_dependencies.sh`, `tests/test_ci_gates.py`, `tests/test_reliability.py`, `tests/test_yfinance_compat.py`, `ui/**`, `docs/architecture/system-map.md`, `docs/tasks/ROADMAP.md`, `docs/tasks/CLAIMS.md`, and this card
 - Merge policy: autonomous
 
 ## Outcome
@@ -41,6 +41,7 @@ Do not remove or change `bot.py`, `bot_webhook.py`, FastAPI, Docker, Railway, Re
 3. Remove the retired dependency profile from the audit wrapper and update affected compatibility tests without weakening bot dependency coverage.
 4. Remove active Streamlit instructions and replace the future cross-surface roadmap item with Telegram-only consistency work.
 5. Preserve Telegram hosting and verify focused tests before filing the PR.
+6. Configure pip caching against explicit retained dependency profiles so deleting the conventional root `requirements.txt` cannot disable required checks.
 
 ## Acceptance tests
 
@@ -49,6 +50,7 @@ Do not remove or change `bot.py`, `bot_webhook.py`, FastAPI, Docker, Railway, Re
 - Telegram modules compile and existing Telegram/reliability tests pass.
 - `rg` finds no active Streamlit runtime/deployment references outside historical task records.
 - Required CI is green on the current PR head.
+- Both ordinary and exact-head validation workflows use explicit existing files for every enabled pip cache.
 
 ## Rollout and rollback
 
@@ -56,7 +58,7 @@ The merge removes only the unneeded Streamlit deployment surface. Railway may re
 
 ## Handoff
 
-Pre-PR implementation from base `1f5651d` deletes the Streamlit entry point,
+Implementation from base `1f5651d` deletes the Streamlit entry point,
 package, configuration, and dependency profile while retaining Telegram polling,
 webhook, container, and provider compatibility. The red delivery-surface test
 failed on `app.py`; after removal, 22 focused tests passed. A clean Python 3.12
@@ -66,7 +68,11 @@ and `git diff --check`. The initial local full-suite failure was diagnosed as
 the pre-existing developer environment having yfinance 1.2.0 instead of the
 retained 1.5.2 pin; the clean pinned environment passed. No production action,
 formula/release change, migration, or credential use occurred. PR, required
-checks, review, merge SHA, and post-merge state remain to be recorded. Elapsed
-implementation time is approximately 25 minutes, context use approximately 14k
-tokens, and one bounded environment correction cycle was used. Production
+checks initially found that `actions/setup-python` implicitly required the
+deleted conventional requirements file; the task escalated from Standard to
+High-risk to repair and independently review that required-check contract. PR
+review, merge SHA, and post-merge state remain to be recorded. Elapsed
+implementation time before the CI correction was approximately 25 minutes,
+context use approximately 14k tokens, and two bounded correction cycles have
+been used. Production
 research recovery is not claimed.

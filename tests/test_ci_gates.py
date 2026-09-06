@@ -293,6 +293,40 @@ class WorkflowGateTests(unittest.TestCase):
                         f"{path.name}:{job_name}",
                     )
 
+    def test_pip_caches_name_existing_dependency_profiles(self):
+        expected = {
+            "ci.yml": {
+                "unit": {"requirements-bot.txt", "requirements-ci.txt"},
+                "quality": {"requirements-ci.txt"},
+                "verify-main": {"requirements-bot.txt", "requirements-ci.txt"},
+            },
+            "validate-branch.yml": {
+                "test": {"requirements-bot.txt", "requirements-ci.txt"},
+                "unit": {"requirements-bot.txt", "requirements-ci.txt"},
+            },
+        }
+        for workflow_name, jobs in expected.items():
+            workflow = _workflow_data(ROOT / ".github/workflows" / workflow_name)
+            for job_name, expected_profiles in jobs.items():
+                setup = next(
+                    step
+                    for step in workflow["jobs"][job_name]["steps"]
+                    if isinstance(step, dict)
+                    and str(step.get("uses", "")).startswith("actions/setup-python@")
+                )
+                settings = setup.get("with", {})
+                self.assertEqual(settings.get("cache"), "pip")
+                configured_profiles = {
+                    value.strip()
+                    for value in str(settings.get("cache-dependency-path", "")).splitlines()
+                    if value.strip()
+                }
+                self.assertEqual(
+                    configured_profiles,
+                    expected_profiles,
+                    f"{workflow_name}:{job_name}",
+                )
+
     def test_pull_request_workflow_has_all_stable_jobs_and_pins_actions(self):
         errors = validate_workflow(
             ROOT / ".github/workflows/ci.yml", require_required_jobs=True
