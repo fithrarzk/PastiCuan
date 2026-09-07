@@ -1,6 +1,6 @@
 # ING-003: Skip-before-download resumable importer
 
-- Status: review
+- Status: blocked
 - Priority: P0
 - Owner/model: GPT-6 root writer; Sol independent review
 - Delivery lane: High-risk (fenced transactions and point-in-time evidence)
@@ -108,3 +108,42 @@ Record base/final SHA, changed files, focused/full and disposable-PostgreSQL res
   corrections across importer, transaction, and reporting seams. Roll back by
   normal code revert while retaining ledger/evidence history; never run migration
   007 down in production. Next task after verified merge and handoff: ING-004.
+
+### Recoverable review handoff — 2026-09-07
+
+- Checkpoint head before this record: `2ff6b9273d97970574aab17a730797b96325a136`;
+  PR #43; issue #42 remains claimed. All eight required checks passed in
+  `34141807486`, including the disposable PostgreSQL migration job. The branch
+  is intentionally unmerged.
+- Standards review of `2ff6b92`: no hard breach; one low naming smell because
+  `bound` obscures transaction-bound repository reuse.
+- Spec review found three High issues. Valid manifest failures at migration
+  preflight or atomic sync omit per-Filing blocked results. Reviewed-checksum
+  mismatch is incorrectly durable `RETRYABLE` and loses the acquired artifact
+  instead of becoming terminal quarantine evidence. A lease renewed only before
+  acquisition does not prevent another worker reclaiming and downloading after
+  expiry while the first worker is still in provider/R2/parser work.
+- The checksum issue cannot be corrected within migration 007 as merged.
+  `enforce_filing_work_acceptance` requires expected checksum equality for both
+  `ACCEPTED` and `QUARANTINED`. Do not forge the expected checksum, discard
+  provenance, retain a deterministic mismatch as retryable, or modify immutable
+  migration 007. The repair requires a separately reviewed additive migration
+  that permits a mismatched acquired artifact only for
+  `QUARANTINED/ARTIFACT_MISMATCH`, with matching down migration, compatibility,
+  grants, trigger tests, and rollout/rollback documentation. Production apply
+  remains prohibited without the existing backup/protected-rollout gates.
+- Download exclusivity needs a per-identity session advisory fence acquired
+  before claim and held through acquire/R2/parse/final completion. It must run
+  outside a database transaction, use a deterministic collision-resistant key,
+  release on normal exit/disconnect, and have a two-session test proving the
+  losing worker makes zero provider calls. This preserves short transactions;
+  assess connection-pool impact for ING-004 sharding.
+- The final reporting correction initializes `remaining` immediately after
+  manifest validation and tests migration-preflight remaining count. It is safe
+  but does not resolve the three review blockers.
+- Stop reason: task-card 20k context ceiling and explicit escalation conditions
+  for schema change and unproven lease fencing. Approximately 55 minutes and
+  20k task tokens; three bounded corrections used. Resume with a revised
+  decision-complete card/file ownership for the additive migration and advisory
+  fence, then TDD the three findings, rerun full/disposable verification, and
+  obtain fresh reviews on the new exact head. ING-004 remains blocked.
