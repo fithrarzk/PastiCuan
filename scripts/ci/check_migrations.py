@@ -12,6 +12,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import hashlib
 import ipaddress
+import os
 from pathlib import Path
 import time
 from typing import Any
@@ -806,6 +807,19 @@ def main() -> int:
             verify_filing_work_privileges(connection)
             verify_filing_work_catalog(connection)
         filing_work_behavior(connection, args.database_url)
+        importer_checks = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "unittest",
+                "tests.test_filing_work_ledger.FilingImportTransactionTests",
+            ],
+            env={**os.environ, "PASTICUAN_TEST_DATABASE_URL": args.database_url},
+            capture_output=True,
+            text=True,
+        )
+        if importer_checks.returncode:
+            raise RuntimeError("disposable filing importer transaction checks failed")
         if args.verify_disposable_down_reup:
             verify_disposable_database_identity(connection)
             down = args.migrations / "007_filing_work_ledger.down.sql"

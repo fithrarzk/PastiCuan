@@ -1,14 +1,15 @@
 # ING-003: Skip-before-download resumable importer
 
-- Status: ready
+- Status: review
 - Priority: P0
-- Owner/model: Luna implementation; Sol independent review
+- Owner/model: GPT-6 root writer; Sol independent review
+- Delivery lane: High-risk (fenced transactions and point-in-time evidence)
 - Reasoning effort: medium implementation, high review
 - Context budget: `AGENTS.md`, `CONTEXT.md`, `.agents/skills/tdd/{SKILL,tests,mocking}.md`, this card, `docs/specs/ingestion-contract.md`, `docs/runbooks/backfill.md`, and exact owned files; maximum 20k tokens
 - Retry ceiling: three bounded red-green-refactor cycles per seam
 - Escalation condition: migration/schema/grant change; migration 007 modification; unprovable lease fencing/per-item atomicity; provenance conflict; raw provider diagnostics; production migration, secret, or destructive action
 - Parallelism: one writer for serialized `operations/research_cli.py` and `storage/repository.py`; fresh read-only reviewers afterward
-- Base SHA: `25c6f2e691e8757b54c76787fe57ff0d5da0f629` (refresh to current `origin/main` when claimed)
+- Base SHA: `1b7e06efb1722dc4b335f5fd1da205c9bd51e5fa`
 - Branch: `feat/ING-003-resumable-importer`
 - Worktree: `../PastiCuan-wt/ing-003-resumable-importer`
 - Depends on: verified ING-002 (`25c6f2e`)
@@ -35,6 +36,14 @@ ING-002 merged the required ledger/API as `25c6f2e`, but migration 007 is not ap
 - Stable allowlisted errors replace raw exceptions/provider bodies; existing source, freshness, point-in-time, and publication gates remain unchanged.
 
 ## Implementation contract
+
+Public seams for TDD: importer run report with injected provider/storage boundaries;
+repository prepare/complete-Filing transaction methods; ingest-idx-xbrl CLI exit
+and report. A transaction-bound repository reuses existing artifact/fact/profile
+methods without opening or committing a second connection. An initial live-lease
+row lock plus final lease check brackets all writes; expiry rolls back everything.
+Repository timestamps never supply evidence availability. Task-adjacent ownership
+includes the dated handoff and roadmap status update before ING-004.
 
 1. Validate the complete manifest with the ING-001 schema/identity rules.
 2. Run `preflight_schema_migrations(["007_filing_work_ledger"])` before sync, claim, or network.
@@ -69,3 +78,33 @@ Before first production dispatch: independently reviewed migration rollout, veri
 ## Handoff
 
 Record base/final SHA, changed files, focused/full and disposable-PostgreSQL results, independent reviews, PR/check/merge state, and explicit production rollout status. Recommend ING-004 only after this card is verified and the dated program handoff is updated.
+
+### Review checkpoint — 2026-09-07
+
+- Base: `1b7e06efb1722dc4b335f5fd1da205c9bd51e5fa`; final commit,
+  PR, reviews, checks, merge, and post-merge state remain pending.
+- `data/idx_filing_importer.py` validates the complete reviewed manifest and
+  migration 007 before sync/provider access, skips accepted and terminal
+  quarantined work, defers live leases, claims unfinished work, and emits a
+  redacted structured run report. Only accepted/skipped-accepted completion
+  exits zero. Sharding and bounded cross-run retry remain ING-004.
+- Repository prepare syncs issuer resolution and immutable provenance in one
+  transaction. Per-Filing completion locks the live fence and atomically writes
+  artifact, facts/profile outcome, ledger item, and attempt. Provider/R2 work
+  remains outside transactions. Database timestamps never become `available_at`.
+- Ten importer/CLI tests and six ledger tests pass. Disposable PostgreSQL 16
+  proves rollback on a malformed later fact, stale-token rejection, independent
+  acceptance/quarantine, accepted rerun with zero downloads, and facts invisible
+  before `available_at`. Clean migration checks verify all seven migrations.
+  The complete suite passes 172 tests in 11.737s; compilation, Ruff, mypy for
+  six changed Python files, research-release policy, and whitespace checks pass.
+- No migration/schema/grant, formula, gate, manifest, credential, or production
+  action occurred. Supabase changelog review found no relevant API/database
+  breaking change; MCP was unnecessary because no current production evidence
+  or Supabase API behavior was needed. Migration 007 remains unapplied in
+  production, so production import and operational resumability remain blocked.
+- High-risk; GPT-6 root implementation and Sol/high reviews pending. Approximate
+  implementation time 35 minutes, context use 18k tokens, three bounded TDD
+  corrections across importer, transaction, and reporting seams. Roll back by
+  normal code revert while retaining ledger/evidence history; never run migration
+  007 down in production. Next task after verified merge and handoff: ING-004.

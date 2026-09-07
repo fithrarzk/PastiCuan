@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -325,6 +326,145 @@ class SnapshotRepository:
             raise
         except Exception:
             raise RuntimeError("filing work ledger sync failed") from None
+
+    def prepare_filing_import(self, filings: list[dict]) -> list[dict]:
+        """Resolve and sync a complete manifest atomically, returning bulk states."""
+        if not filings:
+            return []
+        with self._connect() as connection:
+            bound = SnapshotRepository(lambda: nullcontext(connection))
+            with connection.cursor() as cursor:
+                tickers = sorted({row["ticker"] for row in filings})
+                cursor.execute(
+                    "SELECT ticker,id FROM issuers WHERE ticker=ANY(%s) ORDER BY ticker",
+                    (tickers,),
+                )
+                issuers = {self._db_text(row[0]): row[1] for row in cursor.fetchall()}
+                if set(issuers) != set(tickers):
+                    raise ValueError("unknown issuer for reviewed filing")
+                reviewed = [
+                    {
+                        **row,
+                        "issuer_id": issuers[row["ticker"]],
+                        "expected_checksum": row.get("checksum"),
+                    }
+                    for row in filings
+                ]
+                bound.sync_reviewed_filings(
+                    sorted(reviewed, key=lambda row: str(self._work_key(row)))
+                )
+                cursor.execute(
+                    """SELECT issuer_id,filing_type,period_end,restatement_version,state,lease_expires_at
+                                  FROM filing_work_items WHERE issuer_id=ANY(%s)""",
+                    (list(issuers.values()),),
+                )
+                states = {
+                    (row[0], self._db_text(row[1]), str(row[2]), row[3]): {
+                        "state": self._db_text(row[4]),
+                        "lease_expires_at": row[5],
+                    }
+                    for row in cursor.fetchall()
+                }
+                return [
+                    {
+                        **row,
+                        **states[
+                            (
+                                row["issuer_id"],
+                                row["filing_type"],
+                                str(row["period_end"]),
+                                row["restatement_version"],
+                            )
+                        ],
+                    }
+                    for row in reviewed
+                ]
+
+    def complete_filing_import(
+        self,
+        identity: dict,
+        lease_token: str,
+        artifact: dict,
+        *,
+        parsed: dict | None = None,
+        state: str = "ACCEPTED",
+    ) -> dict | None:
+        """Commit artifact, facts/profile, ledger item and attempt under one fence."""
+        if state not in {"ACCEPTED", "QUARANTINED"}:
+            raise ValueError("invalid filing completion state")
+        key = self._identity(identity)
+        with self._connect() as connection:
+            bound = SnapshotRepository(lambda: nullcontext(connection))
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT source_url,published_at FROM filing_work_items
+                                  WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
+                                    AND state='RUNNING' AND lease_token=%s AND lease_expires_at>clock_timestamp()
+                                  FOR UPDATE""",
+                    (*key, lease_token),
+                )
+                work = cursor.fetchone()
+                if not work:
+                    return None
+                publication = datetime.fromisoformat(
+                    str(artifact["published_at"]).replace("Z", "+00:00")
+                )
+                if (
+                    artifact["source_url"] != self._db_text(work[0])
+                    or publication != work[1]
+                ):
+                    raise ValueError("filing artifact provenance mismatch")
+                artifact_id = bound.register_source_artifact(artifact)
+                count = 0
+                profile = "UNVERIFIED"
+                if state == "ACCEPTED":
+                    if not parsed or not parsed.get("facts"):
+                        raise ValueError("filing facts required")
+                    count = bound.import_canonical_records(
+                        "statement_facts_csv", parsed["facts"], source_class="official"
+                    )
+                    label = parsed.get("diagnostics", {}).get("industry") or parsed.get(
+                        "diagnostics", {}
+                    ).get("sector")
+                    if label:
+                        try:
+                            profile = bound.verify_issuer_profile(
+                                identity["ticker"],
+                                sector=label,
+                                source_url=artifact["source_url"],
+                                checksum=artifact["checksum"],
+                                available_at=identity["published_at"],
+                            ).upper()
+                        except ValueError:
+                            bound.record_ingestion_issue(
+                                artifact_id,
+                                "ISSUER_PROFILE_REVIEW_REQUIRED",
+                                "VALIDATION_FAILED",
+                            )
+                else:
+                    bound.record_ingestion_issue(
+                        artifact_id, "IDX_XBRL_FAILURE", "VALIDATION_FAILED"
+                    )
+                bound.set_artifact_status(artifact_id, state)
+                result = bound.finalize_filing_work(
+                    identity,
+                    lease_token,
+                    state,
+                    artifact_id=artifact_id,
+                    checksum=artifact["checksum"],
+                    error_class="VALIDATION" if state == "QUARANTINED" else None,
+                    error_summary="VALIDATION_FAILED"
+                    if state == "QUARANTINED"
+                    else None,
+                )
+                if result is None:
+                    # Expiry after the initial lock must roll back all evidence writes.
+                    raise ValueError("filing lease expired during completion")
+                return {
+                    "state": state,
+                    "record_count": count,
+                    "issuer_profile": profile,
+                }
 
     def get_filing_work_statuses(self, identities: list[dict | tuple]) -> list[dict]:
         """Read deterministic ledger statuses without exposing provider details."""

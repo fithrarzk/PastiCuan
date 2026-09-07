@@ -30,7 +30,6 @@ from analysis.snapshots import ResearchSnapshot, load_snapshot, write_snapshot
 from analysis.contracts import strict_json_dumps
 from data.ingestion import acquire_artifact, read_manifest, upload_to_r2
 from data.parsers import parse_canonical_csv
-from data.idx_xbrl import parse_idx_xbrl, validate_official_idx_url
 from data.idx_reports import discover_idx_xbrl_manifest
 from operations.research_release import (
     DEFAULT_RELEASE_PATH,
@@ -225,110 +224,20 @@ def ingest_manifest(
 
 def ingest_idx_xbrl_manifest(
     path: str, *, archive_directory: str | None, use_r2: bool
-) -> list[dict]:
-    """Acquire official IDX instances, archive originals, and import reviewed facts."""
-    payload = json.loads(Path(path).read_text())
-    filings = payload.get("filings", payload) if isinstance(payload, dict) else payload
-    if not isinstance(filings, list):
-        raise ValueError(
-            "IDX filing manifest must be a list or contain a filings list."
-        )
-    if not filings:
-        return []
+) -> dict:
+    """Import reviewed filings through durable preflight, skip and lease gates."""
+    from data.idx_filing_importer import import_filings
     from storage.database import connect_from_env
     from storage.repository import SnapshotRepository
 
+    try:
+        payload = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        payload = None
     repository = SnapshotRepository(lambda: connect_from_env(writer=True))
-    report = []
-    required = {"ticker", "source_url", "published_at", "filing_type", "period_end"}
-    for source in filings:
-        artifact_id = None
-        try:
-            missing = required - set(source)
-            if missing:
-                raise ValueError(
-                    f"IDX filing manifest entry is missing: {', '.join(sorted(missing))}."
-                )
-            validate_official_idx_url(source["source_url"])
-            artifact, body = acquire_artifact(
-                provider="IDX",
-                source_class="official",
-                artifact_type="idx_xbrl_instance",
-                source_url=source["source_url"],
-                published_at=source["published_at"],
-                archive_directory=archive_directory,
-            )
-            artifact_id = repository.register_source_artifact(
-                artifact.to_dict(), parse_status="PENDING"
-            )
-            if use_r2:
-                upload_to_r2(
-                    artifact.object_key or artifact.checksum,
-                    body,
-                    content_type=artifact.content_type or "application/zip",
-                )
-            parsed = parse_idx_xbrl(
-                body,
-                ticker=source["ticker"],
-                source_url=source["source_url"],
-                published_at=source["published_at"],
-                filing_type=source["filing_type"],
-                filing_period_end=source["period_end"],
-                document_checksum=artifact.checksum,
-                object_key=artifact.object_key or artifact.checksum,
-                audit_status=source.get("audit_status", "UNAUDITED"),
-                restatement_version=int(source.get("restatement_version", 1)),
-            )
-            imported = repository.import_canonical_records(
-                "statement_facts_csv",
-                parsed["facts"],
-                source_class="official",
-            )
-            profile_status = "UNVERIFIED"
-            profile_label = parsed["diagnostics"].get("industry") or parsed[
-                "diagnostics"
-            ].get("sector")
-            if profile_label:
-                try:
-                    profile_status = repository.verify_issuer_profile(
-                        source["ticker"],
-                        sector=profile_label,
-                        source_url=source["source_url"],
-                        checksum=artifact.checksum,
-                        available_at=source["published_at"],
-                    ).upper()
-                except ValueError as profile_error:
-                    repository.record_ingestion_issue(
-                        artifact_id,
-                        "ISSUER_PROFILE_REVIEW_REQUIRED",
-                        str(profile_error),
-                    )
-            repository.set_artifact_status(artifact_id, "ACCEPTED")
-            report.append(
-                {
-                    **artifact.to_dict(),
-                    "ticker": source["ticker"],
-                    "status": "ACCEPTED",
-                    "record_count": imported,
-                    "issuer_profile": profile_status,
-                    "diagnostics": parsed["diagnostics"],
-                }
-            )
-        except Exception as exc:
-            if artifact_id:
-                repository.set_artifact_status(artifact_id, "QUARANTINED")
-                repository.record_ingestion_issue(
-                    artifact_id, "IDX_XBRL_FAILURE", str(exc)
-                )
-            report.append(
-                {
-                    "ticker": source.get("ticker"),
-                    "source_url": source.get("source_url"),
-                    "status": "QUARANTINED",
-                    "detail": str(exc),
-                }
-            )
-    return report
+    return import_filings(
+        payload, repository, archive_directory=archive_directory, use_r2=use_r2
+    )
 
 
 def discover_idx_manifest(
@@ -1433,13 +1342,13 @@ def main(argv=None) -> int:
         if any(item["status"] == "QUARANTINED" for item in report):
             return 2
     elif args.command == "ingest-idx-xbrl":
-        report = ingest_idx_xbrl_manifest(
+        filing_report = ingest_idx_xbrl_manifest(
             args.manifest,
             archive_directory=args.archive_directory,
             use_r2=args.r2,
         )
-        Path(args.report).write_text(strict_json_dumps(report, indent=2))
-        if any(item["status"] == "QUARANTINED" for item in report):
+        Path(args.report).write_text(strict_json_dumps(filing_report, indent=2))
+        if not filing_report["ok"]:
             return 2
     elif args.command == "discover-idx-xbrl":
         year, period = (
