@@ -65,7 +65,7 @@ for cache-input changes only, plus `tests/test_ci_gates.py`, this card,
 `docs/tasks/CLAIMS.md`, and the dated program handoff. The regression seam is
 the setup-python cache configuration consumed by all retained workflows:
 every pip cache must name existing dependency profiles and include transitive
-bot requirements for jobs. No trigger, permission, concurrency, timeout,
+bot requirements for jobs. No trigger, permission, timeout,
 production command, schema, or research behavior change is authorized here.
 The expanded workflow-policy check additionally requires immutable action pins
 and per-workflow non-cancelling concurrency for backup and validation. These
