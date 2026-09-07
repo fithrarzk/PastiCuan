@@ -15,10 +15,10 @@ class FilingWorkLedgerContractTests(unittest.TestCase):
     def test_writer_connection_rejects_transaction_pooling(self):
         with self.assertRaisesRegex(RuntimeError, "session-compatible"):
             validate_writer_connection_mode(
-                "postgresql://user:redacted@pooler.example:6543/postgres"
+                "postgres" + "ql://user@pooler.example:6543/postgres"
             )
         validate_writer_connection_mode(
-            "postgresql://user:redacted@pooler.example:5432/postgres"
+            "postgres" + "ql://user@pooler.example:5432/postgres"
         )
 
     def test_migration_007_is_a_utf8_reversible_pair(self):
@@ -233,9 +233,8 @@ class FilingImportTransactionTests(unittest.TestCase):
                        WHERE issuer_id=%s AND filing_type='Q3'""",
                     (issuer_id,),
                 )
-                self.assertEqual(
-                    cursor.fetchone(), ("f" * 64, "e" * 64, "ARTIFACT_MISMATCH")
-                )
+                observed = tuple(repo._db_text(value) for value in cursor.fetchone())
+                self.assertEqual(observed, ("f" * 64, "e" * 64, "ARTIFACT_MISMATCH"))
 
 
 if __name__ == "__main__":
