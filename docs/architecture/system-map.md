@@ -12,7 +12,7 @@ PastiCuan is a `RESEARCH_ONLY`, point-in-time IDX system. Production code is the
 | Orchestration | [`.github/workflows/`](../../.github/workflows/), [`operations/research_cli.py`](../../operations/research_cli.py) | Workflow run artifacts and signed release metadata | Reviewed publication attempt and reports |
 | Delivery | [`bot.py`](../../bot.py), [`bot_webhook.py`](../../bot_webhook.py), [`analysis/snapshots.py`](../../analysis/snapshots.py), [`analysis/scan_snapshots.py`](../../analysis/scan_snapshots.py) | Published signed snapshots; read-only database access | Telegram commands and `/ready` health |
 
-Railway hosts only the Telegram webhook; GitHub Actions runs acquisition, refresh, publication and backup work outside the request path. Streamlit is a separate presentation service. The bot must not calculate a full-universe scan or call Yahoo/R2 in `/scan`.
+Railway hosts only the Telegram webhook; GitHub Actions runs acquisition, refresh, publication and backup work outside the request path. The bot must not calculate a full-universe scan or call Yahoo/R2 in `/scan`.
 
 ## Status vocabulary
 

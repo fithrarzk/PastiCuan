@@ -4,15 +4,12 @@
 .env.*
 # Configuration templates can contain credential-shaped values and are not
 # needed by the production image. Keep all environment files out of context.
-.streamlit
 venv
 .venv
 __pycache__
 *.py[cod]
 tests
 operations
-ui
-app.py
 README.md
 DEPLOY_FREE.md
 Procfile

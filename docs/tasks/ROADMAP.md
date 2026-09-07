@@ -99,7 +99,8 @@ Tasks touching `operations/research_cli.py`, `storage/repository.py`, or migrati
 |---|---|---|---|---|---|
 | UX-001 | Structured stale/excluded/missing reasons and separate coverage labels | Luna | REL-002 | autonomous | Historical detail remains labeled; current ranking stays closed; market/quant/profile/business coverage are distinct |
 | PERF-001 | Replace per-issuer N+1 factor reads with set-based cutoff query | Luna | PIT-001 | autonomous | One transaction/cutoff, measured query reduction, identical deterministic output |
-| UX-002 | Align Telegram and Streamlit with immutable stored evidence | Luna | REL-002, PIT-004 | autonomous | Both surfaces report the same release/snapshot IDs and no hidden live calculation |
+| UX-002 | Align Telegram commands with immutable stored evidence | Luna | REL-002, PIT-004 | autonomous | All commands report the same release/snapshot IDs and no hidden live calculation |
+| UX-003 | Retire the standalone Streamlit delivery surface | Root orchestrator | none | autonomous | Only Telegram remains user-facing; its polling, webhook, container, and research contracts are unchanged |
 | OBS-002 | Stage telemetry and freshness SLO | Luna | OPS-003 | autonomous | Duration, counts, coverage, age, release/code/deploy IDs, failures, query count, and skip rate are visible; PRIMARY within agreed window |
 | BAK-001 | Backup metadata and disposable restore drill | Luna | CI-002 | autonomous | Encrypted object checksum/schema/size recorded; periodic restore succeeds; pre-migration backup is mandatory |
 | SEC-001 | Pin Actions and dependencies; split production roles | Sol review + Luna changes | CI-002 | platform-reviewed | Immutable action SHAs, hashed dependency lock, least-privilege ingest/publisher/migrator/Railway/R2 roles |

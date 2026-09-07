@@ -293,6 +293,63 @@ class WorkflowGateTests(unittest.TestCase):
                         f"{path.name}:{job_name}",
                     )
 
+    def test_pip_caches_name_existing_dependency_profiles(self):
+        expected = {
+            "ci.yml": {
+                "unit": {"requirements-bot.txt", "requirements-ci.txt"},
+                "quality": {"requirements-ci.txt"},
+                "verify-main": {"requirements-bot.txt", "requirements-ci.txt"},
+            },
+            "validate-branch.yml": {
+                "test": {"requirements-bot.txt", "requirements-ci.txt"},
+                "unit": {"requirements-bot.txt", "requirements-ci.txt"},
+            },
+            "research-daily.yml": {
+                "refresh": {"requirements-bot.txt", "requirements-jobs.txt"},
+            },
+            "backup.yml": {
+                "backup": {"requirements-bot.txt", "requirements-jobs.txt"},
+            },
+            "research-validation.yml": {
+                "validate": {"requirements-bot.txt", "requirements-jobs.txt"},
+            },
+            "idx-filings.yml": {
+                "discover": {"requirements-bot.txt", "requirements-jobs.txt"},
+                "import": {"requirements-bot.txt", "requirements-jobs.txt"},
+            },
+        }
+        for workflow_name, jobs in expected.items():
+            workflow = _workflow_data(ROOT / ".github/workflows" / workflow_name)
+            for job_name, expected_profiles in jobs.items():
+                setup = next(
+                    step
+                    for step in workflow["jobs"][job_name]["steps"]
+                    if isinstance(step, dict)
+                    and str(step.get("uses", "")).startswith("actions/setup-python@")
+                )
+                settings = setup.get("with", {})
+                self.assertEqual(settings.get("cache"), "pip")
+                configured_profiles = {
+                    value.strip()
+                    for value in str(
+                        settings.get("cache-dependency-path", "")
+                    ).splitlines()
+                    if value.strip()
+                }
+                self.assertEqual(
+                    configured_profiles,
+                    expected_profiles,
+                    f"{workflow_name}:{job_name}",
+                )
+                for profile in configured_profiles:
+                    self.assertTrue((ROOT / profile).is_file(), profile)
+
+        for path in (ROOT / ".github/workflows").glob("*.yml"):
+            for job_name, job in _workflow_data(path).get("jobs", {}).items():
+                for step in job.get("steps", []):
+                    if step.get("with", {}).get("cache") == "pip":
+                        self.assertIn(job_name, expected.get(path.name, {}))
+
     def test_pull_request_workflow_has_all_stable_jobs_and_pins_actions(self):
         errors = validate_workflow(
             ROOT / ".github/workflows/ci.yml", require_required_jobs=True
@@ -478,6 +535,29 @@ class SecurityGateTests(unittest.TestCase):
                 capture_output=True,
             )
         self.assertEqual(result.returncode, 23)
+
+
+class DeliverySurfaceTests(unittest.TestCase):
+    def test_repository_exposes_telegram_without_standalone_web_app(self):
+        for path in ("bot.py", "bot_webhook.py", "requirements-bot.txt"):
+            self.assertTrue((ROOT / path).is_file(), path)
+
+        for path in ("app.py", "requirements.txt"):
+            self.assertFalse((ROOT / path).exists(), path)
+        for path in (".streamlit", "ui"):
+            self.assertFalse(
+                any(candidate.is_file() for candidate in (ROOT / path).rglob("*")),
+                path,
+            )
+
+        dependency_audit = (ROOT / "scripts/ci/check_dependencies.sh").read_text()
+        self.assertNotIn("requirements.txt", dependency_audit)
+        for profile in (
+            "requirements-bot.txt",
+            "requirements-jobs.txt",
+            "requirements-ci.txt",
+        ):
+            self.assertIn(f"--requirement {profile}", dependency_audit)
 
 
 class ContainerGateTests(unittest.TestCase):
