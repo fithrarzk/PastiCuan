@@ -1,6 +1,38 @@
 # Program handoff — 2026-08-24
 
-This is the shutdown-safe execution handoff after ING-002. Production truth is `origin/main` at `25c6f2e691e8757b54c76787fe57ff0d5da0f629`; local `main`, candidate artifacts, and cached bot state are not production evidence.
+Updated 2026-09-07 after verified UX-003. Production code is `origin/main`
+at `01efe9ee659a307b416c3f6d7019b833f9539f1f`; accepted Supabase evidence
+and signed published snapshots remain production research truth.
+
+## Current checkpoint — 2026-09-07
+
+- UX-003 merged via PR #38 as `01efe9e`, from base `26d4508` and reviewed
+  head `5bb36345aa96c1ab2485dcc103af8fba26c84a34`. PastiCuan is Telegram-only:
+  standalone Streamlit entry point, UI, configuration, dependency profile,
+  and deployment instructions are removed. Telegram runtime and all research
+  calculation paths are unchanged.
+- All eight required checks passed in `34076961630`. Independent Sol/high
+  Standards and Spec reviews each reported zero findings on that exact head.
+  Main verification `34077063021` passed. The remote task branch was deleted;
+  issue #37 is closed and its claim label released.
+- Post-merge research run `34077063058` passed cache setup and dependency
+  installation, then failed closed with exit 40, `INFRASTRUCTURE`,
+  `REQUIRED_MIGRATION_MISSING`. No production recovery is claimed.
+  Migration 007 remains without rollout authorization or production proof.
+- No Supabase MCP query, schema application, secret operation, or manual
+  production dispatch was performed. Exact-SHA Railway proof remains DEP-001.
+  Backup, validation, and filing workflows were not manually dispatched;
+  their changed cache inputs and policy were verified locally and in CI.
+- User-owned untracked `.agents/skills/supabase/`,
+  `.agents/skills/supabase-postgres-best-practices/`, `skills-lock.json`,
+  and `PROMPT-ORCHES.md` are preserved. The shared checkout remains on main
+  at `26d4508`; task worktrees do not depend on its untracked files.
+- Next: ING-003 code/test work, with migration-007 preflight blocking production
+  import. Then update this handoff before ING-004. Follow the dependency-ordered
+  roadmap; statistical validation remains SHADOW and no promotion is authorized.
+
+The sections below retain the August incident baseline and historical workspace
+notes; the current checkpoint above supersedes their present-tense status.
 
 ## Verified delivery
 
