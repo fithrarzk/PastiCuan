@@ -1,6 +1,6 @@
 # UX-003: Telegram-only delivery
 
-- Status: review
+- Status: verified
 - Priority: P1
 - Owner/model: root orchestrator (GPT-6) with independent Sol/high Standards and Spec review
 - Reasoning effort: medium implementation, high review
@@ -140,3 +140,28 @@ Ruff formatting/lint, CI-only mypy (three source files), shell syntax, and
 whitespace checks passed. No production or Supabase calls were made. Fresh
 final-head independent review and remote checks remain required before merge.
 Recovery cycle: one of one authorized; GPT-6 root, Sol/high reviewers.
+
+### Verified handoff — 2026-09-07
+
+- Base: `26d45080689fb1d96f874ccec65532ec5789f13c`; final reviewed head:
+  `5bb36345aa96c1ab2485dcc103af8fba26c84a34`; squash merge:
+  `01efe9ee659a307b416c3f6d7019b833f9539f1f`, PR #38.
+- Independent Sol/high Standards and Spec reviews: zero findings each.
+  All eight required checks passed in `34076961630`; main verification
+  `34077063021` passed. Issue #37 closed/released; remote branch deleted.
+- Full local evidence: 161 tests passed in 10.258s; compilation, Ruff format/lint,
+  CI-only mypy (three files), release identity/policy, shell syntax and
+  whitespace checks passed. Final workflow delta passed 20 focused tests;
+  all six changed workflows passed syntax/policy validation.
+- Research run `34077063058` passed setup/install, then failed closed at
+  refresh/publication with exit 40, `INFRASTRUCTURE`,
+  `REQUIRED_MIGRATION_MISSING`. Production research recovery is not claimed.
+  No MCP, schema, secret or manual production action occurred. Exact-SHA Railway
+  deployment is unproven pending DEP-001. Other retained production workflows
+  were not dispatched solely to verify cache configuration.
+- Rollback: normal revert of the merge; preserve accepted evidence and all gates.
+  Next task: ING-003, then update the dated handoff before ING-004.
+- High-risk; GPT-6 root and Sol/high review. Original implementation approximately
+  25 minutes/18k tokens, initial continuation approximately 15 minutes/30k tokens,
+  owner-authorized recovery approximately 20 minutes/12k tokens including waits.
+  Three original correction cycles plus one explicitly authorized recovery.
