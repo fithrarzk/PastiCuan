@@ -822,11 +822,15 @@ def main() -> int:
             raise RuntimeError("disposable filing importer transaction checks failed")
         if args.verify_disposable_down_reup:
             verify_disposable_database_identity(connection)
-            down = args.migrations / "007_filing_work_ledger.down.sql"
-            up = args.migrations / "007_filing_work_ledger.up.sql"
+            down_mismatch = args.migrations / "008_filing_artifact_mismatch.down.sql"
+            down_ledger = args.migrations / "007_filing_work_ledger.down.sql"
+            up_ledger = args.migrations / "007_filing_work_ledger.up.sql"
+            up_mismatch = args.migrations / "008_filing_artifact_mismatch.up.sql"
             with connection.cursor() as cursor:
-                cursor.execute(read_sql(down))
-                cursor.execute(read_sql(up))
+                cursor.execute(read_sql(down_mismatch))
+                cursor.execute(read_sql(down_ledger))
+                cursor.execute(read_sql(up_ledger))
+                cursor.execute(read_sql(up_mismatch))
             connection.commit()
             if roles.exists():
                 with connection.cursor() as cursor:
@@ -845,7 +849,7 @@ def main() -> int:
                     "filing_work_items",
                     "filing_work_attempts",
                 ):
-                    raise RuntimeError("migration-007 disposable down/re-up failed")
+                    raise RuntimeError("filing migrations disposable down/re-up failed")
     print(f"verified {len(migration_checksums(args.migrations))} migrations")
     return 0
 

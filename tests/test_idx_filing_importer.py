@@ -1,5 +1,6 @@
 import unittest
 import json
+from contextlib import nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ class ImporterTests(unittest.TestCase):
     def setUp(self):
         self.repo = Mock()
         self.repo.preflight_schema_migrations.return_value = {"ok": True}
+        self.repo.filing_download_fence.side_effect = lambda _row: nullcontext(True)
         self.repo.prepare_filing_import.side_effect = lambda rows: [
             {**row, "issuer_id": i + 1, "state": "ACCEPTED"}
             for i, row in enumerate(rows)
@@ -93,8 +95,19 @@ class ImporterTests(unittest.TestCase):
         migration_failure = self.run_import()
         self.assertFalse(migration_failure["ok"])
         self.assertEqual(migration_failure["counts"]["remaining"], 1)
+        self.assertEqual(
+            migration_failure["filings"],
+            [
+                {
+                    "identity": ["TEST", "Q1", "2025-03-31", 1],
+                    "state": "PENDING",
+                    "action": "BLOCKED",
+                    "code": "MIGRATION_PREFLIGHT_FAILED",
+                }
+            ],
+        )
         self.repo.preflight_schema_migrations.assert_called_with(
-            ["007_filing_work_ledger"]
+            ["007_filing_work_ledger", "008_filing_artifact_mismatch"]
         )
         self.repo.prepare_filing_import.assert_not_called()
 
@@ -155,6 +168,8 @@ class ImporterTests(unittest.TestCase):
             self.repo.prepare_filing_import.side_effect = error
             result = self.run_import()
             self.assertEqual(result["code"], "MANIFEST_SYNC_FAILED")
+            self.assertEqual(len(result["filings"]), 1)
+            self.assertEqual(result["filings"][0]["action"], "BLOCKED")
             self.assertNotIn("private", str(result))
         self.acquire.assert_not_called()
 
@@ -169,12 +184,32 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual(self.run_import()["counts"]["leased_elsewhere"], 1)
         self.acquire.assert_not_called()
 
-    def test_expired_work_is_reclaimed_and_checksum_conflict_never_parses(self):
+    def test_checksum_conflict_is_terminal_quarantine_with_acquired_provenance(self):
         self.pending(["RUNNING"])
+        self.repo.complete_filing_import.return_value = {"state": "QUARANTINED"}
         result = self.run_import([{**filing(), "checksum": "b" * 64}])
-        self.assertEqual(result["counts"]["retryable"], 1)
+        self.assertEqual(result["counts"]["quarantined"], 1)
         self.assertEqual(result["filings"][0]["code"], "ARTIFACT_MISMATCH")
+        self.assertEqual(
+            self.repo.complete_filing_import.call_args.kwargs,
+            {
+                "parsed": None,
+                "state": "QUARANTINED",
+                "error_class": "PROVENANCE",
+                "error_summary": "ARTIFACT_MISMATCH",
+            },
+        )
+        self.repo.finalize_filing_work.assert_not_called()
+        self.upload.assert_called_once()
         self.parse.assert_not_called()
+
+    def test_busy_download_fence_defers_before_claim_or_network(self):
+        self.pending(["PENDING"])
+        self.repo.filing_download_fence.side_effect = lambda _row: nullcontext(False)
+        result = self.run_import()
+        self.assertEqual(result["counts"]["leased_elsewhere"], 1)
+        self.repo.claim_filing_work.assert_not_called()
+        self.acquire.assert_not_called()
 
     def test_cli_report_and_exit_require_every_filing_accepted(self):
         from operations.research_cli import main

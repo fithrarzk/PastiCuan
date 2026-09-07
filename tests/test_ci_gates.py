@@ -27,7 +27,7 @@ class MigrationGateTests(unittest.TestCase):
     def test_checksum_ledger_is_deterministic_and_ordered(self):
         checksums = migration_checksums(ROOT / "storage/migrations")
         self.assertEqual(list(checksums), sorted(checksums))
-        self.assertEqual(len(checksums), 7)
+        self.assertEqual(len(checksums), 8)
         self.assertTrue(all(len(value) == 64 for value in checksums.values()))
 
     def test_migration_pair_and_utf8_failures_are_explicit(self):

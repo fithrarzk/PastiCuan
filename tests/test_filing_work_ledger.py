@@ -4,6 +4,7 @@ from uuid import uuid4
 from pathlib import Path
 
 from scripts.ci.check_migrations import migration_checksums, read_sql
+from storage.database import validate_writer_connection_mode
 from storage.repository import SnapshotRepository
 
 
@@ -11,11 +12,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FilingWorkLedgerContractTests(unittest.TestCase):
+    def test_writer_connection_rejects_transaction_pooling(self):
+        with self.assertRaisesRegex(RuntimeError, "session-compatible"):
+            validate_writer_connection_mode(
+                "postgresql://user:redacted@pooler.example:6543/postgres"
+            )
+        validate_writer_connection_mode(
+            "postgresql://user:redacted@pooler.example:5432/postgres"
+        )
+
     def test_migration_007_is_a_utf8_reversible_pair(self):
         migrations = ROOT / "storage/migrations"
         checksums = migration_checksums(migrations)
-        self.assertEqual(len(checksums), 7)
+        self.assertEqual(len(checksums), 8)
         self.assertIn("007_filing_work_ledger", checksums)
+        self.assertIn("008_filing_artifact_mismatch", checksums)
         self.assertIn(
             "CREATE TABLE filing_work_items",
             read_sql(migrations / "007_filing_work_ledger.up.sql"),
@@ -35,6 +46,7 @@ class FilingWorkLedgerContractTests(unittest.TestCase):
             "expire_filing_work_leases",
             "get_filing_attempt_history",
             "get_filing_work_counts",
+            "filing_download_fence",
         }
         self.assertTrue(expected.issubset(set(dir(SnapshotRepository))))
         self.assertNotIn("sync_filing_work_items", dir(SnapshotRepository))
@@ -91,6 +103,12 @@ class FilingImportTransactionTests(unittest.TestCase):
         source = filing(ticker)
         row = repo.prepare_filing_import([source])[0]
         self.assertEqual(row["state"], "PENDING")
+        with repo.filing_download_fence(row) as first_fence:
+            self.assertTrue(first_fence)
+            with repo.filing_download_fence(row) as second_fence:
+                self.assertFalse(second_fence)
+        with repo.filing_download_fence(row) as released_fence:
+            self.assertTrue(released_fence)
         lease = repo.claim_filing_work(row, "ci", run_id=str(uuid4()))
         artifact = dict(
             id=str(uuid4()),
@@ -180,6 +198,44 @@ class FilingImportTransactionTests(unittest.TestCase):
             [item["state"] for item in repo.prepare_filing_import([source, other])],
             ["ACCEPTED", "QUARANTINED"],
         )
+        mismatch = {
+            **source,
+            "period_end": "2025-09-30",
+            "filing_type": "Q3",
+            "published_at": "2025-10-01T00:00:00Z",
+            "source_url": source["source_url"].replace(".zip", "-q3.zip"),
+            "checksum": "f" * 64,
+        }
+        mismatch_row = repo.prepare_filing_import([mismatch])[0]
+        mismatch_lease = repo.claim_filing_work(mismatch_row, "ci")
+        mismatch_artifact = {
+            **artifact,
+            "id": str(uuid4()),
+            "checksum": "e" * 64,
+            "source_url": mismatch["source_url"],
+            "published_at": mismatch["published_at"],
+        }
+        repo.complete_filing_import(
+            mismatch_row,
+            mismatch_lease["lease_token"],
+            mismatch_artifact,
+            state="QUARANTINED",
+            error_class="PROVENANCE",
+            error_summary="ARTIFACT_MISMATCH",
+        )
+        mismatch_status = repo.prepare_filing_import([mismatch])[0]
+        self.assertEqual(mismatch_status["state"], "QUARANTINED")
+        with psycopg.connect(url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT expected_checksum,artifact_checksum,last_error_summary
+                       FROM filing_work_items
+                       WHERE issuer_id=%s AND filing_type='Q3'""",
+                    (issuer_id,),
+                )
+                self.assertEqual(
+                    cursor.fetchone(), ("f" * 64, "e" * 64, "ARTIFACT_MISMATCH")
+                )
 
 
 if __name__ == "__main__":

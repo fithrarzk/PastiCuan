@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -332,7 +332,7 @@ class SnapshotRepository:
         if not filings:
             return []
         with self._connect() as connection:
-            bound = SnapshotRepository(lambda: nullcontext(connection))
+            transaction_repository = SnapshotRepository(lambda: nullcontext(connection))
             with connection.cursor() as cursor:
                 tickers = sorted({row["ticker"] for row in filings})
                 cursor.execute(
@@ -350,7 +350,7 @@ class SnapshotRepository:
                     }
                     for row in filings
                 ]
-                bound.sync_reviewed_filings(
+                transaction_repository.sync_reviewed_filings(
                     sorted(reviewed, key=lambda row: str(self._work_key(row)))
                 )
                 cursor.execute(
@@ -388,13 +388,15 @@ class SnapshotRepository:
         *,
         parsed: dict | None = None,
         state: str = "ACCEPTED",
+        error_class: str | None = None,
+        error_summary: str | None = None,
     ) -> dict | None:
         """Commit artifact, facts/profile, ledger item and attempt under one fence."""
         if state not in {"ACCEPTED", "QUARANTINED"}:
             raise ValueError("invalid filing completion state")
         key = self._identity(identity)
         with self._connect() as connection:
-            bound = SnapshotRepository(lambda: nullcontext(connection))
+            transaction_repository = SnapshotRepository(lambda: nullcontext(connection))
             with connection.cursor() as cursor:
                 cursor.execute(
                     """SELECT source_url,published_at FROM filing_work_items
@@ -414,13 +416,13 @@ class SnapshotRepository:
                     or publication != work[1]
                 ):
                     raise ValueError("filing artifact provenance mismatch")
-                artifact_id = bound.register_source_artifact(artifact)
+                artifact_id = transaction_repository.register_source_artifact(artifact)
                 count = 0
                 profile = "UNVERIFIED"
                 if state == "ACCEPTED":
                     if not parsed or not parsed.get("facts"):
                         raise ValueError("filing facts required")
-                    count = bound.import_canonical_records(
+                    count = transaction_repository.import_canonical_records(
                         "statement_facts_csv", parsed["facts"], source_class="official"
                     )
                     label = parsed.get("diagnostics", {}).get("industry") or parsed.get(
@@ -428,7 +430,7 @@ class SnapshotRepository:
                     ).get("sector")
                     if label:
                         try:
-                            profile = bound.verify_issuer_profile(
+                            profile = transaction_repository.verify_issuer_profile(
                                 identity["ticker"],
                                 sector=label,
                                 source_url=artifact["source_url"],
@@ -436,26 +438,28 @@ class SnapshotRepository:
                                 available_at=identity["published_at"],
                             ).upper()
                         except ValueError:
-                            bound.record_ingestion_issue(
+                            transaction_repository.record_ingestion_issue(
                                 artifact_id,
                                 "ISSUER_PROFILE_REVIEW_REQUIRED",
                                 "VALIDATION_FAILED",
                             )
                 else:
-                    bound.record_ingestion_issue(
-                        artifact_id, "IDX_XBRL_FAILURE", "VALIDATION_FAILED"
+                    error_class = error_class or "VALIDATION"
+                    error_summary = error_summary or "VALIDATION_FAILED"
+                    transaction_repository.record_ingestion_issue(
+                        artifact_id,
+                        error_summary,
+                        error_class,
                     )
-                bound.set_artifact_status(artifact_id, state)
-                result = bound.finalize_filing_work(
+                transaction_repository.set_artifact_status(artifact_id, state)
+                result = transaction_repository.finalize_filing_work(
                     identity,
                     lease_token,
                     state,
                     artifact_id=artifact_id,
                     checksum=artifact["checksum"],
-                    error_class="VALIDATION" if state == "QUARANTINED" else None,
-                    error_summary="VALIDATION_FAILED"
-                    if state == "QUARANTINED"
-                    else None,
+                    error_class=error_class if state == "QUARANTINED" else None,
+                    error_summary=error_summary if state == "QUARANTINED" else None,
                 )
                 if result is None:
                     # Expiry after the initial lock must roll back all evidence writes.
@@ -465,6 +469,36 @@ class SnapshotRepository:
                     "record_count": count,
                     "issuer_profile": profile,
                 }
+
+    @contextmanager
+    def filing_download_fence(self, identity: dict | tuple):
+        """Try one session-scoped per-Filing lock outside any transaction."""
+        key = self._identity(identity)
+        digest = hashlib.sha256(
+            "\x1f".join(str(value) for value in key).encode("utf-8")
+        ).digest()
+        lock_key = (
+            int.from_bytes(digest[:4], "big", signed=True),
+            int.from_bytes(digest[4:8], "big", signed=True),
+        )
+        connection = self._connect()
+        acquired = False
+        try:
+            connection.autocommit = True
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_try_advisory_lock(%s,%s)", lock_key)
+                acquired = bool(cursor.fetchone()[0])
+            yield acquired
+        except Exception:
+            raise RuntimeError("filing download fence failed") from None
+        finally:
+            if acquired:
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT pg_advisory_unlock(%s,%s)", lock_key)
+                except Exception:
+                    pass
+            connection.close()
 
     def get_filing_work_statuses(self, identities: list[dict | tuple]) -> list[dict]:
         """Read deterministic ledger statuses without exposing provider details."""
@@ -660,11 +694,23 @@ class SnapshotRepository:
                         if artifact:
                             artifact = tuple(self._db_text(value) for value in artifact)
                         required_status = state
+                        checksum_mismatch = bool(
+                            artifact and work[1] is not None and artifact[0] != work[1]
+                        )
+                        allowed_mismatch = (
+                            state == "QUARANTINED"
+                            and error_class == "PROVENANCE"
+                            and error_summary == "ARTIFACT_MISMATCH"
+                        )
+                        if allowed_mismatch and not checksum_mismatch:
+                            raise ValueError(
+                                "artifact mismatch quarantine requires a mismatch"
+                            )
                         if (
                             not artifact
                             or artifact[2] != required_status
                             or artifact[1] != work[0]
-                            or (work[1] is not None and artifact[0] != work[1])
+                            or (checksum_mismatch and not allowed_mismatch)
                             or (checksum is not None and artifact[0] != checksum)
                         ):
                             raise ValueError("filing work artifact provenance mismatch")
