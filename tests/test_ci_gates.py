@@ -304,6 +304,19 @@ class WorkflowGateTests(unittest.TestCase):
                 "test": {"requirements-bot.txt", "requirements-ci.txt"},
                 "unit": {"requirements-bot.txt", "requirements-ci.txt"},
             },
+            "research-daily.yml": {
+                "refresh": {"requirements-bot.txt", "requirements-jobs.txt"},
+            },
+            "backup.yml": {
+                "backup": {"requirements-bot.txt", "requirements-jobs.txt"},
+            },
+            "research-validation.yml": {
+                "validate": {"requirements-bot.txt", "requirements-jobs.txt"},
+            },
+            "idx-filings.yml": {
+                "discover": {"requirements-bot.txt", "requirements-jobs.txt"},
+                "import": {"requirements-bot.txt", "requirements-jobs.txt"},
+            },
         }
         for workflow_name, jobs in expected.items():
             workflow = _workflow_data(ROOT / ".github/workflows" / workflow_name)
@@ -328,6 +341,14 @@ class WorkflowGateTests(unittest.TestCase):
                     expected_profiles,
                     f"{workflow_name}:{job_name}",
                 )
+                for profile in configured_profiles:
+                    self.assertTrue((ROOT / profile).is_file(), profile)
+
+        for path in (ROOT / ".github/workflows").glob("*.yml"):
+            for job_name, job in _workflow_data(path).get("jobs", {}).items():
+                for step in job.get("steps", []):
+                    if step.get("with", {}).get("cache") == "pip":
+                        self.assertIn(job_name, expected.get(path.name, {}))
 
     def test_pull_request_workflow_has_all_stable_jobs_and_pins_actions(self):
         errors = validate_workflow(

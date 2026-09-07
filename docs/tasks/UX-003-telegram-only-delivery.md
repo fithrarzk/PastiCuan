@@ -5,7 +5,7 @@
 - Owner/model: root orchestrator (GPT-6) with independent Sol/high Standards and Spec review
 - Reasoning effort: medium implementation, high review
 - Context budget: `AGENTS.md`, `CONTEXT.md`, `.agents/skills/tdd/{SKILL,tests,mocking}.md`, this card, `docs/agents/delivery-lanes.md`, `docs/architecture/system-map.md`, `docs/specs/ci-cd-contract.md`, `DEPLOY_FREE.md`, and exact owned files; target 30k tokens, High-risk-lane maximum 60k
-- Retry ceiling: three bounded red-green correction cycles
+- Retry ceiling: three original cycles plus one owner-authorized recovery cycle (2026-09-07), limited to retained workflow cache inputs, regression coverage, and review records
 - Escalation condition: any required change to Telegram webhook/runtime behavior, a production workflow, evidence/research semantics, migration/schema/grants, credentials, or publication gates
 - Parallelism: one root writer; two fresh read-only reviewers after implementation
 - Base SHA: `26d45080689fb1d96f874ccec65532ec5789f13c` (original implementation base `1f5651d33bc2d41ffe99b1c8aad0515e7b3360b5`; merged DOC-005 without rewriting history)
@@ -54,7 +54,19 @@ Do not remove or change `bot.py`, `bot_webhook.py`, FastAPI, Docker, Railway, Re
 
 ## Rollout and rollback
 
-The merge removes only the unneeded Streamlit deployment surface. Railway may rebuild the unchanged Telegram container from `main`; research workflows should not run for presentation/docs-only paths under current workflow policy. Roll back with a normal revert if the deleted standalone interface is required again.
+The merge removes the unneeded Streamlit deployment surface. Railway may rebuild the unchanged Telegram container from `main`. Existing path filters will dispatch `research-daily` for this removal; verify its outcome without changing refresh triggers or publication gates. Exact-SHA Railway proof remains DEP-001. Roll back with a normal revert if the deleted standalone interface is required again.
+
+### Authorized recovery scope
+
+The owner authorized one additional bounded recovery cycle after fresh review
+found five implicit pip caches in four retained production workflows. Root owns
+`.github/workflows/{research-daily,backup,research-validation,idx-filings}.yml`
+for cache-input changes only, plus `tests/test_ci_gates.py`, this card,
+`docs/tasks/CLAIMS.md`, and the dated program handoff. The regression seam is
+the setup-python cache configuration consumed by all retained workflows:
+every pip cache must name existing dependency profiles and include transitive
+bot requirements for jobs. No trigger, permission, concurrency, timeout,
+production command, schema, or research behavior change is authorized here.
 
 ## Handoff
 
@@ -104,3 +116,21 @@ Final committed-head release policy, independent reviews, remote checks, merge,
 and post-merge verification remain pending. Stop with a recoverable handoff if
 this correction does not resolve required checks. No Supabase access or
 production writes occurred. Exact-SHA Railway deployment remains DEP-001 work.
+
+### Owner-authorized review recovery — 2026-09-07
+
+The usage-limit interruption was resolved. Fresh reviews of `a84766e` found
+one Standards provenance mismatch and two Spec findings: implicit cache inputs
+would break retained production workflows, and the no-refresh rollout claim
+was incorrect. Owner authorized the additional recovery cycle. The cache test
+failed at `research-daily.yml:refresh` before the fix and passed after all five
+retained production setup steps named jobs and transitive bot requirements.
+The test also inventories every enabled pip cache and checks that inputs exist.
+Claim provenance and rollout wording are reconciled. Existing refresh triggers,
+commands, permissions, concurrency, and timeouts are unchanged.
+
+Pinned Python 3.12 verification passed compilation and all 161 tests in 10.258s;
+Ruff formatting/lint, CI-only mypy (three source files), shell syntax, and
+whitespace checks passed. No production or Supabase calls were made. Fresh
+final-head independent review and remote checks remain required before merge.
+Recovery cycle: one of one authorized; GPT-6 root, Sol/high reviewers.
