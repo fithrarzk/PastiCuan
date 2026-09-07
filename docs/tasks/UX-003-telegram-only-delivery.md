@@ -131,7 +131,9 @@ failed at `research-daily.yml:refresh` before the fix and passed after all five
 retained production setup steps named jobs and transitive bot requirements.
 The test also inventories every enabled pip cache and checks that inputs exist.
 Claim provenance and rollout wording are reconciled. Existing refresh triggers,
-commands, permissions, concurrency, and timeouts are unchanged.
+commands, permissions, timeouts, and pre-existing concurrency settings are
+unchanged. Backup and validation gain separate non-cancelling concurrency
+groups and immutable same-major action pins to pass required workflow policy.
 
 Pinned Python 3.12 verification passed compilation and all 161 tests in 10.258s;
 Ruff formatting/lint, CI-only mypy (three source files), shell syntax, and
