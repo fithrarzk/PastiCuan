@@ -67,6 +67,10 @@ the setup-python cache configuration consumed by all retained workflows:
 every pip cache must name existing dependency profiles and include transitive
 bot requirements for jobs. No trigger, permission, concurrency, timeout,
 production command, schema, or research behavior change is authorized here.
+The expanded workflow-policy check additionally requires immutable action pins
+and per-workflow non-cancelling concurrency for backup and validation. These
+prerequisites are included in this recovery; they do not serialize all writers
+across workflows (OPS-002 remains open).
 
 ## Handoff
 
