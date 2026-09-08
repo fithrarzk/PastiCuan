@@ -1,6 +1,6 @@
 # ING-003: Skip-before-download resumable importer
 
-- Status: blocked (Standards finding; final correction allowance consumed)
+- Status: in progress (owner renewed the bounded Standards correction allowance)
 - Priority: P0
 - Owner/model: GPT-6 root writer; Sol independent review
 - Delivery lane: High-risk (fenced transactions and point-in-time evidence)
@@ -15,6 +15,24 @@
 - Depends on: verified ING-002 (`25c6f2e`)
 - File ownership: new `data/idx_filing_importer.py`, `operations/research_cli.py`, `storage/{database,repository}.py`, additive `storage/migrations/008_filing_artifact_mismatch.{up,down}.sql`, `tests/test_{idx_filing_importer,filing_work_ledger,ci_gates}.py`, `scripts/ci/check_migrations.py`, `docs/runbooks/backfill.md`, this card, and `docs/tasks/CLAIMS.md` (root only)
 - Merge policy: autonomous after independent review and green current-head gates; production rollout remains separately gated
+
+## Renewed Standards correction — 2026-09-08
+
+Owner instruction `finish it` renews one bounded correction cycle for the two
+remaining Standards findings and completion of review/merge verification.
+The repository sync seam now batches issuer validation, ordered inserts and
+locked provenance validation in three queries. A real PostgreSQL regression
+test observed 302 queries for 100 filings before the correction; afterward the
+complete prepare seam uses at most six, including reruns. A conflicting row
+rolls back newly inserted rows in the same batch. Concurrent insert conflicts
+are checked by a separate statement after ON CONFLICT waits, with deterministic
+identity ordering. No migration or grant changed in this correction.
+
+The disposable rollback help now names both migrations and their order.
+Verification: 175 tests in 9.623s, OK (two disposable tests exercised separately);
+UTF-8 and SQL-ASCII each returned `verified 8 migrations`; compilation,
+research-release policy, Ruff, CI-configured mypy and diff check exited zero.
+Fresh reviews and CI on the resulting commit remain pending.
 
 ## Outcome
 

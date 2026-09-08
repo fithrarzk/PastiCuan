@@ -787,7 +787,7 @@ def main() -> int:
     parser.add_argument(
         "--verify-disposable-down-reup",
         action="store_true",
-        help="run migration-007 down/re-up only on a named disposable CI database",
+        help="run migrations 008/007 down and 007/008 up only on a named disposable CI database",
     )
     args = parser.parse_args()
     import psycopg

@@ -260,68 +260,75 @@ class SnapshotRepository:
         try:
             with self._connect() as connection:
                 with connection.cursor() as cursor:
-                    result = []
-                    for item in reviewed:
-                        cursor.execute(
-                            "SELECT 1 FROM issuers WHERE id=%s", (item["issuer_id"],)
-                        )
-                        if not cursor.fetchone():
-                            raise ValueError("unknown issuer for reviewed filing")
-                        cursor.execute(
-                            """SELECT source_url,published_at,audit_status,expected_checksum,state
-                               FROM filing_work_items
-                               WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
-                               FOR UPDATE""",
-                            self._work_key(item),
-                        )
-                        existing = cursor.fetchone()
-                        if existing:
-                            observed = (
-                                self._db_text(existing[0]),
-                                existing[1],
-                                self._db_text(existing[2]),
-                                self._db_text(existing[3]),
-                            )
-                            expected = tuple(
-                                item[field]
-                                for field in (
-                                    "source_url",
-                                    "published_at",
-                                    "audit_status",
-                                    "expected_checksum",
-                                )
-                            )
-                            if observed != expected:
-                                raise ValueError("reviewed filing provenance conflict")
-                            result.append(
-                                {
-                                    "identity": self._work_key(item),
-                                    "state": self._db_text(existing[4]),
-                                    "created": False,
-                                }
-                            )
-                            continue
-                        cursor.execute(
-                            """INSERT INTO filing_work_items
-                               (issuer_id,filing_type,period_end,restatement_version,source_url,published_at,audit_status,expected_checksum)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                               RETURNING state""",
-                            (
-                                *self._work_key(item),
-                                item["source_url"],
-                                item["published_at"],
-                                item["audit_status"],
-                                item["expected_checksum"],
-                            ),
-                        )
-                        result.append(
+                    issuer_ids = sorted({item["issuer_id"] for item in reviewed})
+                    cursor.execute(
+                        "SELECT id FROM issuers WHERE id=ANY(%s)", (issuer_ids,)
+                    )
+                    if {row[0] for row in cursor.fetchall()} != set(issuer_ids):
+                        raise ValueError("unknown issuer for reviewed filing")
+                    batch = strict_json_dumps(
+                        [
                             {
-                                "identity": self._work_key(item),
-                                "state": cursor.fetchone()[0],
-                                "created": True,
+                                **item,
+                                "period_end": str(item["period_end"]),
+                                "published_at": item["published_at"].isoformat(),
                             }
+                            for item in reviewed
+                        ]
+                    )
+                    cursor.execute(
+                        """INSERT INTO filing_work_items
+                           (issuer_id,filing_type,period_end,restatement_version,source_url,published_at,audit_status,expected_checksum)
+                           SELECT issuer_id,filing_type,period_end,restatement_version,source_url,published_at,audit_status,expected_checksum
+                           FROM jsonb_to_recordset(%s::jsonb) AS r(
+                             issuer_id bigint,filing_type text,period_end date,restatement_version integer,
+                             source_url text,published_at timestamptz,audit_status text,expected_checksum text)
+                           ORDER BY issuer_id,filing_type,period_end,restatement_version
+                           ON CONFLICT (issuer_id,filing_type,period_end,restatement_version) DO NOTHING
+                           RETURNING issuer_id,filing_type,period_end,restatement_version""",
+                        (batch,),
+                    )
+
+                    def normalized_key(values):
+                        return (
+                            values[0],
+                            self._db_text(values[1]),
+                            str(values[2]),
+                            values[3],
                         )
-                    return result
+
+                    inserted = {normalized_key(row) for row in cursor.fetchall()}
+                    # A separate statement sees concurrent inserts after ON CONFLICT
+                    # waits; every mismatch rolls back this whole batch.
+                    cursor.execute(
+                        """SELECT w.issuer_id,w.filing_type,w.period_end,w.restatement_version,
+                                  w.state,(w.source_url=r.source_url AND w.published_at=r.published_at
+                                  AND w.audit_status=r.audit_status AND w.expected_checksum IS NOT DISTINCT FROM r.expected_checksum)
+                           FROM filing_work_items w
+                           JOIN jsonb_to_recordset(%s::jsonb) AS r(
+                             issuer_id bigint,filing_type text,period_end date,restatement_version integer,
+                             source_url text,published_at timestamptz,audit_status text,expected_checksum text)
+                           USING (issuer_id,filing_type,period_end,restatement_version)
+                           ORDER BY w.issuer_id,w.filing_type,w.period_end,w.restatement_version
+                           FOR UPDATE OF w""",
+                        (batch,),
+                    )
+                    observed = cursor.fetchall()
+                    if len(observed) != len(reviewed) or any(
+                        not row[5] for row in observed
+                    ):
+                        raise ValueError("reviewed filing provenance conflict")
+                    states = {
+                        normalized_key(row): self._db_text(row[4]) for row in observed
+                    }
+                    return [
+                        {
+                            "identity": self._work_key(item),
+                            "state": states[normalized_key(self._work_key(item))],
+                            "created": normalized_key(self._work_key(item)) in inserted,
+                        }
+                        for item in reviewed
+                    ]
         except ValueError:
             raise
         except Exception:

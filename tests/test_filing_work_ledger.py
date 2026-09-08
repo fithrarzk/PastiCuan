@@ -84,6 +84,48 @@ class FilingWorkLedgerContractTests(unittest.TestCase):
     os.getenv("PASTICUAN_TEST_DATABASE_URL"), "disposable PostgreSQL required"
 )
 class FilingImportTransactionTests(unittest.TestCase):
+    def test_manifest_sync_has_bounded_round_trips_and_atomic_conflicts(self):
+        import psycopg
+        from tests.test_idx_filing_importer import filing
+
+        calls = []
+
+        class CountingCursor(psycopg.Cursor):
+            def execute(self, query, params=None, **kwargs):
+                calls.append(1)
+                return super().execute(query, params, **kwargs)
+
+        url = os.environ["PASTICUAN_TEST_DATABASE_URL"]
+        ticker = "T" + uuid4().hex[:7].upper()
+        with psycopg.connect(url) as connection:
+            connection.execute(
+                "INSERT INTO issuers(ticker,legal_name,sector,currency,active_from) VALUES (%s,%s,'Industrials','IDR','2020-01-01')",
+                (ticker, ticker),
+            )
+        repo = SnapshotRepository(
+            lambda: psycopg.connect(url, cursor_factory=CountingCursor)
+        )
+        rows = [
+            {**filing(ticker), "restatement_version": version}
+            for version in range(1, 101)
+        ]
+        prepared = repo.prepare_filing_import(rows)
+        self.assertEqual(len(prepared), 100)
+        self.assertLessEqual(len(calls), 6)
+        calls.clear()
+        self.assertEqual(len(repo.prepare_filing_import(rows)), 100)
+        self.assertLessEqual(len(calls), 6)
+        fresh = {**filing(ticker), "restatement_version": 101}
+        conflict = {**rows[0], "source_url": f"https://idx.co.id/{ticker}-conflict.zip"}
+        with self.assertRaises(ValueError):
+            repo.prepare_filing_import([fresh, conflict])
+        self.assertEqual(
+            repo.get_filing_work_statuses(
+                [{**fresh, "issuer_id": prepared[0]["issuer_id"]}]
+            ),
+            [],
+        )
+
     def test_atomic_completion_rollback_stale_fence_and_point_in_time(self):
         import psycopg
         from data.idx_xbrl import parse_idx_xbrl
