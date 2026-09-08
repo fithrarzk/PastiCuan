@@ -12,6 +12,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import hashlib
 import ipaddress
+import os
 from pathlib import Path
 import time
 from typing import Any
@@ -786,7 +787,7 @@ def main() -> int:
     parser.add_argument(
         "--verify-disposable-down-reup",
         action="store_true",
-        help="run migration-007 down/re-up only on a named disposable CI database",
+        help="run migrations 008/007 down and 007/008 up only on a named disposable CI database",
     )
     args = parser.parse_args()
     import psycopg
@@ -806,13 +807,30 @@ def main() -> int:
             verify_filing_work_privileges(connection)
             verify_filing_work_catalog(connection)
         filing_work_behavior(connection, args.database_url)
+        importer_checks = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "unittest",
+                "tests.test_filing_work_ledger.FilingImportTransactionTests",
+            ],
+            env={**os.environ, "PASTICUAN_TEST_DATABASE_URL": args.database_url},
+            capture_output=True,
+            text=True,
+        )
+        if importer_checks.returncode:
+            raise RuntimeError("disposable filing importer transaction checks failed")
         if args.verify_disposable_down_reup:
             verify_disposable_database_identity(connection)
-            down = args.migrations / "007_filing_work_ledger.down.sql"
-            up = args.migrations / "007_filing_work_ledger.up.sql"
+            down_mismatch = args.migrations / "008_filing_artifact_mismatch.down.sql"
+            down_ledger = args.migrations / "007_filing_work_ledger.down.sql"
+            up_ledger = args.migrations / "007_filing_work_ledger.up.sql"
+            up_mismatch = args.migrations / "008_filing_artifact_mismatch.up.sql"
             with connection.cursor() as cursor:
-                cursor.execute(read_sql(down))
-                cursor.execute(read_sql(up))
+                cursor.execute(read_sql(down_mismatch))
+                cursor.execute(read_sql(down_ledger))
+                cursor.execute(read_sql(up_ledger))
+                cursor.execute(read_sql(up_mismatch))
             connection.commit()
             if roles.exists():
                 with connection.cursor() as cursor:
@@ -831,7 +849,7 @@ def main() -> int:
                     "filing_work_items",
                     "filing_work_attempts",
                 ):
-                    raise RuntimeError("migration-007 disposable down/re-up failed")
+                    raise RuntimeError("filing migrations disposable down/re-up failed")
     print(f"verified {len(migration_checksums(args.migrations))} migrations")
     return 0
 

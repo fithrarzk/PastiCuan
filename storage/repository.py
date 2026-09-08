@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -259,72 +260,252 @@ class SnapshotRepository:
         try:
             with self._connect() as connection:
                 with connection.cursor() as cursor:
-                    result = []
-                    for item in reviewed:
-                        cursor.execute(
-                            "SELECT 1 FROM issuers WHERE id=%s", (item["issuer_id"],)
-                        )
-                        if not cursor.fetchone():
-                            raise ValueError("unknown issuer for reviewed filing")
-                        cursor.execute(
-                            """SELECT source_url,published_at,audit_status,expected_checksum,state
-                               FROM filing_work_items
-                               WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
-                               FOR UPDATE""",
-                            self._work_key(item),
-                        )
-                        existing = cursor.fetchone()
-                        if existing:
-                            observed = (
-                                self._db_text(existing[0]),
-                                existing[1],
-                                self._db_text(existing[2]),
-                                self._db_text(existing[3]),
-                            )
-                            expected = tuple(
-                                item[field]
-                                for field in (
-                                    "source_url",
-                                    "published_at",
-                                    "audit_status",
-                                    "expected_checksum",
-                                )
-                            )
-                            if observed != expected:
-                                raise ValueError("reviewed filing provenance conflict")
-                            result.append(
-                                {
-                                    "identity": self._work_key(item),
-                                    "state": self._db_text(existing[4]),
-                                    "created": False,
-                                }
-                            )
-                            continue
-                        cursor.execute(
-                            """INSERT INTO filing_work_items
-                               (issuer_id,filing_type,period_end,restatement_version,source_url,published_at,audit_status,expected_checksum)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                               RETURNING state""",
-                            (
-                                *self._work_key(item),
-                                item["source_url"],
-                                item["published_at"],
-                                item["audit_status"],
-                                item["expected_checksum"],
-                            ),
-                        )
-                        result.append(
+                    issuer_ids = sorted({item["issuer_id"] for item in reviewed})
+                    cursor.execute(
+                        "SELECT id FROM issuers WHERE id=ANY(%s)", (issuer_ids,)
+                    )
+                    if {row[0] for row in cursor.fetchall()} != set(issuer_ids):
+                        raise ValueError("unknown issuer for reviewed filing")
+                    batch = strict_json_dumps(
+                        [
                             {
-                                "identity": self._work_key(item),
-                                "state": cursor.fetchone()[0],
-                                "created": True,
+                                **item,
+                                "period_end": str(item["period_end"]),
+                                "published_at": item["published_at"].isoformat(),
                             }
+                            for item in reviewed
+                        ]
+                    )
+                    cursor.execute(
+                        """INSERT INTO filing_work_items
+                           (issuer_id,filing_type,period_end,restatement_version,source_url,published_at,audit_status,expected_checksum)
+                           SELECT issuer_id,filing_type,period_end,restatement_version,source_url,published_at,audit_status,expected_checksum
+                           FROM jsonb_to_recordset(%s::jsonb) AS r(
+                             issuer_id bigint,filing_type text,period_end date,restatement_version integer,
+                             source_url text,published_at timestamptz,audit_status text,expected_checksum text)
+                           ORDER BY issuer_id,filing_type,period_end,restatement_version
+                           ON CONFLICT (issuer_id,filing_type,period_end,restatement_version) DO NOTHING
+                           RETURNING issuer_id,filing_type,period_end,restatement_version""",
+                        (batch,),
+                    )
+
+                    def normalized_key(values):
+                        return (
+                            values[0],
+                            self._db_text(values[1]),
+                            str(values[2]),
+                            values[3],
                         )
-                    return result
+
+                    inserted = {normalized_key(row) for row in cursor.fetchall()}
+                    # A separate statement sees concurrent inserts after ON CONFLICT
+                    # waits; every mismatch rolls back this whole batch.
+                    cursor.execute(
+                        """SELECT w.issuer_id,w.filing_type,w.period_end,w.restatement_version,
+                                  w.state,(w.source_url=r.source_url AND w.published_at=r.published_at
+                                  AND w.audit_status=r.audit_status AND w.expected_checksum IS NOT DISTINCT FROM r.expected_checksum)
+                           FROM filing_work_items w
+                           JOIN jsonb_to_recordset(%s::jsonb) AS r(
+                             issuer_id bigint,filing_type text,period_end date,restatement_version integer,
+                             source_url text,published_at timestamptz,audit_status text,expected_checksum text)
+                           USING (issuer_id,filing_type,period_end,restatement_version)
+                           ORDER BY w.issuer_id,w.filing_type,w.period_end,w.restatement_version
+                           FOR UPDATE OF w""",
+                        (batch,),
+                    )
+                    observed = cursor.fetchall()
+                    if len(observed) != len(reviewed) or any(
+                        not row[5] for row in observed
+                    ):
+                        raise ValueError("reviewed filing provenance conflict")
+                    states = {
+                        normalized_key(row): self._db_text(row[4]) for row in observed
+                    }
+                    return [
+                        {
+                            "identity": self._work_key(item),
+                            "state": states[normalized_key(self._work_key(item))],
+                            "created": normalized_key(self._work_key(item)) in inserted,
+                        }
+                        for item in reviewed
+                    ]
         except ValueError:
             raise
         except Exception:
             raise RuntimeError("filing work ledger sync failed") from None
+
+    def prepare_filing_import(self, filings: list[dict]) -> list[dict]:
+        """Resolve and sync a complete manifest atomically, returning bulk states."""
+        if not filings:
+            return []
+        with self._connect() as connection:
+            transaction_repository = SnapshotRepository(lambda: nullcontext(connection))
+            with connection.cursor() as cursor:
+                tickers = sorted({row["ticker"] for row in filings})
+                cursor.execute(
+                    "SELECT ticker,id FROM issuers WHERE ticker=ANY(%s) ORDER BY ticker",
+                    (tickers,),
+                )
+                issuers = {self._db_text(row[0]): row[1] for row in cursor.fetchall()}
+                if set(issuers) != set(tickers):
+                    raise ValueError("unknown issuer for reviewed filing")
+                reviewed = [
+                    {
+                        **row,
+                        "issuer_id": issuers[row["ticker"]],
+                        "expected_checksum": row.get("checksum"),
+                    }
+                    for row in filings
+                ]
+                transaction_repository.sync_reviewed_filings(
+                    sorted(reviewed, key=lambda row: str(self._work_key(row)))
+                )
+                cursor.execute(
+                    """SELECT issuer_id,filing_type,period_end,restatement_version,state,lease_expires_at
+                                  FROM filing_work_items WHERE issuer_id=ANY(%s)""",
+                    (list(issuers.values()),),
+                )
+                states = {
+                    (row[0], self._db_text(row[1]), str(row[2]), row[3]): {
+                        "state": self._db_text(row[4]),
+                        "lease_expires_at": row[5],
+                    }
+                    for row in cursor.fetchall()
+                }
+                return [
+                    {
+                        **row,
+                        **states[
+                            (
+                                row["issuer_id"],
+                                row["filing_type"],
+                                str(row["period_end"]),
+                                row["restatement_version"],
+                            )
+                        ],
+                    }
+                    for row in reviewed
+                ]
+
+    def complete_filing_import(
+        self,
+        identity: dict,
+        lease_token: str,
+        artifact: dict,
+        *,
+        parsed: dict | None = None,
+        state: str = "ACCEPTED",
+        error_class: str | None = None,
+        error_summary: str | None = None,
+    ) -> dict | None:
+        """Commit artifact, facts/profile, ledger item and attempt under one fence."""
+        if state not in {"ACCEPTED", "QUARANTINED"}:
+            raise ValueError("invalid filing completion state")
+        key = self._identity(identity)
+        with self._connect() as connection:
+            transaction_repository = SnapshotRepository(lambda: nullcontext(connection))
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT source_url,published_at FROM filing_work_items
+                                  WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
+                                    AND state='RUNNING' AND lease_token=%s AND lease_expires_at>clock_timestamp()
+                                  FOR UPDATE""",
+                    (*key, lease_token),
+                )
+                work = cursor.fetchone()
+                if not work:
+                    return None
+                publication = datetime.fromisoformat(
+                    str(artifact["published_at"]).replace("Z", "+00:00")
+                )
+                if (
+                    artifact["source_url"] != self._db_text(work[0])
+                    or publication != work[1]
+                ):
+                    raise ValueError("filing artifact provenance mismatch")
+                artifact_id = transaction_repository.register_source_artifact(artifact)
+                count = 0
+                profile = "UNVERIFIED"
+                if state == "ACCEPTED":
+                    if not parsed or not parsed.get("facts"):
+                        raise ValueError("filing facts required")
+                    count = transaction_repository.import_canonical_records(
+                        "statement_facts_csv", parsed["facts"], source_class="official"
+                    )
+                    label = parsed.get("diagnostics", {}).get("industry") or parsed.get(
+                        "diagnostics", {}
+                    ).get("sector")
+                    if label:
+                        try:
+                            profile = transaction_repository.verify_issuer_profile(
+                                identity["ticker"],
+                                sector=label,
+                                source_url=artifact["source_url"],
+                                checksum=artifact["checksum"],
+                                available_at=identity["published_at"],
+                            ).upper()
+                        except ValueError:
+                            transaction_repository.record_ingestion_issue(
+                                artifact_id,
+                                "ISSUER_PROFILE_REVIEW_REQUIRED",
+                                "VALIDATION_FAILED",
+                            )
+                else:
+                    error_class = error_class or "VALIDATION"
+                    error_summary = error_summary or "VALIDATION_FAILED"
+                    transaction_repository.record_ingestion_issue(
+                        artifact_id,
+                        error_summary,
+                        error_class,
+                    )
+                transaction_repository.set_artifact_status(artifact_id, state)
+                result = transaction_repository.finalize_filing_work(
+                    identity,
+                    lease_token,
+                    state,
+                    artifact_id=artifact_id,
+                    checksum=artifact["checksum"],
+                    error_class=error_class if state == "QUARANTINED" else None,
+                    error_summary=error_summary if state == "QUARANTINED" else None,
+                )
+                if result is None:
+                    # Expiry after the initial lock must roll back all evidence writes.
+                    raise ValueError("filing lease expired during completion")
+                return {
+                    "state": state,
+                    "record_count": count,
+                    "issuer_profile": profile,
+                }
+
+    @contextmanager
+    def filing_download_fence(self, identity: dict | tuple):
+        """Try one session-scoped per-Filing lock outside any transaction."""
+        key = self._identity(identity)
+        digest = hashlib.sha256(
+            "\x1f".join(str(value) for value in key).encode("utf-8")
+        ).digest()
+        lock_key = (
+            int.from_bytes(digest[:4], "big", signed=True),
+            int.from_bytes(digest[4:8], "big", signed=True),
+        )
+        connection = self._connect()
+        acquired = False
+        try:
+            connection.autocommit = True
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_try_advisory_lock(%s,%s)", lock_key)
+                acquired = bool(cursor.fetchone()[0])
+            yield acquired
+        except Exception:
+            raise RuntimeError("filing download fence failed") from None
+        finally:
+            if acquired:
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT pg_advisory_unlock(%s,%s)", lock_key)
+                except Exception:
+                    pass
+            connection.close()
 
     def get_filing_work_statuses(self, identities: list[dict | tuple]) -> list[dict]:
         """Read deterministic ledger statuses without exposing provider details."""
@@ -520,11 +701,23 @@ class SnapshotRepository:
                         if artifact:
                             artifact = tuple(self._db_text(value) for value in artifact)
                         required_status = state
+                        checksum_mismatch = bool(
+                            artifact and work[1] is not None and artifact[0] != work[1]
+                        )
+                        allowed_mismatch = (
+                            state == "QUARANTINED"
+                            and error_class == "PROVENANCE"
+                            and error_summary == "ARTIFACT_MISMATCH"
+                        )
+                        if allowed_mismatch and not checksum_mismatch:
+                            raise ValueError(
+                                "artifact mismatch quarantine requires a mismatch"
+                            )
                         if (
                             not artifact
                             or artifact[2] != required_status
                             or artifact[1] != work[0]
-                            or (work[1] is not None and artifact[0] != work[1])
+                            or (checksum_mismatch and not allowed_mismatch)
                             or (checksum is not None and artifact[0] != checksum)
                         ):
                             raise ValueError("filing work artifact provenance mismatch")
