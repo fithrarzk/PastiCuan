@@ -1,6 +1,6 @@
 # ING-003: Skip-before-download resumable importer
 
-- Status: in progress (owner-authorized correction after review)
+- Status: blocked (Standards finding; final correction allowance consumed)
 - Priority: P0
 - Owner/model: GPT-6 root writer; Sol independent review
 - Delivery lane: High-risk (fenced transactions and point-in-time evidence)
@@ -175,3 +175,43 @@ Record base/final SHA, changed files, focused/full and disposable-PostgreSQL res
   Spec reviews, current-head PR checks, merge, and post-merge verification remain
   pending. No Supabase MCP or production mutation was used; protected migration
   rollout remains separately gated.
+
+### Final review checkpoint — 2026-09-08
+
+- Base: `1b7e06efb1722dc4b335f5fd1da205c9bd51e5fa`; tested and reviewed
+  implementation head: `429c1f10c1f79e20218cac1d7ba977d161c1b0b0`.
+  PR #43 is open and unmerged; issue #42 remains claimed. All eight required
+  checks passed in run `34155429124`. No merge SHA or post-merge workflow exists.
+- Fresh Spec review passed with zero findings and closed all three previous
+  High findings. Fresh Standards review reported one Medium documented-practice
+  breach: `prepare_filing_import` calls the per-item query loop in
+  `sync_reviewed_filings` inside a manifest-wide transaction. Batch issuer and
+  provenance reads/writes while preserving atomic validation and deterministic
+  locking. One Low finding: migration-check help mentions only 007 although
+  the guarded disposable rollback also includes 008.
+- Files and behavior are listed in ownership and the preceding correction
+  record. The final test-only commit corrected SQL-ASCII byte normalization and
+  a credential-shaped fixture; no scanner rule was relaxed. Both UTF-8 and
+  SQL-ASCII disposable checks returned `verified 8 migrations` (exit 0).
+- `python -m compileall -q analysis data storage operations telegram_utils bot.py
+  bot_webhook.py`: exit 0. Full unittest discovery: 174 tests, 6.126 seconds,
+  OK with one separately exercised disposable skip. Research-release check,
+  diff check, Ruff and CI-configured mypy: exit 0. Unrestricted mypy reported
+  76 errors in 26 files, including imported modules outside this change;
+  the repository's configured CI invocation passed for five source files.
+  Current-head required CI independently passed. This resumption rechecked
+  clean git status, unchanged main/base, all eight checks, and both reviews.
+- No production query or mutation occurred. Migrations 007/008, writer session
+  compatibility, backup and protected rollout still need production proof.
+  Preserve all user-owned untracked files. Rollback is a reviewed code revert
+  or forward fix retaining evidence; never apply production down migrations.
+- High-risk; GPT-6 root and Sol independent reviewers. Prior phase recorded
+  approximately 55 minutes/20k tokens and three corrections. The continuation
+  consumed its one authorized review-correction cycle plus the verified CI
+  fixture adjustment; precise cumulative elapsed/context telemetry is not
+  available across model/usage interruptions. This resumption used roughly
+  5k context tokens. Stop at the task-card correction ceiling with the two
+  Standards findings recorded; no further code correction or merge is claimed.
+- Next dependency-ready work is completing ING-003 Standards remediation with
+  a renewed bounded allowance and fresh reviews. ING-004 remains dependent on
+  verified ING-003 merge and the required dated program handoff update.
