@@ -37,7 +37,9 @@ SAFE_RESEARCH_PUSH_IGNORES = {
 }
 IDX_JOB_PERMISSIONS = {
     "discover": {"contents": "write", "pull-requests": "write", "actions": "write"},
-    "import": {"contents": "read", "actions": "write"},
+    "prepare-import": {"contents": "read"},
+    "import-shards": {"contents": "read"},
+    "aggregate": {"contents": "read", "actions": "write"},
 }
 
 

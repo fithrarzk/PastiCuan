@@ -60,7 +60,17 @@ jobs:
     timeout-minutes: 5
     permissions: {contents: write, pull-requests: write, actions: write}
     steps: [{uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5}]
-  import:
+  prepare-import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {contents: read}
+    steps: [{uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5}]
+  import-shards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {contents: read}
+    steps: [{uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5}]
+  aggregate:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {contents: read, actions: write}

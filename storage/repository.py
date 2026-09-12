@@ -146,6 +146,11 @@ class SnapshotRepository:
         "ARTIFACT_MISMATCH",
         "UNKNOWN_FAILURE",
     }
+    _RETRYABLE_ERRORS = {
+        ("TRANSIENT", "LEASE_EXPIRED"),
+        ("PROVIDER", "PROVIDER_UNAVAILABLE"),
+        ("DATABASE", "DATABASE_UNAVAILABLE"),
+    }
 
     @staticmethod
     def _work_item(item: dict) -> dict:
@@ -361,7 +366,8 @@ class SnapshotRepository:
                     sorted(reviewed, key=lambda row: str(self._work_key(row)))
                 )
                 cursor.execute(
-                    """SELECT issuer_id,filing_type,period_end,restatement_version,state,lease_expires_at
+                    """SELECT issuer_id,filing_type,period_end,restatement_version,state,lease_expires_at,
+                              attempt_count,last_error_class,last_error_summary,state_changed_at
                                   FROM filing_work_items WHERE issuer_id=ANY(%s)""",
                     (list(issuers.values()),),
                 )
@@ -369,6 +375,10 @@ class SnapshotRepository:
                     (row[0], self._db_text(row[1]), str(row[2]), row[3]): {
                         "state": self._db_text(row[4]),
                         "lease_expires_at": row[5],
+                        "attempt_count": int(row[6]),
+                        "last_error_class": self._db_text(row[7]),
+                        "last_error_summary": self._db_text(row[8]),
+                        "state_changed_at": row[9],
                     }
                     for row in cursor.fetchall()
                 }
@@ -539,9 +549,16 @@ class SnapshotRepository:
         *,
         lease_seconds: int = 900,
         run_id: str | None = None,
+        max_attempts: int = 3,
     ) -> dict | None:
         """Acquire one fenced lease and create exactly one durable attempt."""
-        if lease_seconds <= 0 or not str(worker_id).strip():
+        if (
+            lease_seconds <= 0
+            or not str(worker_id).strip()
+            or isinstance(max_attempts, bool)
+            or not isinstance(max_attempts, int)
+            or max_attempts <= 0
+        ):
             raise ValueError("invalid filing lease")
         key = self._identity(identity)
         token = str(uuid4())
@@ -554,7 +571,9 @@ class SnapshotRepository:
             with self._connect() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        """SELECT state,lease_token,lease_expires_at,source_url,expected_checksum FROM filing_work_items
+                        """SELECT state,lease_token,lease_expires_at,source_url,expected_checksum,
+                                  attempt_count,last_error_class,last_error_summary
+                           FROM filing_work_items
                            WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
                            FOR UPDATE SKIP LOCKED""",
                         key,
@@ -581,14 +600,39 @@ class SnapshotRepository:
                                  AND lease_token=%s AND finished_at IS NULL""",
                             (*key, current[1]),
                         )
+                        current = (
+                            "RETRYABLE",
+                            None,
+                            None,
+                            current[3],
+                            current[4],
+                            current[5],
+                            "TRANSIENT",
+                            "LEASE_EXPIRED",
+                        )
+                    if int(current[5]) >= max_attempts:
+                        return None
+                    if (
+                        current[0] == "RETRYABLE"
+                        and (
+                            current[6],
+                            current[7],
+                        )
+                        not in self._RETRYABLE_ERRORS
+                    ):
+                        return None
                     cursor.execute(
                         """UPDATE filing_work_items SET state='RUNNING',attempt_count=attempt_count+1,
                                   lease_token=%s,lease_owner=%s,lease_expires_at=clock_timestamp()+(%s * interval '1 second')
                            WHERE issuer_id=%s AND filing_type=%s AND period_end=%s AND restatement_version=%s
+                             AND state IN ('PENDING','RETRYABLE') AND attempt_count<%s
                            RETURNING attempt_count,lease_expires_at""",
-                        (token, clean_worker, lease_seconds, *key),
+                        (token, clean_worker, lease_seconds, *key, max_attempts),
                     )
-                    attempt_number, expires = cursor.fetchone()
+                    claimed = cursor.fetchone()
+                    if not claimed:
+                        return None
+                    attempt_number, expires = claimed
                     cursor.execute(
                         """INSERT INTO filing_work_attempts
                            (id,issuer_id,filing_type,period_end,restatement_version,attempt_number,lease_token,
@@ -835,6 +879,76 @@ class SnapshotRepository:
                     if state in counts:
                         counts[state] = int(count)
         return counts
+
+    def aggregate_filing_progress(
+        self, identities: list[dict | tuple], run_id: str
+    ) -> dict[str, int]:
+        """Read manifest-scoped durable state and accepted work for one batch."""
+        keys = sorted({self._identity(item) for item in identities}, key=str)
+        clean_run_id = str(run_id).strip()
+        if not clean_run_id:
+            raise ValueError("invalid Filing batch run")
+        empty = {
+            "manifest": 0,
+            "accepted": 0,
+            "skipped_accepted": 0,
+            "quarantined": 0,
+            "retryable": 0,
+            "leased_elsewhere": 0,
+            "remaining": 0,
+        }
+        if not keys:
+            return empty
+        batch = strict_json_dumps(
+            [
+                {
+                    "issuer_id": key[0],
+                    "filing_type": key[1],
+                    "period_end": str(key[2]),
+                    "restatement_version": key[3],
+                }
+                for key in keys
+            ]
+        )
+        try:
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """WITH requested AS (
+                             SELECT * FROM jsonb_to_recordset(%s::jsonb) AS r(
+                               issuer_id bigint,filing_type text,period_end date,
+                               restatement_version integer)
+                           ), observed AS (
+                             SELECT w.state,w.lease_expires_at,
+                                    EXISTS (
+                                      SELECT 1 FROM filing_work_attempts a
+                                      WHERE a.issuer_id=w.issuer_id
+                                        AND a.filing_type=w.filing_type
+                                        AND a.period_end=w.period_end
+                                        AND a.restatement_version=w.restatement_version
+                                        AND a.run_id=%s AND a.outcome_state='ACCEPTED'
+                                    ) AS accepted_in_run
+                             FROM requested r
+                             JOIN filing_work_items w
+                               USING (issuer_id,filing_type,period_end,restatement_version)
+                           )
+                           SELECT count(*),
+                                  count(*) FILTER (WHERE state='ACCEPTED' AND accepted_in_run),
+                                  count(*) FILTER (WHERE state='ACCEPTED' AND NOT accepted_in_run),
+                                  count(*) FILTER (WHERE state='QUARANTINED'),
+                                  count(*) FILTER (WHERE state='RETRYABLE'),
+                                  count(*) FILTER (
+                                    WHERE state='RUNNING' AND lease_expires_at>clock_timestamp()),
+                                  count(*) FILTER (WHERE state<>'ACCEPTED')
+                           FROM observed""",
+                        (batch, clean_run_id),
+                    )
+                    values = cursor.fetchone()
+        except Exception:
+            raise RuntimeError("filing progress aggregation failed") from None
+        if not values or int(values[0]) != len(keys):
+            raise RuntimeError("filing progress aggregation incomplete")
+        return {name: int(value) for name, value in zip(empty, values)}
 
     def preflight_schema_migrations(
         self, required_versions: list[str] | tuple[str, ...]

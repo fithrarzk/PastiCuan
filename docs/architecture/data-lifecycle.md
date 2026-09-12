@@ -11,6 +11,14 @@
 
 ## Contract and roadmap boundary
 
-The accepted [ingestion contract](../specs/ingestion-contract.md) describes cumulative discovery and durable resumability, but current ingestion is storage-idempotent and can redownload/reparse accepted work after interruption. Cumulative manifest discovery/merge is implemented under `ING-001`; durable retryable/remaining progress totals and sharding are planned under `ING-004`. It is **not runtime-resumable before `ING-003`**. The accepted [snapshot lifecycle](../specs/snapshot-lifecycle.md) requires one atomic release activation; current quant and scan writes are not evidence of that boundary before `REL-001`. Formal last-good pair reactivation/recovery is planned under `DEP-002`.
+The accepted [ingestion contract](../specs/ingestion-contract.md) is implemented
+through cumulative discovery (`ING-001`), the durable ledger (`ING-002`),
+skip-before-download fenced import (`ING-003`), and deterministic shards,
+bounded retry, and durable aggregation (`ING-004`). These code guarantees are
+not production evidence until migrations 007/008 pass their protected rollout.
+The accepted [snapshot lifecycle](../specs/snapshot-lifecycle.md) requires one
+atomic release activation; current quant and scan writes are not evidence of that
+boundary before `REL-001`. Formal last-good pair reactivation/recovery is planned
+under `DEP-002`.
 
 No evidence becomes eligible before its `available_at`; no candidate becomes bot-readable merely because a workflow produced it; and missing, stale, conflicting, or quarantined evidence stays disclosed or unavailable rather than estimated.

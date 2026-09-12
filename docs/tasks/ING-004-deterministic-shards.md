@@ -14,7 +14,7 @@
 - Worktree: `../PastiCuan-wt/ing-004-deterministic-shards`
 - Issue: #45
 - Depends on: verified ING-003 (`6a50ae4`) and merged handoff (`6b66f65`)
-- File ownership: `data/idx_filing_importer.py`, `storage/repository.py`, `operations/research_cli.py`, `.github/workflows/idx-filings.yml`, `tests/test_idx_filing_shards.py`, `tests/test_filing_work_ledger.py`, `tests/test_workflow_policy.py`, `tests/test_ci_gates.py`, `docs/runbooks/backfill.md`, `docs/reference/command-data-dictionary.md`, this card, `docs/tasks/{CLAIMS,ROADMAP}.md`, and `docs/status/2026-08-24-program-handoff.md`
+- File ownership: `data/idx_filing_importer.py`, `storage/repository.py`, `operations/research_cli.py`, `.github/workflows/idx-filings.yml`, `scripts/ci/check_workflow_policy.py`, `tests/test_idx_filing_shards.py`, `tests/test_filing_work_ledger.py`, `tests/test_workflow_policy.py`, `tests/test_ci_gates.py`, `tests/test_filing_manifest.py`, `docs/architecture/data-lifecycle.md`, `docs/runbooks/backfill.md`, `docs/reference/command-data-dictionary.md`, this card, `docs/tasks/{CLAIMS,ROADMAP}.md`, and `docs/status/2026-08-24-program-handoff.md`
 - Merge policy: autonomous squash merge after full local verification, fresh independent reviews on the exact final head, and all required current-head checks; production rollout remains separately gated
 
 ## Outcome
@@ -56,6 +56,32 @@ Each slice follows red then the smallest green implementation. Tests use literal
 - Shard reports and aggregate reports are stable/redacted. Missing migrations, invalid manifest, sync conflict, database failure, incomplete progress, or any failed shard prevents the research refresh.
 - Workflow jobs have explicit conservative timeouts and application budgets; syntax, least privilege, concurrency, recursion, and failure-path policy tests pass.
 - Existing ING-003 tests continue proving point-in-time availability, stale-fence exclusion, checksum quarantine, per-Filing atomicity, and zero-download accepted reruns.
+
+## Implementation evidence — 2026-09-12
+
+- Red/green slices cover stable issuer/reporting-year assignments, full-manifest
+  sync before shard selection, terminal skip-before-download, durable allowlist
+  and attempt ceiling, restart backoff, application budget, set-based durable
+  aggregation, CLI policy arguments, and workflow refresh gating.
+- Focused importer/repository/CLI tests passed 26 tests. Workflow/CI/manifest
+  policy passed 42 tests. A full local run passed 186 tests after activating the
+  pinned environment; the preceding run's only two errors were the unactivated
+  `python` subprocess path and its one real workflow-permission finding was
+  corrected with an exact least-privilege allowlist.
+- The reviewed 124-Filing manifest distributes across eight shards as
+  `17/16/13/17/19/15/16/11`; the largest shard has 19 Filings, or 570 seconds
+  at the acquisition boundary's 30-second timeout before retry. The 1,200-second
+  application budget and 45-minute job timeout retain a 25-minute outer margin;
+  retries stop at the application budget instead of approaching job timeout.
+- Disposable PostgreSQL 16 UTF-8 and SQL-ASCII databases each returned
+  `verified 8 migrations`, including durable aggregation, attempt-ceiling,
+  per-Filing atomicity, stale-fence, and point-in-time integration tests.
+- Supabase's current changelog was checked for relevant database/pooling changes.
+  No applicable API/schema breaking change was found. The set-based query follows
+  the repository primary-key/attempt indexes and holds no locks across provider
+  work. No Supabase MCP/production query or mutation was performed.
+- Final full verification, exact-head independent reviews, current-head CI, PR,
+  merge, cleanup, and post-merge evidence remain pending.
 
 ## Rollout and rollback
 
