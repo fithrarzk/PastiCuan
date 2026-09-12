@@ -13,6 +13,39 @@ RESEARCH_WORKFLOW_PATH = ROOT / ".github/workflows/research-daily.yml"
 
 
 class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
+    def test_import_uses_bounded_shards_and_durable_aggregation_gate(self):
+        workflow = _workflow_data(ROOT / ".github/workflows/idx-filings.yml")
+        jobs = workflow["jobs"]
+        self.assertEqual(
+            set(jobs), {"discover", "prepare-import", "import-shards", "aggregate"}
+        )
+        shards = jobs["import-shards"]
+        self.assertFalse(shards["strategy"]["fail-fast"])
+        self.assertEqual(shards["strategy"]["matrix"]["shard"], list(range(8)))
+        self.assertEqual(shards["timeout-minutes"], 45)
+        shard_runs = "\n".join(step.get("run", "") for step in shards["steps"])
+        self.assertIn('--shard-count 8 --shard-index "${{ matrix.shard }}"', shard_runs)
+        self.assertIn('--run-id "${{ github.run_id }}"', shard_runs)
+        self.assertIn("--max-attempts 3", shard_runs)
+        self.assertIn("--retry-backoff-seconds 5", shard_runs)
+        self.assertIn("--time-budget-seconds 1200", shard_runs)
+        self.assertNotIn("research-daily.yml", shard_runs)
+
+        aggregate = jobs["aggregate"]
+        self.assertEqual(set(aggregate["needs"]), {"prepare-import", "import-shards"})
+        self.assertEqual(aggregate["timeout-minutes"], 10)
+        aggregate_runs = "\n".join(step.get("run", "") for step in aggregate["steps"])
+        self.assertIn("--aggregate-only", aggregate_runs)
+        refresh = next(
+            step
+            for step in aggregate["steps"]
+            if step.get("name") == "Request a research refresh"
+        )
+        self.assertEqual(
+            refresh.get("if"),
+            "needs.import-shards.result == 'success' && steps.progress.outcome == 'success'",
+        )
+
     def test_research_push_ignores_only_reviewed_non_runtime_paths(self):
         workflow = _workflow_data(RESEARCH_WORKFLOW_PATH)
         trigger = workflow.get("on", workflow.get(True, {}))

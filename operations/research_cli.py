@@ -223,10 +223,21 @@ def ingest_manifest(
 
 
 def ingest_idx_xbrl_manifest(
-    path: str, *, archive_directory: str | None, use_r2: bool
+    path: str,
+    *,
+    archive_directory: str | None,
+    use_r2: bool,
+    shard_count: int = 1,
+    shard_index: int = 0,
+    run_id: str | None = None,
+    max_attempts: int = 3,
+    retry_backoff_seconds: float = 5,
+    time_budget_seconds: float = 1200,
+    aggregate_only: bool = False,
 ) -> dict:
     """Import reviewed filings through durable preflight, skip and lease gates."""
-    from data.idx_filing_importer import import_filings
+    from data.filing_work_policy import FilingImportPolicy
+    from data.idx_filing_importer import aggregate_filing_progress, import_filings
     from storage.database import connect_from_env
     from storage.repository import SnapshotRepository
 
@@ -235,8 +246,31 @@ def ingest_idx_xbrl_manifest(
     except (OSError, ValueError):
         payload = None
     repository = SnapshotRepository(lambda: connect_from_env(writer=True))
+    if aggregate_only:
+        return aggregate_filing_progress(payload, repository, run_id=run_id or "")
+    try:
+        policy = FilingImportPolicy(
+            shard_count=shard_count,
+            shard_index=shard_index,
+            run_id=run_id,
+            max_attempts=max_attempts,
+            retry_backoff_seconds=retry_backoff_seconds,
+            time_budget_seconds=time_budget_seconds,
+        )
+    except (TypeError, ValueError):
+        return {
+            "run_id": str(run_id or ""),
+            "ok": False,
+            "code": "MANIFEST_INVALID",
+            "filings": [],
+            "counts": {},
+        }
     return import_filings(
-        payload, repository, archive_directory=archive_directory, use_r2=use_r2
+        payload,
+        repository,
+        archive_directory=archive_directory,
+        use_r2=use_r2,
+        policy=policy,
     )
 
 
@@ -1246,6 +1280,13 @@ def main(argv=None) -> int:
     ingest_idx.add_argument("--report", required=True)
     ingest_idx.add_argument("--archive-directory")
     ingest_idx.add_argument("--r2", action="store_true")
+    ingest_idx.add_argument("--shard-count", type=int, default=1)
+    ingest_idx.add_argument("--shard-index", type=int, default=0)
+    ingest_idx.add_argument("--run-id")
+    ingest_idx.add_argument("--max-attempts", type=int, default=3)
+    ingest_idx.add_argument("--retry-backoff-seconds", type=float, default=5)
+    ingest_idx.add_argument("--time-budget-seconds", type=float, default=1200)
+    ingest_idx.add_argument("--aggregate-only", action="store_true")
     discover_idx = sub.add_parser("discover-idx-xbrl")
     discover_idx.add_argument("--output", required=True)
     discover_idx.add_argument("--as-of", required=True)
@@ -1346,6 +1387,13 @@ def main(argv=None) -> int:
             args.manifest,
             archive_directory=args.archive_directory,
             use_r2=args.r2,
+            shard_count=args.shard_count,
+            shard_index=args.shard_index,
+            run_id=args.run_id,
+            max_attempts=args.max_attempts,
+            retry_backoff_seconds=args.retry_backoff_seconds,
+            time_budget_seconds=args.time_budget_seconds,
+            aggregate_only=args.aggregate_only,
         )
         Path(args.report).write_text(strict_json_dumps(filing_report, indent=2))
         if not filing_report["ok"]:

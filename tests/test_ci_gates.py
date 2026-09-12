@@ -315,7 +315,9 @@ class WorkflowGateTests(unittest.TestCase):
             },
             "idx-filings.yml": {
                 "discover": {"requirements-bot.txt", "requirements-jobs.txt"},
-                "import": {"requirements-bot.txt", "requirements-jobs.txt"},
+                "prepare-import": {"requirements-bot.txt", "requirements-jobs.txt"},
+                "import-shards": {"requirements-bot.txt", "requirements-jobs.txt"},
+                "aggregate": {"requirements-bot.txt", "requirements-jobs.txt"},
             },
         }
         for workflow_name, jobs in expected.items():

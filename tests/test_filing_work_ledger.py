@@ -46,6 +46,7 @@ class FilingWorkLedgerContractTests(unittest.TestCase):
             "expire_filing_work_leases",
             "get_filing_attempt_history",
             "get_filing_work_counts",
+            "aggregate_filing_progress",
             "filing_download_fence",
         }
         self.assertTrue(expected.issubset(set(dir(SnapshotRepository))))
@@ -84,6 +85,90 @@ class FilingWorkLedgerContractTests(unittest.TestCase):
     os.getenv("PASTICUAN_TEST_DATABASE_URL"), "disposable PostgreSQL required"
 )
 class FilingImportTransactionTests(unittest.TestCase):
+    def test_durable_progress_aggregates_one_batch_across_workers(self):
+        import psycopg
+        from data.idx_xbrl import parse_idx_xbrl
+        from tests.test_idx_xbrl import _instance
+        from tests.test_idx_filing_importer import filing
+
+        url = os.environ["PASTICUAN_TEST_DATABASE_URL"]
+        repo = SnapshotRepository(lambda: psycopg.connect(url))
+        ticker = "T" + uuid4().hex[:7].upper()
+        with psycopg.connect(url) as connection:
+            connection.execute(
+                "INSERT INTO issuers(ticker,legal_name,sector,currency,active_from) VALUES (%s,%s,'Industrials','IDR','2025-01-01')",
+                (ticker, ticker),
+            )
+        sources = [
+            {
+                **filing(ticker),
+                "restatement_version": version,
+                "source_url": f"https://idx.co.id/{ticker}-{version}.zip",
+            }
+            for version in range(1, 5)
+        ]
+        rows = repo.prepare_filing_import(sources)
+
+        def accept(row, batch):
+            lease = repo.claim_filing_work(row, batch, run_id=batch)
+            checksum = uuid4().hex * 2
+            artifact = {
+                "id": str(uuid4()),
+                "provider": "IDX",
+                "source_class": "official",
+                "artifact_type": "idx_xbrl_instance",
+                "source_url": row["source_url"],
+                "checksum": checksum,
+                "retrieved_at": "2026-01-01T00:00:00Z",
+                "published_at": row["published_at"],
+                "object_key": checksum,
+                "size_bytes": 100,
+            }
+            parsed = parse_idx_xbrl(
+                _instance().replace(b"TEST", ticker.encode()),
+                ticker=ticker,
+                source_url=row["source_url"],
+                published_at=row["published_at"],
+                filing_type="Q1",
+                filing_period_end="2025-03-31",
+                document_checksum=checksum,
+                object_key=checksum,
+                restatement_version=row["restatement_version"],
+            )
+            repo.complete_filing_import(
+                row, lease["lease_token"], artifact, parsed=parsed
+            )
+
+        accept(rows[0], "batch-current")
+        accept(rows[1], "batch-before")
+        retry = repo.claim_filing_work(rows[2], "batch-current", run_id="batch-current")
+        repo.finalize_filing_work(
+            rows[2],
+            retry["lease_token"],
+            "RETRYABLE",
+            error_class="PROVIDER",
+            error_summary="PROVIDER_UNAVAILABLE",
+        )
+        self.assertIsNone(
+            repo.claim_filing_work(
+                rows[2], "batch-current", run_id="batch-current", max_attempts=1
+            )
+        )
+        repo.claim_filing_work(rows[3], "other-worker", run_id="batch-other")
+
+        self.assertEqual(
+            repo.aggregate_filing_progress(rows, "batch-current"),
+            {
+                "manifest": 4,
+                "accepted": 1,
+                "skipped_accepted": 1,
+                "quarantined": 0,
+                "retryable": 1,
+                "leased_elsewhere": 1,
+                "remaining": 2,
+            },
+        )
+
     def test_manifest_sync_has_bounded_round_trips_and_atomic_conflicts(self):
         import psycopg
         from tests.test_idx_filing_importer import filing
