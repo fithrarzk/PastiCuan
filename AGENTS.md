@@ -86,7 +86,14 @@ Then inspect only the relevant workflow state, task card, spec, and files. Use `
 - Worktrees live outside the repository at `../PastiCuan-wt/<task-id>-<short-name>`.
 - Branches use `<type>/<task-id>-<short-name>` where type is `fix`, `feat`, `refactor`, `test`, `docs`, or `ops`.
 - Record task ID, owner, model, base SHA, dependencies, and file ownership before editing.
-- Never let two active writers own the same file or shared contract. Parallelize only independent file sets.
+- One agent owns one active roadmap ticket at a time. That agent may carry the
+  ticket from implementation through tests, self-review, PR, merge, cleanup,
+  and handoff; it must not edit a second ticket in the same worktree.
+- When an agent finishes a ticket, the orchestrator may assign it the next
+  dependency-ready ticket in a new worktree and branch. An independent ticket
+  may be assigned to another idle agent in its own worktree, even while the
+  first agent continues its current ticket. Never let two active writers own
+  the same file or shared contract; parallelize only independent file sets.
 - Agents must not assume another worktree's uncommitted changes exist.
 - Sync with `origin/main` before final verification; coordinate before resolving overlapping changes.
 - Preserve user changes and unrelated dirty files.
@@ -105,9 +112,11 @@ Domain ownership:
 
 - Use **Sol** for architecture, financial/statistical reasoning, incidents, migrations, contracts, task decomposition, release-risk review, and merge arbitration.
 - Use **Luna** for a bounded accepted task card: test-first implementation, fixtures, mechanical refactors, documentation, and focused verification.
-- Fast and Standard tasks use one root agent by default. High-risk tasks require
-  fresh Spec and Standards review; use a babysit agent only for a long-running
-  PR or active review discussion.
+- Fast and Standard tasks use one agent for the complete ticket lifecycle by
+  default. High-risk tasks still require fresh independent Standards and Spec
+  reviews; the implementing agent may perform self-review and address review
+  feedback, but cannot substitute for either independent gate. Use a babysit
+  agent only for a long-running PR or active review discussion.
 - Give each implementation agent a one-page task card and exact file list, not conversation history.
 - Task cards state model, reasoning effort, context budget, retry ceiling, escalation condition, and allowed parallelism. Default budgets and stop rules come from the selected delivery lane; increase them only when the task card justifies it.
 - Read `AGENTS.md`, `CONTEXT.md`, the task card, and only its linked specs/runbooks.

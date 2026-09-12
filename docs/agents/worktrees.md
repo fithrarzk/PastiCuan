@@ -4,6 +4,13 @@
 
 The orchestrator owns the dependency graph, task assignment, file ownership, PR ordering, and production verification. It does not ask implementation agents to rediscover the roadmap.
 
+Each agent has exactly one active ticket at a time. The assigned agent owns
+that ticket's implementation, tests, self-review, PR, merge, cleanup, and
+handoff. After the ticket is complete, the orchestrator may reuse the agent
+for the next dependency-ready ticket, but must create a fresh worktree and
+branch for it. An agent never carries uncommitted work from one ticket into
+another.
+
 For each Fast task:
 
 1. Fetch `origin/main` and record the base SHA in the task note.
@@ -45,12 +52,22 @@ Serialize changes to shared snapshot contracts, `operations/research_cli.py`, mi
 
 Implementation agents never self-claim. A roadmap claim is valid only when the orchestrator records it against the current `origin/main` SHA. If two sessions propose the same task, the first GitHub issue assignment wins; the other stops before editing. The committed registry is human-readable recovery state, while the GitHub assignment is the coordination lock. A non-roadmap Fast task needs a claim only when ownership could collide.
 
+The orchestrator may schedule multiple agents only for tickets whose file
+ownership and dependency prerequisites are independent. For example, while
+Agent 1 continues `PIT-002` after completing `PIT-001`, Agent 2 may begin
+`PIT-003` if `PIT-003` depends only on `PIT-001`; when `PIT-003` completes,
+Agent 2 may move to `PIT-004` in a new worktree if its prerequisites are met.
+Shared contracts, migrations, workflows, and other overlapping files remain
+serialized. A High-risk ticket's independent review agents are reviewers,
+not additional ticket owners.
+
 ## Routing
 
 Use Sol for task decomposition, domain and schema decisions, finance/statistics, incidents, review, and merge arbitration. Use Luna for an accepted bounded task card, test-first implementation, fixtures, repetitive documentation, and focused refactors.
 
-Fast and Standard tasks are implemented and integrated by one root agent. A
-fresh reviewer compares High-risk work against its base and task card. Use a
+Fast and Standard tasks are implemented and integrated by one ticket agent. A
+fresh independent reviewer compares High-risk work against its base and task
+card; self-review by the ticket agent does not satisfy that gate. Use a
 babysit agent only when CI or review is long-running; short checks are polled
 directly.
 
