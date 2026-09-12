@@ -136,11 +136,12 @@ four source files; YAML parsing reported `.github/workflows/idx-filings.yml:
 valid`; and the diff check was quiet.
 
 ```bash
-python scripts/ci/check_migrations.py --database-url postgresql://pasticuan_ci@127.0.0.1:55433/pasticuan_ci --base-ref origin/main --verify-disposable-down-reup
-python scripts/ci/check_migrations.py --database-url postgresql://pasticuan_ci@127.0.0.1:55433/pasticuan_ascii --base-ref origin/main --verify-disposable-down-reup
+python scripts/ci/check_migrations.py --database-url "$ING004_UTF8_DATABASE_URL" --base-ref origin/main --verify-disposable-down-reup
+python scripts/ci/check_migrations.py --database-url "$ING004_ASCII_DATABASE_URL" --base-ref origin/main --verify-disposable-down-reup
 ```
 
-Each clean disposable database returned exactly `verified 8 migrations`.
+Both task-scoped variables referred only to clean loopback disposable databases;
+each command returned exactly `verified 8 migrations`.
 
 ## Rollout and rollback
 
