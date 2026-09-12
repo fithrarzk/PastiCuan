@@ -1,6 +1,7 @@
 import json
 import unittest
 from contextlib import nullcontext
+from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -11,6 +12,7 @@ from data.idx_filing_importer import (
     filing_shard,
     import_filings,
 )
+from data.filing_work_policy import FilingImportPolicy, is_retryable_filing_error
 from data.ingestion import AcquiredArtifact
 from tests.test_idx_filing_importer import filing
 
@@ -32,6 +34,24 @@ def accepted_artifact(**kwargs):
 
 
 class DeterministicShardTests(unittest.TestCase):
+    def test_import_policy_is_immutable_validated_and_shares_retry_allowlist(self):
+        policy = FilingImportPolicy(shard_count=8, shard_index=3, run_id="batch-123")
+        self.assertEqual(policy.shard_count, 8)
+        with self.assertRaises(FrozenInstanceError):
+            policy.max_attempts = 4
+        for kwargs in (
+            {"shard_count": 0},
+            {"shard_count": 2, "shard_index": 2},
+            {"max_attempts": 0},
+            {"retry_backoff_seconds": -1},
+            {"time_budget_seconds": 10, "per_item_reserve_seconds": 10},
+            {"run_id": " "},
+        ):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                FilingImportPolicy(**kwargs)
+        self.assertTrue(is_retryable_filing_error("PROVIDER", "PROVIDER_UNAVAILABLE"))
+        self.assertFalse(is_retryable_filing_error("SCHEMA", "SCHEMA_INVALID"))
+
     def test_known_issuer_year_groups_have_reproducible_assignments(self):
         self.assertEqual(filing_shard(filing("TEST"), 8), 6)
         bbri_q1 = {
@@ -78,12 +98,27 @@ class ShardedImporterTests(unittest.TestCase):
         self.parse = Mock(return_value={"facts": [{}], "diagnostics": {}})
 
     def run_import(self, rows, **kwargs):
+        policy_fields = {
+            name: kwargs.pop(name)
+            for name in tuple(kwargs)
+            if name
+            in {
+                "shard_count",
+                "shard_index",
+                "run_id",
+                "max_attempts",
+                "retry_backoff_seconds",
+                "time_budget_seconds",
+                "per_item_reserve_seconds",
+            }
+        }
         return import_filings(
             {"filings": rows},
             self.repo,
             acquire=self.acquire,
             parse=self.parse,
             upload=Mock(),
+            policy=FilingImportPolicy(**policy_fields),
             **kwargs,
         )
 

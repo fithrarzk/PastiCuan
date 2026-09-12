@@ -6,16 +6,12 @@ import re
 import time
 from uuid import uuid4
 
+from data.filing_work_policy import FilingImportPolicy, is_retryable_filing_error
 from data.filing_manifest import exact_identity, merge_manifests
 from data.idx_xbrl import parse_idx_xbrl
 from data.ingestion import acquire_artifact, upload_to_r2
 
 
-_RETRYABLE_ERRORS = {
-    ("TRANSIENT", "LEASE_EXPIRED"),
-    ("PROVIDER", "PROVIDER_UNAVAILABLE"),
-    ("DATABASE", "DATABASE_UNAVAILABLE"),
-}
 _REQUIRED_MIGRATIONS = [
     "007_filing_work_ledger",
     "008_filing_artifact_mismatch",
@@ -93,20 +89,20 @@ def import_filings(
     acquire=acquire_artifact,
     parse=parse_idx_xbrl,
     upload=upload_to_r2,
-    shard_count=1,
-    shard_index=0,
-    run_id=None,
-    max_attempts=3,
-    retry_backoff_seconds=0,
-    time_budget_seconds=1200,
-    per_item_reserve_seconds=120,
+    policy=None,
     monotonic=time.monotonic,
     sleep=time.sleep,
     now=None,
 ):
     """Return only normalized identities, stable codes, and run-local counts."""
+    try:
+        policy = policy or FilingImportPolicy()
+        if not isinstance(policy, FilingImportPolicy):
+            raise ValueError("invalid Filing import policy")
+    except (ValueError, TypeError):
+        policy = None
     report = {
-        "run_id": str(run_id or uuid4()),
+        "run_id": str(policy.run_id if policy and policy.run_id else uuid4()),
         "ok": False,
         "code": "MANIFEST_INVALID",
         "filings": [],
@@ -127,29 +123,13 @@ def import_filings(
         ),
     }
     try:
-        if (
-            isinstance(shard_count, bool)
-            or isinstance(shard_index, bool)
-            or not isinstance(shard_count, int)
-            or not isinstance(shard_index, int)
-            or shard_count <= 0
-            or shard_index < 0
-            or shard_index >= shard_count
-            or isinstance(max_attempts, bool)
-            or not isinstance(max_attempts, int)
-            or max_attempts <= 0
-            or retry_backoff_seconds < 0
-            or time_budget_seconds <= 0
-            or per_item_reserve_seconds < 0
-            or per_item_reserve_seconds >= time_budget_seconds
-            or not report["run_id"].strip()
-        ):
+        if policy is None:
             raise ValueError("invalid Filing import policy")
         rows = _validated_filings(manifest)
     except (ValueError, TypeError, KeyError, AttributeError):
         return report
     started_at = monotonic()
-    deadline = started_at + time_budget_seconds
+    deadline = started_at + policy.time_budget_seconds
     current_time = now or (lambda: datetime.now(timezone.utc))
     report["counts"]["manifest"] = len(rows)
     report["counts"]["remaining"] = len(rows)
@@ -182,7 +162,9 @@ def import_filings(
         return report
 
     assigned = [
-        row for row in prepared if filing_shard(row, shard_count) == shard_index
+        row
+        for row in prepared
+        if filing_shard(row, policy.shard_count) == policy.shard_index
     ]
     report["counts"]["assigned"] = len(assigned)
     report["counts"]["remaining"] = len(assigned)
@@ -194,21 +176,19 @@ def import_filings(
             record(row, state, "SKIPPED", "ALREADY_TERMINAL", counter)
             continue
         attempt_count = int(row.get("attempt_count") or 0)
-        if (
-            state == "RETRYABLE"
-            and (row.get("last_error_class"), row.get("last_error_summary"))
-            not in _RETRYABLE_ERRORS
+        if state == "RETRYABLE" and not is_retryable_filing_error(
+            row.get("last_error_class"), row.get("last_error_summary")
         ):
             record(row, state, "DEFERRED", "RETRY_NOT_ALLOWED", "retryable")
             continue
-        if attempt_count >= max_attempts:
+        if attempt_count >= policy.max_attempts:
             record(row, "RETRYABLE", "EXHAUSTED", "RETRY_LIMIT_REACHED", "retryable")
             continue
-        if state == "RETRYABLE" and retry_backoff_seconds:
+        if state == "RETRYABLE" and policy.retry_backoff_seconds:
             changed_at = row.get("state_changed_at")
             if isinstance(changed_at, str):
                 changed_at = datetime.fromisoformat(changed_at.replace("Z", "+00:00"))
-            delay = retry_backoff_seconds * (2 ** max(0, attempt_count - 1))
+            delay = policy.retry_backoff_seconds * (2 ** max(0, attempt_count - 1))
             if changed_at and current_time() < changed_at + timedelta(seconds=delay):
                 record(row, state, "DEFERRED", "RETRY_BACKOFF", "retryable")
                 continue
@@ -217,7 +197,7 @@ def import_filings(
             record(row, "RUNNING", "DEFERRED", "LEASED_ELSEWHERE", "leased_elsewhere")
             continue
         while True:
-            if monotonic() + per_item_reserve_seconds > deadline:
+            if monotonic() + policy.per_item_reserve_seconds > deadline:
                 record(row, state, "DEFERRED", "BUDGET_EXHAUSTED")
                 break
             try:
@@ -242,7 +222,7 @@ def import_filings(
                         row,
                         report["run_id"],
                         run_id=report["run_id"],
-                        max_attempts=max_attempts,
+                        max_attempts=policy.max_attempts,
                     )
                 except Exception:
                     record(row, state, "DEFERRED", "DATABASE_UNAVAILABLE", "retryable")
@@ -381,7 +361,7 @@ def import_filings(
                         )
                     except Exception:
                         code = "DATABASE_UNAVAILABLE"
-                    if durable and attempt_count < max_attempts:
+                    if durable and attempt_count < policy.max_attempts:
                         retry = True
                     else:
                         record(
@@ -395,8 +375,8 @@ def import_filings(
                 fence.__exit__(None, None, None)
             if not retry:
                 break
-            delay = retry_backoff_seconds * (2 ** max(0, attempt_count - 1))
-            if monotonic() + delay + per_item_reserve_seconds > deadline:
+            delay = policy.retry_backoff_seconds * (2 ** max(0, attempt_count - 1))
+            if monotonic() + delay + policy.per_item_reserve_seconds > deadline:
                 record(
                     row,
                     "RETRYABLE",

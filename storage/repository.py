@@ -14,6 +14,7 @@ from uuid import uuid4
 from analysis.contracts import AnalysisBundle, strict_json_dumps
 from analysis.snapshots import ResearchSnapshot
 from analysis.scan_snapshots import ScanResearchSnapshot
+from data.filing_work_policy import is_retryable_filing_error
 
 
 def _migration_preflight_error(exc: Exception, *, scope: str = "ledger") -> dict:
@@ -145,11 +146,6 @@ class SnapshotRepository:
         "PROVENANCE_CONFLICT",
         "ARTIFACT_MISMATCH",
         "UNKNOWN_FAILURE",
-    }
-    _RETRYABLE_ERRORS = {
-        ("TRANSIENT", "LEASE_EXPIRED"),
-        ("PROVIDER", "PROVIDER_UNAVAILABLE"),
-        ("DATABASE", "DATABASE_UNAVAILABLE"),
     }
 
     @staticmethod
@@ -612,13 +608,8 @@ class SnapshotRepository:
                         )
                     if int(current[5]) >= max_attempts:
                         return None
-                    if (
-                        current[0] == "RETRYABLE"
-                        and (
-                            current[6],
-                            current[7],
-                        )
-                        not in self._RETRYABLE_ERRORS
+                    if current[0] == "RETRYABLE" and not is_retryable_filing_error(
+                        current[6], current[7]
                     ):
                         return None
                     cursor.execute(

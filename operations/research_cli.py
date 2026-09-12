@@ -236,6 +236,7 @@ def ingest_idx_xbrl_manifest(
     aggregate_only: bool = False,
 ) -> dict:
     """Import reviewed filings through durable preflight, skip and lease gates."""
+    from data.filing_work_policy import FilingImportPolicy
     from data.idx_filing_importer import aggregate_filing_progress, import_filings
     from storage.database import connect_from_env
     from storage.repository import SnapshotRepository
@@ -247,17 +248,29 @@ def ingest_idx_xbrl_manifest(
     repository = SnapshotRepository(lambda: connect_from_env(writer=True))
     if aggregate_only:
         return aggregate_filing_progress(payload, repository, run_id=run_id or "")
+    try:
+        policy = FilingImportPolicy(
+            shard_count=shard_count,
+            shard_index=shard_index,
+            run_id=run_id,
+            max_attempts=max_attempts,
+            retry_backoff_seconds=retry_backoff_seconds,
+            time_budget_seconds=time_budget_seconds,
+        )
+    except (TypeError, ValueError):
+        return {
+            "run_id": str(run_id or ""),
+            "ok": False,
+            "code": "MANIFEST_INVALID",
+            "filings": [],
+            "counts": {},
+        }
     return import_filings(
         payload,
         repository,
         archive_directory=archive_directory,
         use_r2=use_r2,
-        shard_count=shard_count,
-        shard_index=shard_index,
-        run_id=run_id,
-        max_attempts=max_attempts,
-        retry_backoff_seconds=retry_backoff_seconds,
-        time_budget_seconds=time_budget_seconds,
+        policy=policy,
     )
 
 

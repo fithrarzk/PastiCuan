@@ -14,7 +14,7 @@
 - Worktree: `../PastiCuan-wt/ing-004-deterministic-shards`
 - Issue: #45
 - Depends on: verified ING-003 (`6a50ae4`) and merged handoff (`6b66f65`)
-- File ownership: `data/idx_filing_importer.py`, `storage/repository.py`, `operations/research_cli.py`, `.github/workflows/idx-filings.yml`, `scripts/ci/check_workflow_policy.py`, `tests/test_idx_filing_shards.py`, `tests/test_filing_work_ledger.py`, `tests/test_workflow_policy.py`, `tests/test_ci_gates.py`, `tests/test_filing_manifest.py`, `docs/architecture/data-lifecycle.md`, `docs/runbooks/backfill.md`, `docs/reference/command-data-dictionary.md`, this card, `docs/tasks/{CLAIMS,ROADMAP}.md`, and `docs/status/2026-08-24-program-handoff.md`
+- File ownership: `data/{filing_work_policy,idx_filing_importer}.py`, `storage/repository.py`, `operations/research_cli.py`, `.github/workflows/idx-filings.yml`, `scripts/ci/check_workflow_policy.py`, `tests/test_idx_filing_shards.py`, `tests/test_filing_work_ledger.py`, `tests/test_workflow_policy.py`, `tests/test_ci_gates.py`, `tests/test_filing_manifest.py`, `docs/architecture/data-lifecycle.md`, `docs/runbooks/backfill.md`, `docs/reference/command-data-dictionary.md`, this card, `docs/tasks/{CLAIMS,ROADMAP}.md`, and `docs/status/2026-08-24-program-handoff.md`
 - Merge policy: autonomous squash merge after full local verification, fresh independent reviews on the exact final head, and all required current-head checks; production rollout remains separately gated
 
 ## Outcome
@@ -63,8 +63,9 @@ Each slice follows red then the smallest green implementation. Tests use literal
   sync before shard selection, terminal skip-before-download, durable allowlist
   and attempt ceiling, restart backoff, application budget, set-based durable
   aggregation, CLI policy arguments, and workflow refresh gating.
-- Focused importer/repository/CLI tests passed 26 tests. Workflow/CI/manifest
-  policy passed 42 tests. A full local run passed 186 tests after activating the
+- Focused importer/repository/CLI tests passed 26 tests before review and 30
+  policy/importer/ledger tests passed after the correction. Workflow/CI/manifest
+  policy passed 42 tests. The corrected full local run passed 187 tests after activating the
   pinned environment; the preceding run's only two errors were the unactivated
   `python` subprocess path and its one real workflow-permission finding was
   corrected with an exact least-privilege allowlist.
@@ -80,9 +81,20 @@ Each slice follows red then the smallest green implementation. Tests use literal
   No applicable API/schema breaking change was found. The set-based query follows
   the repository primary-key/attempt indexes and holds no locks across provider
   work. No Supabase MCP/production query or mutation was performed.
-- Final full verification, exact-head independent reviews, current-head CI, PR,
-  merge, cleanup, and post-merge evidence remain pending.
-- Correction cycles: one. The initial full run identified the workflow policy's
+- Corrected full verification passed compilation, 187 tests (`OK`, three
+  disposable-PostgreSQL tests skipped in that run and exercised separately),
+  research-release validation, workflow policy, tracked-source secret scan,
+  workflow YAML validation, Ruff format/check, CI-configured mypy for the four
+  changed source files, and diff checks. UTF-8 and SQL-ASCII disposable
+  PostgreSQL 14 databases each returned `verified 8 migrations` after a clean
+  down/re-up exercise. Fresh exact-head independent reviews, current-head CI,
+  PR, merge, cleanup, and post-merge evidence remain pending.
+- The first exact-head Spec review passed with zero findings. The simultaneous
+  Standards review found duplicated retry allowlists and a repeated internal
+  policy bundle. Correction cycle two moved the allowlist predicate and immutable,
+  validated shard/retry/budget policy into `data.filing_work_policy`; CLI flags
+  remain unchanged and both importer and repository now consume the shared policy.
+- Correction cycles: two. The initial full run identified the workflow policy's
   legacy monolithic-job permission allowlist; the exact least-privilege split and
   its negative policy fixture were corrected before final verification. The two
   simultaneous CLI subprocess errors were environment setup only and passed with
