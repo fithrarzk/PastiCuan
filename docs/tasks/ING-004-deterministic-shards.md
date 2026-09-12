@@ -1,6 +1,6 @@
 # ING-004: Deterministic shards, bounded retry, and durable progress
 
-- Status: review
+- Status: verified
 - Priority: P0
 - Owner/model: GPT-5 root writer; Sol independent Standards and Spec reviews
 - Delivery lane: High-risk (durable evidence orchestration and production workflow)
@@ -10,9 +10,10 @@
 - Escalation condition: schema/migration/grant change; production dispatch or migration apply; unbounded provider work; loss of lease fencing, per-Filing atomicity, or point-in-time causality; raw provider diagnostics; evidence/publication/model change
 - Parallelism: one root writer for shared ingestion/repository/workflow contracts; two fresh read-only reviewers only after the final exact head; babysitter only for long CI or active review
 - Base SHA: `6b66f6552da5d8dc12aa564b4165ffc5cf00d2ca`
-- Branch: `feat/ING-004-deterministic-shards`
-- Worktree: `../PastiCuan-wt/ing-004-deterministic-shards`
-- Issue: #45
+- Final reviewed SHA: `d2348493b7f6a9e4bcae57cd7f0166e94cbc1149`
+- Merge SHA: `9aeb54f9ab526a4c4ab4c514ae76b5bf6a76aa22`
+- Branch/worktree: `feat/ING-004-deterministic-shards` / `../PastiCuan-wt/ing-004-deterministic-shards` (deleted after merge)
+- Issue: #45 (closed)
 - Depends on: verified ING-003 (`6a50ae4`) and merged handoff (`6b66f65`)
 - File ownership: `data/{filing_work_policy,idx_filing_importer}.py`, `storage/repository.py`, `operations/research_cli.py`, `.github/workflows/idx-filings.yml`, `scripts/ci/check_workflow_policy.py`, `tests/test_idx_filing_shards.py`, `tests/test_filing_work_ledger.py`, `tests/test_workflow_policy.py`, `tests/test_ci_gates.py`, `tests/test_filing_manifest.py`, `docs/architecture/data-lifecycle.md`, `docs/runbooks/backfill.md`, `docs/reference/command-data-dictionary.md`, this card, `docs/tasks/{CLAIMS,ROADMAP}.md`, and `docs/status/2026-08-24-program-handoff.md`
 - Merge policy: autonomous squash merge after full local verification, fresh independent reviews on the exact final head, and all required current-head checks; production rollout remains separately gated
@@ -63,8 +64,9 @@ Each slice follows red then the smallest green implementation. Tests use literal
   sync before shard selection, terminal skip-before-download, durable allowlist
   and attempt ceiling, restart backoff, application budget, set-based durable
   aggregation, CLI policy arguments, and workflow refresh gating.
-- Focused importer/repository/CLI tests passed 26 tests before review and 31
-  policy/importer/ledger tests passed after the correction. Workflow/CI/manifest
+- Focused importer/repository/CLI tests passed 26 tests before review; 30
+  policy/importer/ledger tests passed after policy consolidation, and the final
+  importer/shard boundary set passed 22 tests. Workflow/CI/manifest
   policy passed 42 tests. The final corrected full local run passed 188 tests after activating the
   pinned environment; the preceding run's only two errors were the unactivated
   `python` subprocess path and its one real workflow-permission finding was
@@ -87,8 +89,7 @@ Each slice follows red then the smallest green implementation. Tests use literal
   workflow YAML validation, Ruff format/check, CI-configured mypy for the four
   changed source files, and diff checks. UTF-8 and SQL-ASCII disposable
   PostgreSQL 14 databases each returned `verified 8 migrations` after a clean
-  down/re-up exercise. Fresh exact-head independent reviews, current-head CI,
-  PR, merge, cleanup, and post-merge evidence remain pending.
+  down/re-up exercise.
 - The first exact-head Spec review passed with zero findings. The simultaneous
   Standards review found duplicated retry allowlists and a repeated internal
   policy bundle. Correction cycle two moved the allowlist predicate and immutable,
@@ -102,6 +103,45 @@ Each slice follows red then the smallest green implementation. Tests use literal
   its negative policy fixture were corrected before final verification. The two
   simultaneous CLI subprocess errors were environment setup only and passed with
   the pinned environment on `PATH`.
+- Fresh final-head Standards and Spec reviews on `d2348493` each passed with zero
+  findings. PR #46 had all eight applicable checks pass in run `34710446087` and
+  squash-merged as `9aeb54f`; issue #45 closed, and local/remote branches plus the
+  implementation worktree were deleted. Main verification `34710537290` passed.
+- Post-merge research run `34710537324` failed closed at preflight with exit 40,
+  `REQUIRED_MIGRATION_MISSING` for 007/008. No publication, production migration,
+  production Supabase query/mutation, promotion, or exact-SHA Railway proof was
+  performed or claimed. OBS-001 is the next dependency-ready task.
+
+## Verification commands and exact results
+
+```bash
+python -m compileall -q analysis data storage operations telegram_utils bot.py bot_webhook.py
+python -m unittest discover -s tests -v
+python -m operations.research_cli check-research-release
+python scripts/ci/check_workflow_policy.py
+python scripts/ci/check_security.py
+ruff format --check data/filing_work_policy.py data/idx_filing_importer.py storage/repository.py operations/research_cli.py tests/test_idx_filing_shards.py
+ruff check data/filing_work_policy.py data/idx_filing_importer.py storage/repository.py operations/research_cli.py tests/test_idx_filing_shards.py
+mypy --follow-imports=skip --ignore-missing-imports --disable-error-code=import-untyped -- data/filing_work_policy.py data/idx_filing_importer.py storage/repository.py operations/research_cli.py
+git diff --check
+```
+
+The final sequence returned exit 0: compilation was quiet; unittest reported
+`Ran 188 tests` and `OK (skipped=3)`; research-release validation returned digest
+`188c66c3df19bb92d0ba934b4886112752159f1a7eb7b3fb165ee036670765e3`,
+revision 2 and SHADOW model `lq45-factor-v2-shadow`; workflow policy reported
+`passed for 2 workflow(s)`; security reported `tracked-source secret scan passed`;
+Ruff reported five files formatted and no violations; mypy reported no issues in
+four source files; YAML parsing reported `.github/workflows/idx-filings.yml:
+valid`; and the diff check was quiet.
+
+```bash
+python scripts/ci/check_migrations.py --database-url "$ING004_UTF8_DATABASE_URL" --base-ref origin/main --verify-disposable-down-reup
+python scripts/ci/check_migrations.py --database-url "$ING004_ASCII_DATABASE_URL" --base-ref origin/main --verify-disposable-down-reup
+```
+
+Both task-scoped variables referred only to clean loopback disposable databases;
+each command returned exactly `verified 8 migrations`.
 
 ## Rollout and rollback
 

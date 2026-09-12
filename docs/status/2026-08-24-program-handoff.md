@@ -1,8 +1,59 @@
 # Program handoff — 2026-08-24
 
-Updated 2026-09-08 after verified ING-003. Production code is `origin/main`
-at `6a50ae4ba1149feff010fb67547fe4837ca6cd51`; accepted Supabase evidence
+Updated 2026-09-13 after verified ING-004. Production code is `origin/main`
+at `9aeb54f9ab526a4c4ab4c514ae76b5bf6a76aa22`; accepted Supabase evidence
 and signed published snapshots remain production research truth.
+
+## Current checkpoint — 2026-09-13
+
+- ING-004 (High-risk, GPT-5 root writer with independent Sol/high Standards and
+  Spec reviewers) merged through PR #46 as `9aeb54f`, from base `6b66f65` and
+  reviewed final head `d2348493b7f6a9e4bcae57cd7f0166e94cbc1149`.
+  Deterministic ticker/reporting-year shards now share one immutable validated
+  retry/budget policy, cap durable allowlisted attempts, preserve interruption
+  progress, and aggregate cross-shard counts from the filing-work ledger before
+  research refresh. Accepted and terminal quarantined Filings remain skipped
+  before claim/download.
+- Changed files: `.github/workflows/idx-filings.yml`,
+  `data/{filing_work_policy,idx_filing_importer}.py`,
+  `storage/repository.py`, `operations/research_cli.py`, workflow-policy code,
+  five test modules, ingestion architecture/reference/backfill documentation,
+  the task card, and claim record. The implementation branch and worktree were
+  removed after merge; issue #45 is closed, its claim label is released, and the
+  remote branch is deleted.
+- Local final-head evidence: compilation passed; 188 tests passed with three
+  disposable tests skipped there and exercised separately; release validation,
+  workflow policy, tracked-source security, YAML, Ruff, CI-configured mypy, and
+  diff checks passed. Clean UTF-8 and SQL-ASCII disposable PostgreSQL databases
+  each returned `verified 8 migrations`. The reviewed 124-Filing manifest
+  distributes `17/16/13/17/19/15/16/11`; the largest shard's 570-second serial
+  acquisition boundary remains inside the 1,200-second application budget and
+  45-minute job timeout.
+- Fresh Standards and Spec reviews on exact head `d2348493` both passed with
+  zero findings. All eight applicable current-head PR checks passed in run
+  `34710446087`. Squash merge and branch deletion are verified. Exact-merge main
+  run `34710537290` passed compilation, release validation, and the full suite.
+- Exact-merge research run `34710537324` failed closed at preflight with exit 40,
+  `REQUIRED_MIGRATION_MISSING` for migrations 007 and 008. No research was
+  published. Neither migration was applied, no Supabase MCP/production query or
+  mutation occurred, and exact-SHA Railway deployment remains unproven.
+  Supabase evidence was limited to a current changelog review with no applicable
+  breaking database/pooling change; production evidence is therefore not
+  applicable for this code/workflow delivery.
+- Limitations and rollback: production ingestion remains blocked until explicit
+  rollout authorization, verified backup, protected migrator, compatibility and
+  grant proof, session-compatible writer, and read-only post-apply verification.
+  Roll back only by reviewed code/workflow revert or forward fix while retaining
+  ledger/evidence history; never run production down migrations. Research stays
+  SHADOW unless exact-digest evidence passes every gate.
+- Delivery took approximately 12 hours wall-clock including the continuation
+  pause, about 50k context tokens, and three correction cycles: workflow
+  permission policy, shared retry/import-policy consolidation after review, and
+  a final falsey-policy boundary fix. Next dependency-ready task is OBS-001;
+  ING-005 remains blocked on both ING-004 and OBS-001 completion evidence.
+
+The September 8 and earlier sections below are historical; this checkpoint
+supersedes their present-tense delivery and next-task statements.
 
 ## Current checkpoint — 2026-09-08
 
