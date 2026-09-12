@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import ast
 from datetime import datetime, timezone
 import json
 import hashlib
 import os
 from pathlib import Path
+import re
 import subprocess
 import math
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 from typing import Any
+from urllib.parse import urlparse
 
 import pandas as pd
 
@@ -63,6 +66,7 @@ def build_snapshot(
     *,
     provenance: dict | None = None,
     formula_version: str | None = None,
+    readiness_evidence: list[dict] | None = None,
 ) -> ResearchSnapshot:
     frame = pd.read_csv(input_path)
     result = compute_cross_sectional_factors(
@@ -130,6 +134,10 @@ def build_snapshot(
         sources=[provenance] if provenance else [],
         formula_version=formula_version or "lq45-cross-section-v4+business-quality-v2",
     )
+    if readiness_evidence is not None:
+        from operations.readiness_diagnostics import with_readiness_evidence
+
+        snapshot = with_readiness_evidence(snapshot, readiness_evidence)
     write_snapshot(snapshot, output_path, allow_candidate=True)
     return snapshot
 
@@ -354,6 +362,17 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
             and raw_coverage >= 70.0
         )
 
+    def string_list(row: dict, key: str) -> tuple[list[str], bool]:
+        value = row.get(key, [])
+        if isinstance(value, str):
+            try:
+                value = ast.literal_eval(value)
+            except (SyntaxError, ValueError):
+                return [], False
+        if not isinstance(value, (list, tuple, set)):
+            return [], False
+        return sorted({str(item).strip() for item in value if str(item).strip()}), True
+
     eligible = [
         ticker for ticker, row in snapshot.rankings.items() if row_eligible(row)
     ]
@@ -420,6 +439,96 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
     if accuracy_v2:
         checks["verified_issuer_profiles"] = len(verified_profiles) == expected
         checks["eligible_business_rows"] = len(business_scored) >= required_eligible
+    issuer_diagnostics = []
+    for ticker in sorted(snapshot.constituents):
+        row = snapshot.rankings.get(ticker)
+        ranking_present = isinstance(row, dict)
+        row = row if ranking_present else {}
+        profile_verified = bool(
+            str(row.get("issuer_profile") or "").upper() in {"GENERAL", "BANK"}
+            and row.get("issuer_profile_checksum")
+        )
+        business_scored_row = finite_value(row, "business_score") is not None
+        quant_scored = finite_value(row, "composite_percentile") is not None
+        factor_coverage = finite_value(row, "factor_coverage_pct", "coverage_pct")
+        raw_coverage = finite_value(row, "raw_component_coverage_pct", "coverage_pct")
+        annual_years_value = finite_value(row, "annual_history_years")
+        annual_years = max(0, int(annual_years_value or 0))
+        missing_concepts, concepts_valid = string_list(row, "missing_concepts")
+        periods, periods_valid = string_list(row, "financial_periods")
+        sources, sources_valid = string_list(row, "source_urls")
+        documents, documents_valid = string_list(row, "source_documents")
+        profile_source = row.get("issuer_profile_source")
+        if profile_source:
+            sources.append(str(profile_source).strip())
+        sources = sorted(set(sources))
+        sources_valid = sources_valid and all(
+            urlparse(source).scheme == "https" and bool(urlparse(source).hostname)
+            for source in sources
+        )
+        sources = sources if sources_valid else []
+        documents_valid = documents_valid and all(
+            re.fullmatch(r"[0-9a-f]{64}", checksum) for checksum in documents
+        )
+        documents = documents if documents_valid else []
+        profile_checksum = row.get("issuer_profile_checksum")
+        if profile_checksum is not None:
+            profile_checksum = str(profile_checksum).strip().lower()
+            if not re.fullmatch(r"[0-9a-f]{64}", profile_checksum):
+                profile_checksum = None
+                documents_valid = False
+        concept_status = (
+            str(row.get("concept_diagnostic_status") or "UNAVAILABLE").upper()
+            if ranking_present
+            else "RANKING_MISSING"
+        )
+        if concept_status not in {
+            "AVAILABLE",
+            "PROFILE_UNVERIFIED",
+            "RANKING_MISSING",
+        }:
+            concept_status = "UNAVAILABLE"
+            concepts_valid = False
+        diagnostics_valid = {
+            "missing_concepts": concepts_valid,
+            "financial_periods": periods_valid,
+            "sources": sources_valid,
+            "checksums": documents_valid,
+        }
+        issuer_diagnostics.append(
+            {
+                "ticker": ticker,
+                "gates": {
+                    "ranking_present": ranking_present,
+                    "profile_verified": profile_verified,
+                    "business_scored": business_scored_row,
+                    "quant_scored": quant_scored,
+                    "factor_coverage_75": bool(
+                        factor_coverage is not None and factor_coverage >= 75.0
+                    ),
+                    "raw_coverage_70": bool(
+                        raw_coverage is not None and raw_coverage >= 70.0
+                    ),
+                    "quant_eligible": bool(ranking_present and row_eligible(row)),
+                },
+                "concept_diagnostic_status": concept_status,
+                "missing_concepts": missing_concepts if concepts_valid else [],
+                "history": {
+                    "annual_years": annual_years,
+                    "target_annual_years": 5,
+                    "missing_annual_years": max(0, 5 - annual_years),
+                    "financial_periods": periods if periods_valid else [],
+                },
+                "sources": sources,
+                "checksums": {
+                    "issuer_profile": profile_checksum,
+                    "documents": documents,
+                },
+                "diagnostic_errors": sorted(
+                    key for key, valid in diagnostics_valid.items() if not valid
+                ),
+            }
+        )
     return {
         "ready": all(checks.values()),
         "checks": checks,
@@ -434,17 +543,37 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
         "verified_profile_count": len(verified_profiles),
         "business_scored_count": len(business_scored),
         "required_eligible_count": required_eligible,
+        "unverified_tickers": [
+            row["ticker"]
+            for row in issuer_diagnostics
+            if not row["gates"]["profile_verified"]
+        ],
+        "business_unscored_tickers": [
+            row["ticker"]
+            for row in issuer_diagnostics
+            if not row["gates"]["business_scored"]
+        ],
+        "quant_ineligible_tickers": [
+            row["ticker"]
+            for row in issuer_diagnostics
+            if not row["gates"]["quant_eligible"]
+        ],
+        "issuers": issuer_diagnostics,
     }
 
 
-def check_candidate(path: str) -> dict:
+def inspect_candidate_readiness(path: str) -> dict:
     raw = Path(path).read_bytes()
     if path.endswith(".gz"):
         import gzip
 
         raw = gzip.decompress(raw)
     snapshot = ResearchSnapshot(**json.loads(raw))
-    readiness = candidate_readiness(snapshot)
+    return candidate_readiness(snapshot)
+
+
+def check_candidate(path: str) -> dict:
+    readiness = inspect_candidate_readiness(path)
     if not readiness["ready"]:
         failed = ", ".join(
             key for key, passed in readiness["checks"].items() if not passed
@@ -932,6 +1061,10 @@ def run_daily_research(
                     )
                 readiness = candidate_readiness(candidate)
                 if not readiness["ready"]:
+                    report["stages"]["quant"] = {
+                        "status": "REJECTED",
+                        "readiness": readiness,
+                    }
                     failed = ", ".join(
                         key for key, passed in readiness["checks"].items() if not passed
                     )
@@ -1032,12 +1165,16 @@ def run_daily_research(
         if not _write_job_report(output_path, report):
             return _report_write_failure(report, repository, base_run)
         try:
+            metrics = {"outcome": result.to_dict()}
+            quant_stage = report.get("stages", {}).get("quant", {})
+            if quant_stage.get("readiness") is not None:
+                metrics["readiness"] = quant_stage["readiness"]
             repository.record_research_job(
                 {
                     **base_run,
                     "completed_at": datetime.now(timezone.utc).isoformat(),
                     "status": result.persisted_status,
-                    "metrics": {"outcome": result.to_dict()},
+                    "metrics": metrics,
                     "error_type": result.code,
                 }
             )
@@ -1081,6 +1218,9 @@ def build_snapshot_from_database(
     frame = build_factor_inputs(repository, effective_at)
     if frame.empty:
         raise EvidenceUnavailable()
+    readiness_evidence = repository.readiness_evidence_as_of(
+        "LQ45", effective_at[:10], effective_at
+    )
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(".factor-inputs.csv")
@@ -1093,6 +1233,7 @@ def build_snapshot_from_database(
             model_version,
             provenance=provenance,
             formula_version=formula_version,
+            readiness_evidence=readiness_evidence,
         )
     finally:
         temporary.unlink(missing_ok=True)
@@ -1306,6 +1447,8 @@ def main(argv=None) -> int:
     publish_shadow.add_argument("--output", required=True)
     check = sub.add_parser("check-candidate")
     check.add_argument("--snapshot", required=True)
+    inspect_readiness = sub.add_parser("inspect-candidate-readiness")
+    inspect_readiness.add_argument("--snapshot", required=True)
     validate = sub.add_parser("validate-quant")
     validate.add_argument("--scores", required=True)
     validate.add_argument("--bars", required=True)
@@ -1424,6 +1567,11 @@ def main(argv=None) -> int:
         print(strict_json_dumps(publish_reviewed_shadow(args.candidate, args.output)))
     elif args.command == "check-candidate":
         print(strict_json_dumps(check_candidate(args.snapshot)))
+    elif args.command == "inspect-candidate-readiness":
+        readiness = inspect_candidate_readiness(args.snapshot)
+        print(strict_json_dumps(readiness))
+        if not readiness["ready"]:
+            return 2
     elif args.command == "validate-quant":
         result = validate_quant(
             args.scores,

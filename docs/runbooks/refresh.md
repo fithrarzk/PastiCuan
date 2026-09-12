@@ -8,7 +8,11 @@ Confirm `origin/main`, the active research release, completed session/calendar, 
 
 1. Run market history refresh and inspect its report.
 2. Run `run-daily-research` with the checked-in release; use `--final-attempt` only for the scheduled final attempt.
-3. Check candidate readiness, source/freshness/coverage gates, signatures, and quant/scan identities.
+3. Check candidate readiness, source/freshness/coverage gates, signatures, and
+   quant/scan identities. On rejection, inspect the ticker-sorted per-Issuer
+   diagnostics in the job report before rerunning; source URLs and checksums are
+   evidence identity, while the five-year history target is diagnostic and does
+   not replace any existing gate.
 4. After publication, wait the configured bot cache interval and verify `/ready`, `/status`, `/scan`, and one dependent ticker command.
 
 ## Verification, fail-closed stop, and last-good behavior

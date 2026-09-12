@@ -1289,6 +1289,71 @@ class SnapshotRepository:
                 names = [column.name for column in cursor.description]
                 return [dict(zip(names, row)) for row in cursor.fetchall()]
 
+    def readiness_evidence_as_of(
+        self, index_code: str, on_date: str, as_of: str
+    ) -> list[dict]:
+        """Inventory bounded constituent evidence known by the requested cutoff."""
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT i.ticker,
+                           CASE WHEN i.profile_verified_at <= %s THEN upper(i.issuer_type) END AS issuer_profile,
+                           CASE WHEN i.profile_verified_at <= %s THEN i.profile_source_url END AS profile_source_url,
+                           CASE WHEN i.profile_verified_at <= %s THEN i.profile_checksum END AS profile_checksum,
+                           COALESCE(array_agg(DISTINCT lower(sf.normalized_concept)
+                                    ORDER BY lower(sf.normalized_concept))
+                                    FILTER (WHERE sf.normalized_concept IS NOT NULL), '{}') AS available_concepts,
+                           COALESCE(array_agg(DISTINCT sf.period_end::text ORDER BY sf.period_end::text)
+                                    FILTER (WHERE sf.period_end IS NOT NULL), '{}') AS financial_periods,
+                           COALESCE(array_agg(DISTINCT sf.source_url ORDER BY sf.source_url)
+                                    FILTER (WHERE sf.source_url IS NOT NULL), '{}') AS source_urls,
+                           COALESCE(array_agg(DISTINCT sf.document_checksum ORDER BY sf.document_checksum)
+                                    FILTER (WHERE sf.document_checksum IS NOT NULL), '{}') AS source_documents,
+                           count(DISTINCT sf.fiscal_year) FILTER (
+                               WHERE upper(COALESCE(sf.duration_class,''))='FY'
+                                 AND lower(sf.normalized_concept) IN
+                                     ('net_income','net_income_common_stockholders')
+                           ) AS annual_history_years
+                    FROM index_constituents c
+                    JOIN issuers i ON i.id=c.issuer_id
+                    LEFT JOIN filings f ON f.issuer_id=i.id
+                         AND f.available_at<=%s AND f.quarantined_at IS NULL
+                    LEFT JOIN statement_facts sf ON sf.filing_id=f.id AND sf.available_at<=%s
+                    WHERE c.index_code=%s AND c.effective_from<=%s AND c.effective_to>=%s
+                    GROUP BY i.id,i.ticker,i.issuer_type,i.profile_verified_at,
+                             i.profile_source_url,i.profile_checksum
+                    ORDER BY i.ticker
+                    """,
+                    (as_of, as_of, as_of, as_of, as_of, index_code, on_date, on_date),
+                )
+                names = [column.name for column in cursor.description]
+                result = []
+                for values in cursor.fetchall():
+                    row = dict(zip(names, values))
+                    for key in (
+                        "available_concepts",
+                        "financial_periods",
+                        "source_urls",
+                        "source_documents",
+                    ):
+                        row[key] = sorted(
+                            self._db_text(value) for value in (row.get(key) or [])
+                        )
+                    for key in (
+                        "ticker",
+                        "issuer_profile",
+                        "profile_source_url",
+                        "profile_checksum",
+                    ):
+                        if row.get(key) is not None:
+                            row[key] = self._db_text(row[key])
+                    row["annual_history_years"] = int(
+                        row.get("annual_history_years") or 0
+                    )
+                    result.append(row)
+                return result
+
     def latest_scan_snapshot(self) -> ScanResearchSnapshot | None:
         with self._connect() as connection:
             with connection.cursor() as cursor:

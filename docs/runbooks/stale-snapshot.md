@@ -10,7 +10,12 @@ The stale guard intentionally removes current-use candidate rows after the confi
 
 1. Record `/status` and `/scan`: snapshot ID, session, mode, coverage, and warnings.
 2. In GitHub Actions, inspect the latest `research-daily` artifact and its first failed stage.
-3. If candidate readiness failed, record verified profiles, business-scored rows, quant-eligible rows, and per-check status.
+3. If candidate readiness failed, use the report's ticker-sorted `issuers`
+   diagnostics or run `inspect-candidate-readiness` on the retained candidate.
+   Record exact unverified, Business-Score-unscored, and quant-ineligible tickers;
+   failed gates; missing concept groups/history; source identities; checksums; and
+   any stable `diagnostic_errors`. Treat `PROFILE_UNVERIFIED`, `RANKING_MISSING`,
+   `UNAVAILABLE`, or malformed fields as unresolved, never as empty evidence.
 4. If ingestion preceded the failure, inspect the exact `idx-filings` import run for timeout, cancellation, quarantine, and remaining rows.
 5. Confirm the merged workflow and manifest from `origin/main`; do not diagnose production from a feature branch.
 6. Confirm the latest completed IDX session and market-provider coverage.

@@ -5,7 +5,11 @@
 1. A reviewed source manifest identifies each canonical provider, source class, artifact type, and URL, with `published_at` when available. A reviewed filing manifest separately identifies the issuer, filing period, publication time, and official attachment URL. `discover-idx-xbrl` produces a filing-manifest review draft; the workflow merges it cumulatively by `(ticker, filing_type, period_end, restatement_version)` into the rolling review branch. Duplicate, removal, regression, and provenance conflicts fail closed; the draft remains review input and is not evidence.
 2. `ingest-manifest` or `ingest-idx-xbrl` retrieves and validates artifacts. Valid artifacts are persisted with checksums and availability metadata; malformed or mismatched artifacts are quarantined and reported.
 3. Repository queries select facts, prices, corporate actions, and rates only when their `available_at` is no later than the requested `as_of`. A completed session and official calendar determine freshness.
-4. Analysis builds a candidate quant snapshot and a full-universe scan. Candidate files are diagnostic and cannot be loaded by the bot.
+4. Analysis builds a candidate quant snapshot and a full-universe scan. A
+   separate read-only, set-based inventory attaches per-Issuer profile, concept,
+   period, official source, and checksum diagnostics selected at the same
+   `as_of`; these fields do not alter any score or gate. Candidate files are
+   diagnostic and cannot be loaded by the bot.
 5. Review, signing, and publication make a `SHADOW` (or separately validated) snapshot eligible for the published-snapshot loader. Scan publication records immutable signals and evidence identity.
 6. Delivery resolves published snapshots and exposes structured `PRIMARY`, `DEGRADED`, or `UNAVAILABLE` states. A failed scan stays fail-closed; existing published data is not replaced by an unavailable result.
 

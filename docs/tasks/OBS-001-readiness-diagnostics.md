@@ -1,19 +1,19 @@
 # OBS-001: Per-issuer readiness diagnostics
 
-- Status: claimed
+- Status: review
 - Priority: P0
 - Owner/model: GPT-5 root writer; Sol independent Standards and Spec reviews
 - Delivery lane: High-risk (point-in-time evidence/source diagnostics)
 - Reasoning effort: high
 - Context budget: `AGENTS.md`, `CONTEXT.md`, TDD/Supabase/Postgres skills, this card, `docs/specs/ingestion-contract.md`, `docs/runbooks/{stale-snapshot,refresh}.md`, and exact owned files; maximum 60k tokens
 - Retry ceiling: three correction cycles
-- Escalation: any schema/query/migration/grant, production access, changed readiness threshold, evidence eligibility, source policy, publication/release behavior, or unbounded/unredacted output
+- Escalation: any schema/migration/grant or write query, production access, changed readiness threshold, evidence eligibility, source policy, publication/release behavior, or unbounded/unredacted output
 - Parallelism: one root writer; two fresh read-only reviewers only after the final exact head
 - Base SHA: `d2acfbe4a6df6bda631fab577405ad3d8c0a1c8a`
 - Branch/worktree: `feat/OBS-001-readiness-diagnostics` / `../PastiCuan-wt/obs-001-readiness-diagnostics`
 - Issue: #48
 - Depends on: verified ING-002 and merged/documented ING-004 (`d2acfbe`)
-- File ownership: `analysis/factor_dataset.py`, `operations/research_cli.py`, `tests/test_readiness_diagnostics.py`, `tests/test_research_automation.py`, `docs/architecture/data-lifecycle.md`, `docs/reference/command-data-dictionary.md`, `docs/runbooks/{stale-snapshot,refresh}.md`, this card, and `docs/tasks/CLAIMS.md`
+- File ownership: `storage/repository.py`, `operations/{readiness_diagnostics,research_cli}.py`, `tests/test_readiness_diagnostics.py`, `tests/test_research_automation.py`, `docs/architecture/data-lifecycle.md`, `docs/reference/command-data-dictionary.md`, `docs/runbooks/{stale-snapshot,refresh}.md`, this card, and `docs/tasks/CLAIMS.md`
 - Merge policy: autonomous squash merge only after complete local verification, fresh independent zero-finding reviews on the final exact head, and all required current-head checks
 
 ## Outcome and boundary
@@ -33,10 +33,13 @@ optimization, model change, or Railway deployment claim.
 
 ## Accepted design
 
-1. `analysis.factor_dataset` derives a diagnostic-only sorted list of absent
-   semantic concept groups from facts already selected by `available_at`. The
-   profile-specific concept set is used only when the Issuer profile is verified;
-   an unverified profile is disclosed instead of guessing an accounting model.
+1. One set-based, read-only repository query inventories constituent profile,
+   normalized concept, period, official source, and checksum fields using the
+   same membership date and `available_at <= as_of` plus non-quarantine rules as
+   factor evidence. Operations code derives a diagnostic-only sorted list of
+   absent semantic concept groups. Profile-specific requirements are used only
+   for a verified Issuer profile; an unverified profile is disclosed instead of
+   guessing an accounting model. No calculation-path file changes.
 2. `candidate_readiness` keeps every current boolean and threshold unchanged and
    adds sorted top-level blocker ticker lists plus one ticker-sorted diagnostic
    row per constituent. Rows expose existing gates, annual-history count/target,
@@ -66,7 +69,63 @@ optimization, model change, or Railway deployment claim.
 - A daily readiness rejection writes diagnostics into the job report and recorded
   metrics/summary without publishing quant or scan evidence.
 - Point-in-time tests prove later facts cannot enter diagnostics before
-  `available_at`; no database SQL is added or changed.
+  `available_at`; the new SQL is read-only, set-based, parameterized, and covered
+  on a disposable database. No schema or write query is added or changed.
+
+## Implementation evidence — 2026-09-13
+
+- Red/green slices cover profile-specific semantic concept groups, unverified
+  profile refusal, one shared cutoff for profile/Filing/fact evidence, candidate
+  evidence attachment, exact blocker lists, missing rankings, malformed/redacted
+  fields, inspection CLI failure output, and persisted daily rejection metrics.
+- Focused readiness/research/candidate tests passed 27 tests with one disposable
+  test skipped; the disposable PostgreSQL 14 run exercised that case and returned
+  `verified 8 migrations`. Complete Python 3.12 verification passed compilation
+  and 197 tests (`OK`, four disposable tests skipped and separately exercised),
+  research-release validation, workflow policy, tracked-source security, Ruff,
+  CI-configured mypy for three changed source files, all workflow YAML, and diff
+  checks.
+- Release validation against `origin/main` preserved calculation revision 2,
+  formula/model identity, and digest
+  `188c66c3df19bb92d0ba934b4886112752159f1a7eb7b3fb165ee036670765e3` with
+  `calculation_changed: false`. CI-configured mypy passed three source files on
+  Python 3.12; Ruff and diff checks passed.
+- Supabase/Postgres guidance shaped the set-based, parameterized, index-aligned
+  read with no locks or network work inside a transaction. No Supabase MCP or
+  production query/mutation was performed; production evidence is not applicable.
+- Correction cycles: one. An initial diagnostic calculation-path design was
+  discarded before commit when release validation showed that a diagnostic task
+  must keep frozen model code byte-identical. The replacement uses storage plus
+  operations metadata only.
+- Final exact-head reviews, PR/CI/merge/cleanup, post-merge verification, and the
+  dated handoff remain pending.
+
+## Verification commands
+
+```bash
+python -m compileall -q analysis data storage operations telegram_utils bot.py bot_webhook.py
+python -m unittest discover -s tests -v
+python -m operations.research_cli check-research-release --base-ref origin/main
+python scripts/ci/check_workflow_policy.py
+python scripts/ci/check_security.py
+ruff format --check operations/readiness_diagnostics.py operations/research_cli.py storage/repository.py tests/test_readiness_diagnostics.py tests/test_research_automation.py
+ruff check operations/readiness_diagnostics.py operations/research_cli.py storage/repository.py tests/test_readiness_diagnostics.py tests/test_research_automation.py
+mypy --follow-imports=skip --ignore-missing-imports --disable-error-code=import-untyped -- operations/readiness_diagnostics.py operations/research_cli.py storage/repository.py
+git diff --check
+```
+
+The disposable command used `scripts/ci/check_migrations.py` with a task-scoped
+loopback connection variable, `--base-ref origin/main`, and
+`--verify-disposable-down-reup`; it returned exactly `verified 8 migrations`.
+
+## Limitations and rollback
+
+Diagnostics describe only evidence known by `as_of`; they do not repair missing
+evidence or authorize publication. Production remains blocked by unapplied
+migrations 007/008 and their protected rollout. Roll back with a reviewed
+code/documentation revert or forward fix; retain every accepted/quarantined
+artifact and published snapshot, never run a production down migration, and keep
+the last good snapshot active on any diagnostic failure.
 
 ## Verification and handoff
 
@@ -76,4 +135,3 @@ and fresh Standards/Spec reviews on the exact final head. Handoff records exact
 SHAs, files, behavior, commands/results, PR/check/review/merge/post-merge state,
 Supabase evidence or `not applicable`, limitations/rollback, elapsed/context,
 correction cycles, and ING-005 as the next task unlocked by OBS-001.
-
