@@ -1,6 +1,6 @@
 # ING-004: Deterministic shards, bounded retry, and durable progress
 
-- Status: claimed
+- Status: review
 - Priority: P0
 - Owner/model: GPT-5 root writer; Sol independent Standards and Spec reviews
 - Delivery lane: High-risk (durable evidence orchestration and production workflow)
@@ -82,6 +82,11 @@ Each slice follows red then the smallest green implementation. Tests use literal
   work. No Supabase MCP/production query or mutation was performed.
 - Final full verification, exact-head independent reviews, current-head CI, PR,
   merge, cleanup, and post-merge evidence remain pending.
+- Correction cycles: one. The initial full run identified the workflow policy's
+  legacy monolithic-job permission allowlist; the exact least-privilege split and
+  its negative policy fixture were corrected before final verification. The two
+  simultaneous CLI subprocess errors were environment setup only and passed with
+  the pinned environment on `PATH`.
 
 ## Rollout and rollback
 
