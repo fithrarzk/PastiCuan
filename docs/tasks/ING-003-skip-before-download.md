@@ -1,6 +1,6 @@
 # ING-003: Skip-before-download resumable importer
 
-- Status: in progress (owner renewed the bounded Standards correction allowance)
+- Status: verified (code delivery; production rollout remains gated)
 - Priority: P0
 - Owner/model: GPT-6 root writer; Sol independent review
 - Delivery lane: High-risk (fenced transactions and point-in-time evidence)
@@ -33,6 +33,36 @@ Verification: 175 tests in 9.623s, OK (two disposable tests exercised separately
 UTF-8 and SQL-ASCII each returned `verified 8 migrations`; compilation,
 research-release policy, Ruff, CI-configured mypy and diff check exited zero.
 Fresh reviews and CI on the resulting commit remain pending.
+
+## Verified delivery — 2026-09-08
+
+- Base: `1b7e06efb1722dc4b335f5fd1da205c9bd51e5fa`; final reviewed head:
+  `c99c4bac60356d418205b449ad9acfe111cbb2c2`; squash merge:
+  `6a50ae4ba1149feff010fb67547fe4837ca6cd51` via PR #43.
+- Fresh Standards and Spec reviews both passed with zero findings. All eight
+  required checks passed in `34196294226`. Main verification `34196669570`
+  passed compilation, release integrity and tests. Issue #42 closed and its
+  claim label was released; remote and local implementation branches deleted.
+  The worktree was retained for this documentation handoff.
+- Post-merge research `34196669534` failed closed at preflight: exit 40,
+  `INFRASTRUCTURE/REQUIRED_MIGRATION_MISSING`, missing migrations 007 and 008.
+  No research recovery, production import or exact-SHA Railway deployment is
+  claimed. The failure is the required production gate, not an incomplete
+  code-delivery check. Other production workflows were not dispatched.
+- Changed files/behavior and exact local results are recorded in ownership and
+  the correction sections above. The final correction ran 175 tests in 9.623s,
+  with two disposable-only skips separately passing in both database encodings.
+  UTF-8 and SQL-ASCII each verified eight migrations. No production MCP query,
+  schema apply, secret change, publication or promotion was performed.
+- High-risk; GPT-6 root, Sol independent reviews. Renewed correction and merge
+  verification took approximately 10 minutes and 9k context tokens, one
+  bounded Standards correction; earlier phase usage remains recorded below.
+  Roll back by reviewed code revert/forward fix, retaining ledger/evidence;
+  production down migrations remain prohibited.
+- Next dependency-ready task: ING-004 deterministic shards, bounded retries
+  and durable progress, after the dated program handoff is merged. Production
+  rollout still requires reviewed authorization, verified backup, protected
+  migrator, session-compatible writer and read-only post-apply evidence.
 
 ## Outcome
 

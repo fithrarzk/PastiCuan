@@ -1,8 +1,41 @@
 # Program handoff — 2026-08-24
 
-Updated 2026-09-07 after verified UX-003. Production code is `origin/main`
-at `01efe9ee659a307b416c3f6d7019b833f9539f1f`; accepted Supabase evidence
+Updated 2026-09-08 after verified ING-003. Production code is `origin/main`
+at `6a50ae4ba1149feff010fb67547fe4837ca6cd51`; accepted Supabase evidence
 and signed published snapshots remain production research truth.
+
+## Current checkpoint — 2026-09-08
+
+- ING-003 merged via PR #43 as `6a50ae4`, from base `1b7e06e` and reviewed
+  head `c99c4bac60356d418205b449ad9acfe111cbb2c2`. Imports now skip accepted
+  and terminal quarantined filings before download, batch atomic manifest
+  synchronization, fence downloads, commit each Filing independently, and
+  return structured outcomes. Additive migration 008 preserves checksum
+  mismatch artifacts as terminal quarantine; migration 007 is unchanged.
+- Standards and Spec each passed with zero findings. Eight PR checks passed
+  in `34196294226`; main verification `34196669570` passed. Local evidence:
+  175 tests, two disposable tests exercised separately; UTF-8/SQL-ASCII each
+  verified eight migrations. The 100-Filing regression reduced prepare calls
+  from 302 to at most six and proves conflict rollback. See the
+  [task record](../tasks/ING-003-skip-before-download.md) for commands and history.
+- Research run `34196669534` failed closed at preflight, exit 40,
+  `REQUIRED_MIGRATION_MISSING` for 007 and 008. Production import and research
+  recovery remain blocked on protected rollout, backup, session-compatible
+  writer and read-only verification. No production mutation/MCP query occurred.
+  DEP-001 still owns exact-SHA Railway deployment proof.
+- Issue #42 is closed/released; implementation branches deleted. User-owned
+  untracked skill directories, skills-lock.json and PROMPT-ORCHES.md remain
+  preserved. High-risk delivery used GPT-6 root and Sol independent reviews;
+  the renewed Standards cycle and merge verification took approximately ten
+  minutes/9k context tokens. Earlier cycles remain in the task history.
+- Next: ING-004, then OBS-001, ING-005, OPS-002, publication/deployment recovery,
+  PIT integrity, analytics validation and gated provenance/promotion in roadmap
+  order. Keep models SHADOW when evidence does not support promotion.
+  Rollback is reviewed code revert/forward fix retaining evidence, never
+  production down migrations.
+
+The September 7 and August sections below are historical; this checkpoint
+supersedes their present-tense implementation and next-task statements.
 
 ## Current checkpoint — 2026-09-07
 

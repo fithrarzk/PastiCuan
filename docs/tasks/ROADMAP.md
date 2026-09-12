@@ -18,7 +18,7 @@ Observed on 2026-08-22 from `origin/main` at `f5166c7` and GitHub Actions runs t
 
 ## Execution waves
 
-Current delivery and incident state is summarized in the [program handoff](../status/2026-08-24-program-handoff.md), updated after UX-003 merged as `01efe9e` via PR #38. Telegram-only delivery and its main verification are complete. ING-003 is next; production recovery remains open because migration 007 has no production rollout proof, ingestion is not yet skip-before-download resumable, and post-merge research run `34077063058` failed closed with `REQUIRED_MIGRATION_MISSING`.
+Current delivery and incident state is summarized in the [program handoff](../status/2026-08-24-program-handoff.md), updated after ING-003 merged as `6a50ae4` via PR #43. Telegram-only delivery and skip-before-download importer code are verified. ING-004 is next; production recovery remains open because migrations 007/008 have no production rollout proof, and post-merge research run `34196669534` failed closed with `REQUIRED_MIGRATION_MISSING`.
 
 Delivery-process work is tracked separately from the production dependency
 graph: DOC-004 introduced risk-tiered execution lanes as `93d3086`; CI-003
