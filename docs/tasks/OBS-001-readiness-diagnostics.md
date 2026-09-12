@@ -93,10 +93,12 @@ optimization, model change, or Railway deployment claim.
 - Supabase/Postgres guidance shaped the set-based, parameterized, index-aligned
   read with no locks or network work inside a transaction. No Supabase MCP or
   production query/mutation was performed; production evidence is not applicable.
-- Correction cycles: one. An initial diagnostic calculation-path design was
+- Correction cycles: two. An initial diagnostic calculation-path design was
   discarded before commit when release validation showed that a diagnostic task
   must keep frozen model code byte-identical. The replacement uses storage plus
-  operations metadata only.
+  operations metadata only. Fresh Spec review then identified silently accepted
+  malformed annual-history metadata; the red/green fix now records a `history`
+  diagnostic error and keeps the readiness output fail-closed.
 - Final exact-head reviews, PR/CI/merge/cleanup, post-merge verification, and the
   dated handoff remain pending.
 

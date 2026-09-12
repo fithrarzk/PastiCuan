@@ -452,8 +452,19 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
         quant_scored = finite_value(row, "composite_percentile") is not None
         factor_coverage = finite_value(row, "factor_coverage_pct", "coverage_pct")
         raw_coverage = finite_value(row, "raw_component_coverage_pct", "coverage_pct")
+        raw_annual_years = row.get("annual_history_years")
         annual_years_value = finite_value(row, "annual_history_years")
-        annual_years = max(0, int(annual_years_value or 0))
+        history_valid = raw_annual_years is None or (
+            annual_years_value is not None
+            and annual_years_value >= 0
+            and annual_years_value.is_integer()
+            and not isinstance(raw_annual_years, bool)
+        )
+        annual_years = (
+            int(annual_years_value)
+            if history_valid and annual_years_value is not None
+            else 0
+        )
         missing_concepts, concepts_valid = string_list(row, "missing_concepts")
         periods, periods_valid = string_list(row, "financial_periods")
         sources, sources_valid = string_list(row, "source_urls")
@@ -490,6 +501,7 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
             concept_status = "UNAVAILABLE"
             concepts_valid = False
         diagnostics_valid = {
+            "history": history_valid,
             "missing_concepts": concepts_valid,
             "financial_periods": periods_valid,
             "sources": sources_valid,

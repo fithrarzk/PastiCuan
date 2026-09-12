@@ -139,6 +139,7 @@ class CandidateDiagnosticTests(unittest.TestCase):
                     "financial_periods": {"unexpected": "shape"},
                     "source_urls": ["raw provider body"],
                     "source_documents": ["not-a-checksum"],
+                    "annual_history_years": "not-a-number",
                     "concept_diagnostic_status": "UNKNOWN_PROVIDER_VALUE",
                 }
             }
@@ -146,7 +147,13 @@ class CandidateDiagnosticTests(unittest.TestCase):
         issuer = candidate_readiness(snapshot)["issuers"][0]
         self.assertEqual(
             issuer["diagnostic_errors"],
-            ["checksums", "financial_periods", "missing_concepts", "sources"],
+            [
+                "checksums",
+                "financial_periods",
+                "history",
+                "missing_concepts",
+                "sources",
+            ],
         )
         self.assertEqual(issuer["concept_diagnostic_status"], "UNAVAILABLE")
         self.assertEqual(issuer["sources"], [])
