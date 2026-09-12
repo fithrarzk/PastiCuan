@@ -122,6 +122,18 @@ class ShardedImporterTests(unittest.TestCase):
             **kwargs,
         )
 
+    def test_falsey_non_policy_fails_before_sync_or_network(self):
+        result = import_filings(
+            {"filings": [filing()]},
+            self.repo,
+            policy=False,
+            acquire=self.acquire,
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["code"], "MANIFEST_INVALID")
+        self.repo.preflight_schema_migrations.assert_not_called()
+        self.acquire.assert_not_called()
+
     def test_shard_syncs_full_manifest_but_touches_only_assigned_work(self):
         bbri = {
             **filing("BBRI"),

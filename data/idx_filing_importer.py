@@ -96,7 +96,7 @@ def import_filings(
 ):
     """Return only normalized identities, stable codes, and run-local counts."""
     try:
-        policy = policy or FilingImportPolicy()
+        policy = FilingImportPolicy() if policy is None else policy
         if not isinstance(policy, FilingImportPolicy):
             raise ValueError("invalid Filing import policy")
     except (ValueError, TypeError):
