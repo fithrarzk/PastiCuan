@@ -16,6 +16,8 @@ on:
       - "requirements-ci.txt"
       - "scripts/ci/**"
       - "tests/**"
+      - "data/idx_filing_manifest.json"
+      - "data/source_manifest.json"
   schedule:
     - cron: "0 12 * * 1-5"
     - cron: "0 13 * * 1-5"
@@ -65,8 +67,9 @@ jobs:
           if [[ "${{ github.event.schedule }}" == "0 14 * * 1-5" || "${{ inputs.final_attempt }}" == "true" ]]; then
             flags+=(--final-attempt)
           fi
-          python -m operations.research_cli run-daily-research \
-            --output /tmp/daily-research-report.json "${flags[@]}"
+          python -m operations.production_db_lock --mode exclusive --wait-seconds 300 -- \
+            python -m operations.research_cli run-daily-research \
+              --output /tmp/daily-research-report.json "${flags[@]}"
           exit_code=$?
           set -e
           case "$exit_code" in

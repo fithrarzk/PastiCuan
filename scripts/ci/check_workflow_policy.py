@@ -34,12 +34,28 @@ SAFE_RESEARCH_PUSH_IGNORES = {
     "requirements-ci.txt",
     "scripts/ci/**",
     "tests/**",
+    "data/idx_filing_manifest.json",
+    "data/source_manifest.json",
 }
 IDX_JOB_PERMISSIONS = {
     "discover": {"contents": "write", "pull-requests": "write", "actions": "write"},
     "prepare-import": {"contents": "read"},
     "import-shards": {"contents": "read"},
     "aggregate": {"contents": "read", "actions": "write"},
+}
+PRODUCTION_WRITER_WORKFLOWS = {
+    "idx-filings.yml",
+    "research-daily.yml",
+    "research-validation.yml",
+    "backup.yml",
+}
+PRODUCTION_DATABASE_COMMANDS = {
+    "ingest-manifest": "exclusive",
+    "ingest-idx-xbrl": "exclusive",
+    "run-daily-research": "exclusive",
+    "rebuild-monthly-panel": "exclusive",
+    "validate-quant": "exclusive",
+    "backup": "exclusive",
 }
 
 
@@ -48,6 +64,87 @@ def _workflow_data(path: Path) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"{path}: workflow is not a mapping")
     return data
+
+
+def _validate_production_writer_lock(path: Path, workflow: dict) -> list[str]:
+    """Require every production database command to use the shared lock CLI."""
+    if path.name not in PRODUCTION_WRITER_WORKFLOWS:
+        return []
+    text = path.read_text()
+    is_repository_workflow = (
+        path.parent.name == "workflows" and path.parent.parent.name == ".github"
+    )
+    if not is_repository_workflow and "SUPABASE_WRITER_DATABASE_URL" not in text:
+        return []
+    errors: list[str] = []
+    if "SUPABASE_WRITER_DATABASE_URL" not in text:
+        errors.append(f"{path}: production writer URL is required")
+    if "operations.production_db_lock" not in text:
+        errors.append(f"{path}: production database lock wrapper is required")
+    for job_name, job in (workflow.get("jobs") or {}).items():
+        for step in job.get("steps", []):
+            run = step.get("run", "") if isinstance(step, dict) else ""
+            if not isinstance(run, str):
+                continue
+            for command, mode in PRODUCTION_DATABASE_COMMANDS.items():
+                if f"operations.research_cli {command}" not in run:
+                    continue
+                expected_mode = (
+                    "shared"
+                    if command == "ingest-idx-xbrl" and job_name == "import-shards"
+                    else mode
+                )
+                if "operations.production_db_lock" not in run:
+                    errors.append(
+                        f"{path}: {job_name}/{step.get('name', 'run')} "
+                        f"wraps {command} without production_db_lock"
+                    )
+                if f"production_db_lock --mode {expected_mode}" not in run:
+                    errors.append(
+                        f"{path}: {job_name}/{step.get('name', 'run')} "
+                        f"must use {expected_mode} production_db_lock mode for {command}"
+                    )
+    if path.name == "idx-filings.yml":
+        jobs = workflow.get("jobs") or {}
+        prepare_steps = jobs.get("prepare-import", {}).get("steps", [])
+        names = [step.get("name") for step in prepare_steps]
+        validation_index = (
+            names.index("Validate reviewed manifests before import")
+            if "Validate reviewed manifests before import" in names
+            else -1
+        )
+        ingest_index = (
+            names.index("Import reviewed source manifest")
+            if "Import reviewed source manifest" in names
+            else -1
+        )
+        if validation_index < 0 or ingest_index < 0 or validation_index > ingest_index:
+            errors.append(f"{path}: manifest validation must precede import")
+        shard_runs = "\n".join(
+            step.get("run", "")
+            for step in jobs.get("import-shards", {}).get("steps", [])
+        )
+        if "production_db_lock --mode shared" not in shard_runs:
+            errors.append(f"{path}: import shards must use shared production_db_lock")
+        aggregate_names = [
+            step.get("name") for step in jobs.get("aggregate", {}).get("steps", [])
+        ]
+        if "Verify durable import readiness" not in aggregate_names:
+            errors.append(f"{path}: durable import readiness step is required")
+        refresh_dispatches = sum(
+            step.get("run", "").count("gh workflow run research-daily.yml")
+            for step in jobs.get("aggregate", {}).get("steps", [])
+        )
+        if refresh_dispatches != 1:
+            errors.append(
+                f"{path}: exactly one guarded research refresh dispatch is required"
+            )
+    if path.name == "research-daily.yml":
+        trigger = workflow.get("on", workflow.get(True, {}))
+        ignored = set((trigger.get("push") or {}).get("paths-ignore", []))
+        if {"data/idx_filing_manifest.json", "data/source_manifest.json"} - ignored:
+            errors.append(f"{path}: manifest pushes must not launch research directly")
+    return errors
 
 
 def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> list[str]:
@@ -130,6 +227,7 @@ def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> lis
                 errors.append(
                     f"{path}: generated validation contains recursion command: {forbidden}"
                 )
+    errors.extend(_validate_production_writer_lock(path, workflow))
     return errors
 
 
