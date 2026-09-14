@@ -89,6 +89,79 @@ class CalendarPolicyTests(unittest.TestCase):
 
 
 class DailyOrchestrationTests(unittest.TestCase):
+    def test_quant_rejection_persists_per_issuer_readiness_diagnostics(self):
+        recorded = []
+        repository = SimpleNamespace(
+            record_research_job=recorded.append,
+            applied_schema_migrations=lambda: [],
+            latest_scan_snapshot=lambda: None,
+            latest_approved_quant_snapshot=lambda: None,
+        )
+        market = {
+            "ready": True,
+            "observed": datetime(2026, 8, 18, 12, tzinfo=timezone.utc),
+            "on_date": "2026-08-18",
+            "session_date": "2026-08-18",
+            "coverage_pct": 100.0,
+            "membership_count": 45,
+            "imported_count": 45,
+            "session_age": 0,
+            "reason": None,
+            "bases": [],
+            "same_session": [],
+            "excluded": [],
+        }
+        provenance = {
+            "release_id": "test-r1",
+            "calculation_digest": "c" * 64,
+            "git_commit": "test",
+            "model_version": "test",
+            "formula_version": "lq45-cross-section-v4+business-quality-v2",
+            "calculation_revision": 1,
+            "type": "research_release",
+        }
+        candidate = SimpleNamespace(
+            validate=lambda approved_only=False: None,
+            model_status="CANDIDATE",
+            formula_version=provenance["formula_version"],
+            constituents=["MISS"],
+            rankings={},
+        )
+        with (
+            TemporaryDirectory() as root,
+            patch.dict(
+                "os.environ",
+                {
+                    "SUPABASE_WRITER_DATABASE_URL": "database-configured",
+                    "SNAPSHOT_ED25519_PRIVATE_KEY": "enabled",
+                },
+                clear=False,
+            ),
+            patch("storage.database.connect_from_env"),
+            patch("storage.repository.SnapshotRepository", return_value=repository),
+            patch(
+                "operations.research_cli.load_release",
+                return_value={**provenance, "status": "SHADOW"},
+            ),
+            patch(
+                "operations.research_cli.release_provenance", return_value=provenance
+            ),
+            patch("operations.research_cli._required_migrations", return_value=[]),
+            patch(
+                "operations.research_cli.refresh_lq45_market_history",
+                return_value=market,
+            ),
+            patch(
+                "operations.research_cli.build_snapshot_from_database",
+                return_value=candidate,
+            ),
+        ):
+            result = run_daily_research(str(Path(root) / "report.json"))
+        readiness = result["stages"]["quant"]["readiness"]
+        self.assertEqual(readiness["quant_ineligible_tickers"], ["MISS"])
+        self.assertEqual(result["outcome"]["code"], "QUANT_READINESS_REJECTED")
+        self.assertEqual(recorded[-1]["metrics"]["readiness"], readiness)
+
     def _run_not_ready(
         self, final_attempt, *, session_age=1, membership_count=45, coverage_pct=80.0
     ):
