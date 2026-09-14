@@ -17,7 +17,7 @@
   `operations/research_cli.py`, `storage/repository.py`, readiness code/tests,
   and its runbooks; two fresh read-only reviewers only on the final exact head
 - Base SHA: `02475e6f8d6a712d883ef49ec4415639c1609012`
-- Synchronized upstream: `1aeb92f` (merged before final verification)
+- Synchronized upstream: `aaab2cf` (merged before final verification)
 - Branch/worktree: `feat/OPS-002-serialize-orchestration` /
   `../PastiCuan-wt/ops-002-serialize-orchestration`
 - Issue: #51

@@ -1,3 +1,4 @@
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -161,7 +162,7 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
             path = Path(directory) / "research-daily.yml"
             path.write_text(unsafe)
             errors = validate_workflow(path)
-        self.assertTrue(any("without production_db_lock" in error for error in errors))
+        self.assertTrue(any("lock coverage mismatch" in error for error in errors))
 
     def test_idx_policy_rejects_unwrapped_discovery_writer(self):
         unsafe = IDX_WORKFLOW.replace(
@@ -208,7 +209,19 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
             path = Path(directory) / "research-daily.yml"
             path.write_text(unsafe)
             errors = validate_workflow(path)
-        self.assertTrue(any("mixed or unstructured" in error for error in errors))
+        self.assertTrue(any("lock coverage mismatch" in error for error in errors))
+
+    def test_writer_policy_rejects_decoy_wrapper_before_unwrapped_command(self):
+        unsafe = RESEARCH_WORKFLOW.replace(
+            "            python -m operations.research_cli run-daily-research \\\n",
+            "            echo wrapped-looking command\n"
+            "          python -m operations.research_cli run-daily-research\n",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "research-daily.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(any("lock coverage mismatch" in error for error in errors))
 
     def test_new_writer_workflow_is_not_exempt_from_lock_policy(self):
         unsafe = RESEARCH_WORKFLOW.replace("name: research-daily", "name: new-writer")
@@ -218,7 +231,38 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
                 unsafe.replace("operations.production_db_lock", "operations.not_a_lock")
             )
             errors = validate_workflow(path)
-        self.assertTrue(any("without production_db_lock" in error for error in errors))
+        self.assertTrue(
+            any(
+                "production database lock wrapper is required" in error
+                for error in errors
+            )
+        )
+
+    def test_validation_inputs_are_env_quoted_for_nested_shell(self):
+        self.assertIn(
+            "VALIDATION_START: ${{ inputs.validation_start }}", VALIDATION_WORKFLOW
+        )
+        self.assertIn(
+            "VALIDATION_END: ${{ inputs.validation_end }}", VALIDATION_WORKFLOW
+        )
+        self.assertIn(
+            '--start "$VALIDATION_START" --end "$VALIDATION_END"',
+            VALIDATION_WORKFLOW,
+        )
+        run_body = VALIDATION_WORKFLOW.split("        run: |", 1)[1]
+        self.assertNotIn("${{ inputs.validation_start }}", run_body)
+        self.assertNotIn("${{ inputs.validation_end }}", run_body)
+
+    def test_hostile_validation_input_remains_data_in_nested_shell(self):
+        hostile = "2026-01-01'; touch /tmp/not-a-command; echo '"
+        result = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", 'printf "%s" "$VALIDATION_START"'],
+            env={"VALIDATION_START": hostile},
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.stdout, hostile)
 
     def test_discovery_dispatches_validation_for_the_pushed_head(self):
         self.assertIn("actions: write", IDX_WORKFLOW)

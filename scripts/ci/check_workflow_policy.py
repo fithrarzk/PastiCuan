@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
+from collections import Counter
 from pathlib import Path
 
 import yaml
@@ -58,6 +59,20 @@ PRODUCTION_DATABASE_COMMANDS = {
     "validate-quant": "exclusive",
     "backup": "exclusive",
 }
+WRITER_COMMAND_RE = re.compile(
+    r"(?m)^\s*python\s+-m\s+operations\.research_cli\s+(?P<command>[a-z0-9-]+)\b"
+)
+DIRECT_WRAPPER_RE = re.compile(
+    r"(?m)^\s*python\s+-m\s+operations\.production_db_lock\s+"
+    r"--mode\s+(?P<mode>shared|exclusive)\b[^\n]*?--\s*"
+    r"(?:\\\s*\n\s*)?python\s+-m\s+operations\.research_cli\s+"
+    r"(?P<command>[a-z0-9-]+)\b"
+)
+SHELL_WRAPPER_RE = re.compile(
+    r"(?ms)^\s*python\s+-m\s+operations\.production_db_lock\s+"
+    r"--mode\s+(?P<mode>shared|exclusive)\b[^\n]*?--\s*\\?\s*\n"
+    r"\s*bash\s+-[^\n]*?-c\s+'(?P<body>.*?)\n\s*'\s*$"
+)
 
 
 def _workflow_data(path: Path) -> dict:
@@ -73,8 +88,6 @@ def _validate_production_writer_lock(path: Path, workflow: dict) -> list[str]:
     if "SUPABASE_WRITER_DATABASE_URL" not in text:
         return []
     errors: list[str] = []
-    if "SUPABASE_WRITER_DATABASE_URL" not in text:
-        errors.append(f"{path}: production writer URL is required")
     if "operations.production_db_lock" not in text:
         errors.append(f"{path}: production database lock wrapper is required")
     for job_name, job in (workflow.get("jobs") or {}).items():
@@ -83,54 +96,39 @@ def _validate_production_writer_lock(path: Path, workflow: dict) -> list[str]:
             if not isinstance(run, str):
                 continue
             command_hits = [
-                (command, mode)
-                for command, mode in PRODUCTION_DATABASE_COMMANDS.items()
-                if f"operations.research_cli {command}" in run
+                (
+                    match.group("command"),
+                    PRODUCTION_DATABASE_COMMANDS[match.group("command")],
+                )
+                for match in WRITER_COMMAND_RE.finditer(run)
+                if match.group("command") in PRODUCTION_DATABASE_COMMANDS
             ]
             if not command_hits:
                 continue
-            wrapper_lines = [
-                line
-                for line in run.splitlines()
-                if re.match(r"^\s*python\s+-m\s+operations\.production_db_lock\b", line)
-            ]
-            if not wrapper_lines:
-                errors.append(
-                    f"{path}: {job_name}/{step.get('name', 'run')} "
-                    f"contains {', '.join(command for command, _ in command_hits)} "
-                    "writer command(s) without production_db_lock"
-                )
-                continue
-            if len(command_hits) > 1:
-                shell_wrapper = re.search(
-                    r"production_db_lock\s+--mode\s+(?:shared|exclusive)\b.*?--\s*\\?\s*\n\s*bash\s+-[^\n]*-c\s+'(?P<body>.*?)\n\s*'\s*$",
-                    run,
-                    re.DOTALL,
-                )
-                if shell_wrapper is None or any(
-                    f"operations.research_cli {command}"
-                    not in shell_wrapper.group("body")
-                    for command, _ in command_hits
-                ):
-                    errors.append(
-                        f"{path}: {job_name}/{step.get('name', 'run')} "
-                        "contains a mixed or unstructured writer lock block"
-                    )
-                    continue
-            for command, mode in command_hits:
-                expected_mode = (
+            expected = [
+                (
+                    command,
                     "shared"
                     if command == "ingest-idx-xbrl" and job_name == "import-shards"
-                    else mode
+                    else mode,
                 )
-                if not any(
-                    f"production_db_lock --mode {expected_mode}" in line
-                    for line in wrapper_lines
-                ):
-                    errors.append(
-                        f"{path}: {job_name}/{step.get('name', 'run')} "
-                        f"must use {expected_mode} production_db_lock mode for {command}"
-                    )
+                for command, mode in command_hits
+            ]
+            wrapped: list[tuple[str, str]] = [
+                (match.group("command"), match.group("mode"))
+                for match in DIRECT_WRAPPER_RE.finditer(run)
+            ]
+            for match in SHELL_WRAPPER_RE.finditer(run):
+                wrapped.extend(
+                    (body_match.group("command"), match.group("mode"))
+                    for body_match in WRITER_COMMAND_RE.finditer(match.group("body"))
+                    if body_match.group("command") in PRODUCTION_DATABASE_COMMANDS
+                )
+            if Counter(expected) != Counter(wrapped):
+                errors.append(
+                    f"{path}: {job_name}/{step.get('name', 'run')} "
+                    f"writer lock coverage mismatch: expected {expected}, got {wrapped}"
+                )
     if path.name == "idx-filings.yml":
         jobs = workflow.get("jobs") or {}
         discover_steps = jobs.get("discover", {}).get("steps", [])

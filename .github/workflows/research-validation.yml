@@ -34,14 +34,17 @@ jobs:
             requirements-bot.txt
       - run: pip install -r requirements-jobs.txt
       - name: Rebuild twice and validate holdout
+        env:
+          VALIDATION_START: ${{ inputs.validation_start }}
+          VALIDATION_END: ${{ inputs.validation_end }}
         run: |
           python -m operations.production_db_lock --mode exclusive --wait-seconds 300 -- \
             bash -euo pipefail -c '
               python -m operations.research_cli rebuild-monthly-panel \
-                --start "${{ inputs.validation_start }}" --end "${{ inputs.validation_end }}" \
+                --start "$VALIDATION_START" --end "$VALIDATION_END" \
                 --scores-output /tmp/scores-a.csv --bars-output /tmp/bars-a.csv
               python -m operations.research_cli rebuild-monthly-panel \
-                --start "${{ inputs.validation_start }}" --end "${{ inputs.validation_end }}" \
+                --start "$VALIDATION_START" --end "$VALIDATION_END" \
                 --scores-output /tmp/scores-b.csv --bars-output /tmp/bars-b.csv
               cmp /tmp/scores-a.csv /tmp/scores-b.csv
               cmp /tmp/bars-a.csv /tmp/bars-b.csv
