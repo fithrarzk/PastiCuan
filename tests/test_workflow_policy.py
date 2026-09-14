@@ -223,6 +223,34 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
             errors = validate_workflow(path)
         self.assertTrue(any("lock coverage mismatch" in error for error in errors))
 
+    def test_writer_policy_checks_folded_backup_command_mode(self):
+        unsafe = BACKUP_WORKFLOW.replace(
+            "production_db_lock --mode exclusive",
+            "production_db_lock --mode shared",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "backup.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(
+            any(
+                "backup" in error and "lock coverage mismatch" in error
+                for error in errors
+            )
+        )
+
+    def test_writer_policy_rejects_unclassified_research_command(self):
+        unsafe = RESEARCH_WORKFLOW.replace(
+            "          exit_code=$?\n",
+            "          python -m operations.research_cli publish-snapshot\n"
+            "          exit_code=$?\n",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "research-daily.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(any("unclassified research_cli" in error for error in errors))
+
     def test_new_writer_workflow_is_not_exempt_from_lock_policy(self):
         unsafe = RESEARCH_WORKFLOW.replace("name: research-daily", "name: new-writer")
         with tempfile.TemporaryDirectory() as directory:

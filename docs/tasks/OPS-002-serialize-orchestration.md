@@ -83,17 +83,17 @@ rollout gates pass.
   exclusive aggregate/research/validation/backup writers, one guarded refresh,
   manifest push suppression, and rejection of unwrapped writer commands.
 - Complete verification passed with Python 3.12-compatible pinned requirements:
-  204 unit tests `OK` with five pre-existing disposable-DB skips; compileall;
+  225 unit tests `OK` with six pre-existing disposable-DB skips; compileall;
   research-release check (revision 2 and unchanged calculation digest);
   workflow policy; tracked-source security scan; YAML parsing; Ruff; mypy; and
   `git diff --check`.
 - No Supabase MCP or production database query/mutation occurred. Migrations
   007 and 008 remain unapplied; research remains SHADOW and no publication,
   activation, promotion, or deployment is claimed.
-- Correction cycles: two. Self-review found and fixed an unlock-error path that
-  could otherwise skip connection close; independent review then found and
-  closed workflow validation/locking, policy, and PostgreSQL evidence gaps;
-  no scope expansion occurred.
+- Correction cycles: four. Self-review found and fixed an unlock-error path
+  that could otherwise skip connection close; independent reviews then found
+  and closed workflow validation/locking, policy, shell-input, and PostgreSQL
+  evidence gaps; no scope expansion occurred.
 
 ## Delivery gate — 2026-09-14
 

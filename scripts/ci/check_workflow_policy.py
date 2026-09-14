@@ -44,12 +44,6 @@ IDX_JOB_PERMISSIONS = {
     "import-shards": {"contents": "read"},
     "aggregate": {"contents": "read", "actions": "write"},
 }
-PRODUCTION_WRITER_WORKFLOWS = {
-    "idx-filings.yml",
-    "research-daily.yml",
-    "research-validation.yml",
-    "backup.yml",
-}
 PRODUCTION_DATABASE_COMMANDS = {
     "ingest-manifest": "exclusive",
     "ingest-idx-xbrl": "exclusive",
@@ -60,7 +54,7 @@ PRODUCTION_DATABASE_COMMANDS = {
     "backup": "exclusive",
 }
 WRITER_COMMAND_RE = re.compile(
-    r"(?m)^\s*python\s+-m\s+operations\.research_cli\s+(?P<command>[a-z0-9-]+)\b"
+    r"python\s+-m\s+operations\.research_cli\s+(?P<command>[a-z0-9-]+)\b"
 )
 DIRECT_WRAPPER_RE = re.compile(
     r"(?m)^\s*python\s+-m\s+operations\.production_db_lock\s+"
@@ -95,12 +89,26 @@ def _validate_production_writer_lock(path: Path, workflow: dict) -> list[str]:
             run = step.get("run", "") if isinstance(step, dict) else ""
             if not isinstance(run, str):
                 continue
+            all_commands = list(WRITER_COMMAND_RE.finditer(run))
+            unknown_commands = sorted(
+                {
+                    match.group("command")
+                    for match in all_commands
+                    if match.group("command") not in PRODUCTION_DATABASE_COMMANDS
+                }
+            )
+            if unknown_commands:
+                errors.append(
+                    f"{path}: {job_name}/{step.get('name', 'run')} "
+                    "contains unclassified research_cli command(s): "
+                    f"{', '.join(unknown_commands)}"
+                )
             command_hits = [
                 (
                     match.group("command"),
                     PRODUCTION_DATABASE_COMMANDS[match.group("command")],
                 )
-                for match in WRITER_COMMAND_RE.finditer(run)
+                for match in all_commands
                 if match.group("command") in PRODUCTION_DATABASE_COMMANDS
             ]
             if not command_hits:
