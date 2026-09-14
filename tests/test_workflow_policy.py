@@ -175,19 +175,15 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
 
     def test_idx_policy_rejects_missing_discover_filing_validation(self):
         unsafe = IDX_WORKFLOW.replace(
-            "      - name: Validate reviewed source manifest before discovery\n",
-            "      - name: Validate reviewed source manifest before discovery\n",
-        ).replace(
-            "      - name: Validate reviewed source manifest before discovery\n        run: python scripts/ci/validate_manifest.py data/source_manifest.json --kind source\n",
+            "      - name: Validate reviewed Filing manifest before source ingestion\n"
+            "        run: python scripts/ci/validate_manifest.py data/idx_filing_manifest.json --kind filing\n",
             "",
         )
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "idx-filings.yml"
             path.write_text(unsafe)
             errors = validate_workflow(path)
-        self.assertTrue(
-            any("discover" in error and "manifest" in error for error in errors)
-        )
+        self.assertTrue(any("Filing manifest" in error for error in errors))
 
     def test_idx_policy_rejects_unguarded_refresh_dispatch(self):
         unsafe = IDX_WORKFLOW.replace(
@@ -201,6 +197,28 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
         self.assertTrue(
             any("guard" in error or "dispatch" in error for error in errors)
         )
+
+    def test_writer_policy_rejects_mixed_wrapped_and_unwrapped_commands(self):
+        unsafe = RESEARCH_WORKFLOW.replace(
+            "            python -m operations.research_cli run-daily-research \\\n",
+            "            python -m operations.research_cli run-daily-research \\\n"
+            "          python -m operations.research_cli backup\n",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "research-daily.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(any("mixed or unstructured" in error for error in errors))
+
+    def test_new_writer_workflow_is_not_exempt_from_lock_policy(self):
+        unsafe = RESEARCH_WORKFLOW.replace("name: research-daily", "name: new-writer")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "new-writer.yml"
+            path.write_text(
+                unsafe.replace("operations.production_db_lock", "operations.not_a_lock")
+            )
+            errors = validate_workflow(path)
+        self.assertTrue(any("without production_db_lock" in error for error in errors))
 
     def test_discovery_dispatches_validation_for_the_pushed_head(self):
         self.assertIn("actions: write", IDX_WORKFLOW)

@@ -69,13 +69,8 @@ def _workflow_data(path: Path) -> dict:
 
 def _validate_production_writer_lock(path: Path, workflow: dict) -> list[str]:
     """Require every production database command to use the shared lock CLI."""
-    if path.name not in PRODUCTION_WRITER_WORKFLOWS:
-        return []
     text = path.read_text()
-    is_repository_workflow = (
-        path.parent.name == "workflows" and path.parent.parent.name == ".github"
-    )
-    if not is_repository_workflow and "SUPABASE_WRITER_DATABASE_URL" not in text:
+    if "SUPABASE_WRITER_DATABASE_URL" not in text:
         return []
     errors: list[str] = []
     if "SUPABASE_WRITER_DATABASE_URL" not in text:
@@ -87,20 +82,51 @@ def _validate_production_writer_lock(path: Path, workflow: dict) -> list[str]:
             run = step.get("run", "") if isinstance(step, dict) else ""
             if not isinstance(run, str):
                 continue
-            for command, mode in PRODUCTION_DATABASE_COMMANDS.items():
-                if f"operations.research_cli {command}" not in run:
+            command_hits = [
+                (command, mode)
+                for command, mode in PRODUCTION_DATABASE_COMMANDS.items()
+                if f"operations.research_cli {command}" in run
+            ]
+            if not command_hits:
+                continue
+            wrapper_lines = [
+                line
+                for line in run.splitlines()
+                if re.match(r"^\s*python\s+-m\s+operations\.production_db_lock\b", line)
+            ]
+            if not wrapper_lines:
+                errors.append(
+                    f"{path}: {job_name}/{step.get('name', 'run')} "
+                    f"contains {', '.join(command for command, _ in command_hits)} "
+                    "writer command(s) without production_db_lock"
+                )
+                continue
+            if len(command_hits) > 1:
+                shell_wrapper = re.search(
+                    r"production_db_lock\s+--mode\s+(?:shared|exclusive)\b.*?--\s*\\?\s*\n\s*bash\s+-[^\n]*-c\s+'(?P<body>.*?)\n\s*'\s*$",
+                    run,
+                    re.DOTALL,
+                )
+                if shell_wrapper is None or any(
+                    f"operations.research_cli {command}"
+                    not in shell_wrapper.group("body")
+                    for command, _ in command_hits
+                ):
+                    errors.append(
+                        f"{path}: {job_name}/{step.get('name', 'run')} "
+                        "contains a mixed or unstructured writer lock block"
+                    )
                     continue
+            for command, mode in command_hits:
                 expected_mode = (
                     "shared"
                     if command == "ingest-idx-xbrl" and job_name == "import-shards"
                     else mode
                 )
-                if "operations.production_db_lock" not in run:
-                    errors.append(
-                        f"{path}: {job_name}/{step.get('name', 'run')} "
-                        f"wraps {command} without production_db_lock"
-                    )
-                if f"production_db_lock --mode {expected_mode}" not in run:
+                if not any(
+                    f"production_db_lock --mode {expected_mode}" in line
+                    for line in wrapper_lines
+                ):
                     errors.append(
                         f"{path}: {job_name}/{step.get('name', 'run')} "
                         f"must use {expected_mode} production_db_lock mode for {command}"

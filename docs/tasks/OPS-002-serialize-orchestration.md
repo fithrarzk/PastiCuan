@@ -17,6 +17,7 @@
   `operations/research_cli.py`, `storage/repository.py`, readiness code/tests,
   and its runbooks; two fresh read-only reviewers only on the final exact head
 - Base SHA: `02475e6f8d6a712d883ef49ec4415639c1609012`
+- Synchronized upstream: `1aeb92f` (merged before final verification)
 - Branch/worktree: `feat/OPS-002-serialize-orchestration` /
   `../PastiCuan-wt/ops-002-serialize-orchestration`
 - Issue: #51
@@ -82,24 +83,24 @@ rollout gates pass.
   exclusive aggregate/research/validation/backup writers, one guarded refresh,
   manifest push suppression, and rejection of unwrapped writer commands.
 - Complete verification passed with Python 3.12-compatible pinned requirements:
-  200 unit tests `OK` with four pre-existing disposable-DB skips; compileall;
+  204 unit tests `OK` with five pre-existing disposable-DB skips; compileall;
   research-release check (revision 2 and unchanged calculation digest);
   workflow policy; tracked-source security scan; YAML parsing; Ruff; mypy; and
   `git diff --check`.
 - No Supabase MCP or production database query/mutation occurred. Migrations
   007 and 008 remain unapplied; research remains SHADOW and no publication,
   activation, promotion, or deployment is claimed.
-- Correction cycles: one. Self-review found and fixed an unlock-error path that
-  could otherwise skip connection close; no scope expansion occurred.
+- Correction cycles: two. Self-review found and fixed an unlock-error path that
+  could otherwise skip connection close; independent review then found and
+  closed workflow validation/locking, policy, and PostgreSQL evidence gaps;
+  no scope expansion occurred.
 
 ## Delivery gate — 2026-09-14
 
-PR #52 is open; all required current-head CI contexts
-are green and no review findings are present. The mandatory independent
-Standards and Spec reviewer service failed before execution on every attempted
-route with an external account usage-limit error. Merge, branch cleanup,
-post-merge verification, and the separate status/roadmap/claims documentation
-PR are intentionally pending that review evidence.
+PR #52 remains open while the corrected head receives its final independent
+Standards and Spec reviews. Required CI is rerun on every head change; merge,
+branch cleanup, post-merge verification, and the separate status/roadmap/claims
+documentation PR remain gated on zero findings for the final exact head.
 
 ## TDD acceptance
 
