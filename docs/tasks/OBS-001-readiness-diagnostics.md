@@ -94,7 +94,9 @@ optimization, model change, or Railway deployment claim.
 - Supabase/Postgres guidance shaped the set-based, parameterized, index-aligned
   read with no locks or network work inside a transaction. No Supabase MCP or
   production query/mutation was performed; production evidence is not applicable.
-- Correction cycles: three. An initial diagnostic calculation-path design was
+- Correction cycles: four; the owner explicitly directed end-to-end completion
+  on 2026-09-14, authorizing one cycle beyond the original ceiling. An initial
+  diagnostic calculation-path design was
   discarded before commit when release validation showed that a diagnostic task
   must keep frozen model code byte-identical. The replacement uses storage plus
   operations metadata only. Fresh Spec review then identified silently accepted
@@ -104,6 +106,11 @@ optimization, model change, or Railway deployment claim.
   diagnostic metadata. Red/green corrections now keep gate inputs unchanged,
   require complete official profile provenance, reject missing history, and cap
   every evidence list at 20 credential-free official identities.
+  The repeated reviews then found that invalid repository metadata lost its
+  validity state and SQL capped arrays only after aggregation. The final
+  red/green correction carries explicit validity markers, rejects incomplete
+  profile provenance and impossible dates, catches malformed URLs, and limits
+  each pre-aggregation evidence partition to a 21st-item overflow sentinel.
 - Final exact-head reviews, PR/CI/merge/cleanup, post-merge verification, and the
   dated handoff remain pending.
 

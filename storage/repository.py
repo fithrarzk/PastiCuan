@@ -1297,55 +1297,126 @@ class SnapshotRepository:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT i.ticker,
-                           CASE WHEN i.profile_verified_at <= %s
-                                  AND i.profile_source_url IS NOT NULL
-                                  AND i.profile_checksum IS NOT NULL
-                                THEN upper(i.issuer_type) END AS issuer_profile,
-                           CASE WHEN i.profile_verified_at <= %s
-                                  AND i.profile_source_url IS NOT NULL
-                                  AND i.profile_checksum IS NOT NULL
-                                THEN i.profile_source_url END AS profile_source_url,
-                           CASE WHEN i.profile_verified_at <= %s
-                                  AND i.profile_source_url IS NOT NULL
-                                  AND i.profile_checksum IS NOT NULL
-                                THEN i.profile_checksum END AS profile_checksum,
-                           COALESCE((array_agg(DISTINCT lower(sf.normalized_concept)
-                                     ORDER BY lower(sf.normalized_concept))
-                                     FILTER (WHERE lower(sf.normalized_concept) IN (
-                                         'total_assets','basic_earnings_per_share',
-                                         'cash_and_cash_equivalents',
-                                         'cash_cash_equivalents_and_short_term_investments',
-                                         'total_debt','short_and_long_term_debt',
-                                         'stockholders_equity','common_stock_equity','total_equity',
-                                         'net_income','net_income_common_stockholders',
-                                         'operating_cash_flow','cash_flow_from_operations',
-                                         'capital_adequacy_ratio','credit_impairment_expense',
-                                         'customer_deposits','impaired_loans','loan_loss_allowance',
-                                         'gross_loans'
-                                     ))[1:20], '{}') AS available_concepts,
-                           COALESCE((array_agg(DISTINCT sf.period_end::text ORDER BY sf.period_end::text)
-                                     FILTER (WHERE sf.period_end IS NOT NULL))[1:20], '{}') AS financial_periods,
-                           COALESCE((array_agg(DISTINCT sf.source_url ORDER BY sf.source_url)
-                                     FILTER (WHERE sf.source_url IS NOT NULL))[1:20], '{}') AS source_urls,
-                           COALESCE((array_agg(DISTINCT sf.document_checksum ORDER BY sf.document_checksum)
-                                     FILTER (WHERE sf.document_checksum IS NOT NULL))[1:20], '{}') AS source_documents,
-                           count(DISTINCT sf.fiscal_year) FILTER (
-                               WHERE upper(COALESCE(sf.duration_class,''))='FY'
-                                 AND lower(sf.normalized_concept) IN
-                                     ('net_income','net_income_common_stockholders')
-                           ) AS annual_history_years
-                    FROM index_constituents c
-                    JOIN issuers i ON i.id=c.issuer_id
-                    LEFT JOIN filings f ON f.issuer_id=i.id
-                         AND f.available_at<=%s AND f.quarantined_at IS NULL
-                    LEFT JOIN statement_facts sf ON sf.filing_id=f.id AND sf.available_at<=%s
-                    WHERE c.index_code=%s AND c.effective_from<=%s AND c.effective_to>=%s
-                    GROUP BY i.id,i.ticker,i.issuer_type,i.profile_verified_at,
-                             i.profile_source_url,i.profile_checksum
-                    ORDER BY i.ticker
+                    WITH members AS MATERIALIZED (
+                        SELECT i.id,i.ticker,i.issuer_type,i.profile_verified_at,
+                               i.profile_source_url,i.profile_checksum
+                        FROM index_constituents c
+                        JOIN issuers i ON i.id=c.issuer_id
+                        WHERE c.index_code=%s
+                          AND c.effective_from<=%s AND c.effective_to>=%s
+                    ),
+                    eligible_facts AS MATERIALIZED (
+                        SELECT m.id AS issuer_id,
+                               lower(sf.normalized_concept) AS normalized_concept,
+                               sf.period_end::text AS financial_period,
+                               sf.source_url,sf.document_checksum,sf.fiscal_year,
+                               upper(COALESCE(sf.duration_class,'')) AS duration_class
+                        FROM members m
+                        JOIN filings f ON f.issuer_id=m.id
+                            AND f.available_at<=%s AND f.quarantined_at IS NULL
+                        JOIN statement_facts sf ON sf.filing_id=f.id
+                            AND sf.available_at<=%s
+                    ),
+                    concept_evidence AS (
+                        SELECT issuer_id,array_agg(normalized_concept ORDER BY normalized_concept) AS values
+                        FROM (
+                            SELECT DISTINCT issuer_id,normalized_concept
+                            FROM eligible_facts
+                            WHERE normalized_concept IN (
+                                'total_assets','basic_earnings_per_share',
+                                'cash_and_cash_equivalents',
+                                'cash_cash_equivalents_and_short_term_investments',
+                                'total_debt','short_and_long_term_debt',
+                                'stockholders_equity','common_stock_equity','total_equity',
+                                'net_income','net_income_common_stockholders',
+                                'operating_cash_flow','cash_flow_from_operations',
+                                'capital_adequacy_ratio','credit_impairment_expense',
+                                'customer_deposits','impaired_loans','loan_loss_allowance',
+                                'gross_loans'
+                            )
+                        ) AS distinct_concepts
+                        GROUP BY issuer_id
+                    ),
+                    period_evidence AS (
+                        SELECT issuer_id,array_agg(financial_period ORDER BY financial_period) AS values
+                        FROM (
+                            SELECT issuer_id,financial_period,
+                                   row_number() OVER (
+                                       PARTITION BY issuer_id ORDER BY financial_period
+                                   ) AS ordinal
+                            FROM (
+                                SELECT DISTINCT issuer_id,financial_period
+                                FROM eligible_facts WHERE financial_period IS NOT NULL
+                            ) AS distinct_periods
+                        ) AS ranked_periods
+                        WHERE ordinal <= 21
+                        GROUP BY issuer_id
+                    ),
+                    source_evidence AS (
+                        SELECT issuer_id,array_agg(source_url ORDER BY source_url) AS values
+                        FROM (
+                            SELECT issuer_id,source_url,
+                                   row_number() OVER (
+                                       PARTITION BY issuer_id ORDER BY source_url
+                                   ) AS ordinal
+                            FROM (
+                                SELECT DISTINCT issuer_id,source_url
+                                FROM eligible_facts WHERE source_url IS NOT NULL
+                            ) AS distinct_sources
+                        ) AS ranked_sources
+                        WHERE ordinal <= 21
+                        GROUP BY issuer_id
+                    ),
+                    document_evidence AS (
+                        SELECT issuer_id,array_agg(document_checksum ORDER BY document_checksum) AS values
+                        FROM (
+                            SELECT issuer_id,document_checksum,
+                                   row_number() OVER (
+                                       PARTITION BY issuer_id ORDER BY document_checksum
+                                   ) AS ordinal
+                            FROM (
+                                SELECT DISTINCT issuer_id,document_checksum
+                                FROM eligible_facts WHERE document_checksum IS NOT NULL
+                            ) AS distinct_documents
+                        ) AS ranked_documents
+                        WHERE ordinal <= 21
+                        GROUP BY issuer_id
+                    ),
+                    history_evidence AS (
+                        SELECT issuer_id,count(DISTINCT fiscal_year) AS annual_history_years
+                        FROM eligible_facts
+                        WHERE duration_class='FY'
+                          AND normalized_concept IN
+                              ('net_income','net_income_common_stockholders')
+                        GROUP BY issuer_id
+                    )
+                    SELECT m.ticker,
+                           CASE WHEN m.profile_verified_at <= %s
+                                  AND m.profile_source_url IS NOT NULL
+                                  AND m.profile_checksum IS NOT NULL
+                                THEN upper(m.issuer_type) END AS issuer_profile,
+                           CASE WHEN m.profile_verified_at <= %s
+                                  AND m.profile_source_url IS NOT NULL
+                                  AND m.profile_checksum IS NOT NULL
+                                THEN m.profile_source_url END AS profile_source_url,
+                           CASE WHEN m.profile_verified_at <= %s
+                                  AND m.profile_source_url IS NOT NULL
+                                  AND m.profile_checksum IS NOT NULL
+                                THEN m.profile_checksum END AS profile_checksum,
+                           COALESCE(concepts.values,'{}') AS available_concepts,
+                           COALESCE(periods.values,'{}') AS financial_periods,
+                           COALESCE(sources.values,'{}') AS source_urls,
+                           COALESCE(documents.values,'{}') AS source_documents,
+                           COALESCE(history.annual_history_years,0) AS annual_history_years
+                    FROM members m
+                    LEFT JOIN concept_evidence concepts ON concepts.issuer_id=m.id
+                    LEFT JOIN period_evidence periods ON periods.issuer_id=m.id
+                    LEFT JOIN source_evidence sources ON sources.issuer_id=m.id
+                    LEFT JOIN document_evidence documents ON documents.issuer_id=m.id
+                    LEFT JOIN history_evidence history ON history.issuer_id=m.id
+                    ORDER BY m.ticker
                     """,
-                    (as_of, as_of, as_of, as_of, as_of, index_code, on_date, on_date),
+                    (index_code, on_date, on_date, as_of, as_of, as_of, as_of, as_of),
                 )
                 names = [column.name for column in cursor.description]
                 result = []

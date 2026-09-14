@@ -57,7 +57,10 @@ def is_official_source_url(value: object) -> bool:
         or len(value) > MAX_DIAGNOSTIC_TEXT_LENGTH
     ):
         return False
-    parsed = urlparse(value)
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return False
     host = (parsed.hostname or "").lower()
     official = (
         host == "idx.co.id"
@@ -80,21 +83,23 @@ def are_semantic_groups(values: list[str]) -> bool:
     return all(value in _SEMANTIC_GROUPS for value in values)
 
 
-def _bounded_strings(value: object, validator: Callable[[str], bool]) -> list[str]:
+def _bounded_strings(
+    value: object, validator: Callable[[str], bool]
+) -> tuple[list[str], bool]:
     if not isinstance(value, (list, tuple, set)) or len(value) > MAX_DIAGNOSTIC_ITEMS:
-        return []
+        return [], False
     normalized = []
     for item in value:
         if not isinstance(item, str):
-            return []
+            return [], False
         item = item.strip()
         if not item or len(item) > MAX_DIAGNOSTIC_TEXT_LENGTH or not validator(item):
-            return []
+            return [], False
         normalized.append(item)
-    return sorted(set(normalized))
+    return sorted(set(normalized)), True
 
 
-def _is_iso_date(value: str) -> bool:
+def is_iso_date(value: str) -> bool:
     try:
         date.fromisoformat(value)
     except ValueError:
@@ -166,31 +171,45 @@ def merge_readiness_evidence(rankings: dict, evidence_rows: list[dict]) -> dict:
         if profile == "UNVERIFIED":
             profile_source = None
             profile_checksum = None
-        available_concepts = _bounded_strings(
+        available_concepts, concepts_valid = _bounded_strings(
             evidence.get("available_concepts") or [],
             lambda value: value.lower() in _NORMALIZED_CONCEPTS,
         )
-        concept_status = concept_diagnostics(available_concepts, profile)
+        concept_status = (
+            concept_diagnostics(available_concepts, profile)
+            if concepts_valid
+            else {"status": "UNAVAILABLE", "missing_concepts": []}
+        )
+        annual_history_years = _annual_history_years(
+            evidence.get("annual_history_years")
+        )
+        financial_periods, periods_valid = _bounded_strings(
+            evidence.get("financial_periods") or [], is_iso_date
+        )
+        source_documents, documents_valid = _bounded_strings(
+            evidence.get("source_documents") or [],
+            lambda value: bool(_CHECKSUM_PATTERN.fullmatch(value.lower())),
+        )
+        source_urls, sources_valid = _bounded_strings(
+            evidence.get("source_urls") or [], is_official_source_url
+        )
         merged[ticker] = {
             **ranking,
             "diagnostic_issuer_profile": profile,
             "diagnostic_profile_source_url": profile_source,
             "diagnostic_profile_checksum": profile_checksum,
-            "diagnostic_annual_history_years": _annual_history_years(
-                evidence.get("annual_history_years")
-            ),
-            "diagnostic_financial_periods": _bounded_strings(
-                evidence.get("financial_periods") or [], _is_iso_date
-            ),
-            "diagnostic_source_documents": _bounded_strings(
-                evidence.get("source_documents") or [],
-                lambda value: bool(_CHECKSUM_PATTERN.fullmatch(value.lower())),
-            ),
-            "diagnostic_source_urls": _bounded_strings(
-                evidence.get("source_urls") or [], is_official_source_url
-            ),
+            "diagnostic_profile_valid": profile != "UNVERIFIED",
+            "diagnostic_annual_history_years": annual_history_years,
+            "diagnostic_history_valid": annual_history_years is not None,
+            "diagnostic_financial_periods": financial_periods,
+            "diagnostic_financial_periods_valid": periods_valid,
+            "diagnostic_source_documents": source_documents,
+            "diagnostic_checksums_valid": documents_valid,
+            "diagnostic_source_urls": source_urls,
+            "diagnostic_sources_valid": sources_valid,
             "diagnostic_concept_status": concept_status["status"],
             "diagnostic_missing_concepts": concept_status["missing_concepts"],
+            "diagnostic_concepts_valid": concepts_valid,
         }
     return merged
 

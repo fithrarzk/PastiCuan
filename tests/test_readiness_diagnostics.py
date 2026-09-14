@@ -86,11 +86,12 @@ class ConceptDiagnosticsTests(unittest.TestCase):
         result = SnapshotRepository(Connection).readiness_evidence_as_of(
             "LQ45", "2026-01-01", cutoff
         )
-        self.assertIn("i.profile_verified_at <= %s", cursor.sql)
+        self.assertIn("m.profile_verified_at <= %s", cursor.sql)
         self.assertIn("f.available_at<=%s", cursor.sql)
         self.assertIn("sf.available_at<=%s", cursor.sql)
-        self.assertGreaterEqual(cursor.sql.count("[1:20]"), 3)
-        self.assertEqual(cursor.parameters[:5], (cutoff,) * 5)
+        self.assertNotIn("array_agg(DISTINCT", cursor.sql)
+        self.assertGreaterEqual(cursor.sql.count("ordinal <= 21"), 3)
+        self.assertEqual(cursor.parameters.count(cutoff), 5)
         self.assertEqual(result[0]["issuer_profile"], None)
 
     def test_profile_specific_missing_groups_are_exact_and_sorted(self):
@@ -189,6 +190,7 @@ class CandidateDiagnosticTests(unittest.TestCase):
         issuer = candidate_readiness(enriched)["issuers"][0]
         self.assertEqual(issuer["concept_diagnostic_status"], "PROFILE_UNVERIFIED")
         self.assertEqual(issuer["missing_concepts"], [])
+        self.assertIn("profile", issuer["diagnostic_errors"])
 
     def test_evidence_attachment_discards_unsafe_or_unbounded_metadata(self):
         snapshot = candidate({"AAAA": {}})
@@ -225,6 +227,12 @@ class CandidateDiagnosticTests(unittest.TestCase):
         rendered = json.dumps(enriched.to_dict())
         self.assertNotIn("supersecret", rendered)
         self.assertNotIn("token=private", rendered)
+        issuer = candidate_readiness(enriched)["issuers"][0]
+        self.assertEqual(
+            issuer["diagnostic_errors"],
+            ["checksums", "financial_periods", "history", "profile", "sources"],
+        )
+        self.assertEqual(issuer["concept_diagnostic_status"], "PROFILE_UNVERIFIED")
 
     def test_malformed_evidence_fields_fail_closed_without_echoing_values(self):
         snapshot = candidate(
@@ -250,10 +258,11 @@ class CandidateDiagnosticTests(unittest.TestCase):
                 "financial_periods",
                 "history",
                 "missing_concepts",
+                "profile",
                 "sources",
             ],
         )
-        self.assertEqual(issuer["concept_diagnostic_status"], "UNAVAILABLE")
+        self.assertEqual(issuer["concept_diagnostic_status"], "PROFILE_UNVERIFIED")
         self.assertEqual(issuer["sources"], [])
         self.assertEqual(issuer["checksums"], {"issuer_profile": None, "documents": []})
         self.assertNotIn("raw provider body", json.dumps(issuer))
@@ -280,7 +289,7 @@ class CandidateDiagnosticTests(unittest.TestCase):
         issuer = candidate_readiness(snapshot)["issuers"][0]
         self.assertEqual(
             issuer["diagnostic_errors"],
-            ["checksums", "financial_periods", "history", "sources"],
+            ["checksums", "financial_periods", "history", "profile", "sources"],
         )
         self.assertEqual(issuer["sources"], [])
         self.assertEqual(issuer["checksums"]["documents"], [])
@@ -288,6 +297,33 @@ class CandidateDiagnosticTests(unittest.TestCase):
         rendered = json.dumps(issuer)
         self.assertNotIn("supersecret", rendered)
         self.assertNotIn("token=private", rendered)
+
+    def test_malformed_url_and_impossible_period_are_explicitly_unavailable(self):
+        snapshot = candidate(
+            {
+                "AAAA": {
+                    "issuer_profile": "GENERAL",
+                    "issuer_profile_checksum": "a" * 64,
+                    "diagnostic_issuer_profile": "GENERAL",
+                    "diagnostic_profile_source_url": None,
+                    "diagnostic_profile_checksum": "a" * 64,
+                    "diagnostic_concept_status": "AVAILABLE",
+                    "diagnostic_missing_concepts": [],
+                    "diagnostic_annual_history_years": 5,
+                    "diagnostic_financial_periods": ["2025-99-99"],
+                    "diagnostic_source_urls": ["https://[idx.co.id/a.zip"],
+                    "diagnostic_source_documents": [],
+                }
+            }
+        )
+        issuer = candidate_readiness(snapshot)["issuers"][0]
+        self.assertEqual(issuer["concept_diagnostic_status"], "PROFILE_UNVERIFIED")
+        self.assertEqual(
+            issuer["diagnostic_errors"],
+            ["financial_periods", "profile", "sources"],
+        )
+        self.assertEqual(issuer["history"]["financial_periods"], [])
+        self.assertEqual(issuer["sources"], [])
 
     def test_candidate_carries_point_in_time_concept_diagnostics(self):
         with TemporaryDirectory() as root:

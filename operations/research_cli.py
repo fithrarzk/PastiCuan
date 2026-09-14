@@ -52,6 +52,7 @@ from operations.readiness_diagnostics import (
     MAX_DIAGNOSTIC_ITEMS,
     MAX_DIAGNOSTIC_TEXT_LENGTH,
     are_semantic_groups,
+    is_iso_date,
     is_official_source_url,
 )
 
@@ -478,6 +479,8 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
             and annual_years_value.is_integer()
             and not isinstance(raw_annual_years, bool)
         )
+        if "diagnostic_history_valid" in row:
+            history_valid = history_valid and row["diagnostic_history_valid"] is True
         annual_years = (
             int(annual_years_value)
             if history_valid and annual_years_value is not None
@@ -487,12 +490,16 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
             row, "diagnostic_missing_concepts", "missing_concepts"
         )
         concepts_valid = concepts_valid and are_semantic_groups(missing_concepts)
+        if "diagnostic_concepts_valid" in row:
+            concepts_valid = concepts_valid and row["diagnostic_concepts_valid"] is True
         periods, periods_valid = string_list(
             row, "diagnostic_financial_periods", "financial_periods"
         )
-        periods_valid = periods_valid and all(
-            re.fullmatch(r"\d{4}-\d{2}-\d{2}", period) for period in periods
-        )
+        periods_valid = periods_valid and all(is_iso_date(period) for period in periods)
+        if "diagnostic_financial_periods_valid" in row:
+            periods_valid = (
+                periods_valid and row["diagnostic_financial_periods_valid"] is True
+            )
         sources, sources_valid = string_list(
             row, "diagnostic_source_urls", "source_urls"
         )
@@ -509,11 +516,19 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
         sources_valid = sources_valid and all(
             is_official_source_url(source) for source in sources
         )
+        if "diagnostic_sources_valid" in row:
+            sources_valid = sources_valid and row["diagnostic_sources_valid"] is True
         sources = sources if sources_valid else []
         documents_valid = documents_valid and all(
             re.fullmatch(r"[0-9a-f]{64}", checksum) for checksum in documents
         )
-        documents = documents if documents_valid else []
+        if "diagnostic_checksums_valid" in row:
+            documents_valid = (
+                documents_valid and row["diagnostic_checksums_valid"] is True
+            )
+        diagnostic_profile = str(
+            diagnostic_value(row, "diagnostic_issuer_profile", "issuer_profile") or ""
+        ).upper()
         profile_checksum = diagnostic_value(
             row, "diagnostic_profile_checksum", "issuer_profile_checksum"
         )
@@ -522,6 +537,14 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
             if not re.fullmatch(r"[0-9a-f]{64}", profile_checksum):
                 profile_checksum = None
                 documents_valid = False
+        profile_valid = bool(
+            diagnostic_profile in {"GENERAL", "BANK"}
+            and profile_checksum
+            and is_official_source_url(profile_source)
+        )
+        if "diagnostic_profile_valid" in row:
+            profile_valid = profile_valid and row["diagnostic_profile_valid"] is True
+        documents = documents if documents_valid else []
         concept_status = (
             str(
                 diagnostic_value(
@@ -532,7 +555,13 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
             if ranking_present
             else "RANKING_MISSING"
         )
-        if concept_status not in {
+        if not profile_valid and ranking_present:
+            concept_status = "PROFILE_UNVERIFIED"
+            missing_concepts = []
+        elif not concepts_valid and ranking_present:
+            concept_status = "UNAVAILABLE"
+            missing_concepts = []
+        elif concept_status not in {
             "AVAILABLE",
             "PROFILE_UNVERIFIED",
             "RANKING_MISSING",
@@ -540,6 +569,7 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
             concept_status = "UNAVAILABLE"
             concepts_valid = False
         diagnostics_valid = {
+            "profile": profile_valid,
             "history": history_valid,
             "missing_concepts": concepts_valid,
             "financial_periods": periods_valid,
@@ -572,7 +602,7 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
                 },
                 "sources": sources,
                 "checksums": {
-                    "issuer_profile": profile_checksum,
+                    "issuer_profile": profile_checksum if profile_valid else None,
                     "documents": documents,
                 },
                 "diagnostic_errors": sorted(
