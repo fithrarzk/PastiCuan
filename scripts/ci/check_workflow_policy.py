@@ -52,6 +52,7 @@ PRODUCTION_WRITER_WORKFLOWS = {
 PRODUCTION_DATABASE_COMMANDS = {
     "ingest-manifest": "exclusive",
     "ingest-idx-xbrl": "exclusive",
+    "discover-idx-xbrl": "exclusive",
     "run-daily-research": "exclusive",
     "rebuild-monthly-panel": "exclusive",
     "validate-quant": "exclusive",
@@ -106,6 +107,27 @@ def _validate_production_writer_lock(path: Path, workflow: dict) -> list[str]:
                     )
     if path.name == "idx-filings.yml":
         jobs = workflow.get("jobs") or {}
+        discover_steps = jobs.get("discover", {}).get("steps", [])
+        discover_names = [step.get("name") for step in discover_steps]
+        discover_validation_names = {
+            "Validate reviewed source manifest before discovery",
+            "Validate reviewed Filing manifest before source ingestion",
+        }
+        missing_discover_validation = discover_validation_names - set(discover_names)
+        if missing_discover_validation:
+            errors.append(f"{path}: discover must validate both checked-in manifests")
+        discover_validation_text = "\n".join(
+            step.get("run", "")
+            for step in discover_steps
+            if step.get("name") in discover_validation_names
+        )
+        if "data/source_manifest.json --kind source" not in discover_validation_text:
+            errors.append(f"{path}: discover source manifest validation is required")
+        if (
+            "data/idx_filing_manifest.json --kind filing"
+            not in discover_validation_text
+        ):
+            errors.append(f"{path}: discover Filing manifest validation is required")
         prepare_steps = jobs.get("prepare-import", {}).get("steps", [])
         names = [step.get("name") for step in prepare_steps]
         validation_index = (
@@ -120,24 +142,78 @@ def _validate_production_writer_lock(path: Path, workflow: dict) -> list[str]:
         )
         if validation_index < 0 or ingest_index < 0 or validation_index > ingest_index:
             errors.append(f"{path}: manifest validation must precede import")
+        discover_ingest_index = (
+            discover_names.index("Import reviewed source manifest")
+            if "Import reviewed source manifest" in discover_names
+            else -1
+        )
+        for validation_name in discover_validation_names:
+            validation_index = (
+                discover_names.index(validation_name)
+                if validation_name in discover_names
+                else -1
+            )
+            if (
+                validation_index < 0
+                or discover_ingest_index < 0
+                or validation_index > discover_ingest_index
+            ):
+                errors.append(
+                    f"{path}: discover manifest validation must precede source import"
+                )
         shard_runs = "\n".join(
             step.get("run", "")
             for step in jobs.get("import-shards", {}).get("steps", [])
         )
         if "production_db_lock --mode shared" not in shard_runs:
             errors.append(f"{path}: import shards must use shared production_db_lock")
-        aggregate_names = [
-            step.get("name") for step in jobs.get("aggregate", {}).get("steps", [])
-        ]
-        if "Verify durable import readiness" not in aggregate_names:
+        aggregate = jobs.get("aggregate", {})
+        readiness = next(
+            (
+                step
+                for step in aggregate.get("steps", [])
+                if step.get("name") == "Verify durable import readiness"
+            ),
+            None,
+        )
+        if readiness is None:
             errors.append(f"{path}: durable import readiness step is required")
+        else:
+            readiness_run = readiness.get("run", "")
+            if (
+                "production_db_lock --mode exclusive" not in readiness_run
+                or "operations.research_cli ingest-idx-xbrl" not in readiness_run
+                or "--aggregate-only" not in readiness_run
+            ):
+                errors.append(
+                    f"{path}: durable readiness must run aggregate-only under an exclusive lock"
+                )
+            if readiness.get("id") != "progress":
+                errors.append(f"{path}: durable readiness must expose id progress")
+        needs = set(aggregate.get("needs", []))
+        if not {"prepare-import", "import-shards"}.issubset(needs):
+            errors.append(
+                f"{path}: aggregate readiness must depend on prepare-import and import-shards"
+            )
         refresh_dispatches = sum(
             step.get("run", "").count("gh workflow run research-daily.yml")
-            for step in jobs.get("aggregate", {}).get("steps", [])
+            for step in aggregate.get("steps", [])
         )
         if refresh_dispatches != 1:
             errors.append(
                 f"{path}: exactly one guarded research refresh dispatch is required"
+            )
+        refresh_steps = [
+            step
+            for step in aggregate.get("steps", [])
+            if "gh workflow run research-daily.yml" in step.get("run", "")
+        ]
+        if len(refresh_steps) != 1 or refresh_steps[0].get("if") != (
+            "needs.import-shards.result == 'success' && "
+            "steps.progress.outcome == 'success'"
+        ):
+            errors.append(
+                f"{path}: research refresh dispatch must be guarded by readiness"
             )
     if path.name == "research-daily.yml":
         trigger = workflow.get("on", workflow.get(True, {}))

@@ -56,6 +56,25 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
             discover_names.index("Validate reviewed source manifest before discovery"),
             discover_names.index("Import reviewed source manifest"),
         )
+        self.assertLess(
+            discover_names.index(
+                "Validate reviewed Filing manifest before source ingestion"
+            ),
+            discover_names.index("Import reviewed source manifest"),
+        )
+        discover_validation = "\n".join(
+            step.get("run", "")
+            for step in discover_steps
+            if step.get("name")
+            in {
+                "Validate reviewed source manifest before discovery",
+                "Validate reviewed Filing manifest before source ingestion",
+            }
+        )
+        self.assertIn("data/source_manifest.json --kind source", discover_validation)
+        self.assertIn(
+            "data/idx_filing_manifest.json --kind filing", discover_validation
+        )
         prepare_steps = workflow["jobs"]["prepare-import"]["steps"]
         validation = next(
             index
@@ -143,6 +162,45 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
             path.write_text(unsafe)
             errors = validate_workflow(path)
         self.assertTrue(any("without production_db_lock" in error for error in errors))
+
+    def test_idx_policy_rejects_unwrapped_discovery_writer(self):
+        unsafe = IDX_WORKFLOW.replace(
+            "operations.production_db_lock", "operations.not_a_lock"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "idx-filings.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(any("discover-idx-xbrl" in error for error in errors))
+
+    def test_idx_policy_rejects_missing_discover_filing_validation(self):
+        unsafe = IDX_WORKFLOW.replace(
+            "      - name: Validate reviewed source manifest before discovery\n",
+            "      - name: Validate reviewed source manifest before discovery\n",
+        ).replace(
+            "      - name: Validate reviewed source manifest before discovery\n        run: python scripts/ci/validate_manifest.py data/source_manifest.json --kind source\n",
+            "",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "idx-filings.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(
+            any("discover" in error and "manifest" in error for error in errors)
+        )
+
+    def test_idx_policy_rejects_unguarded_refresh_dispatch(self):
+        unsafe = IDX_WORKFLOW.replace(
+            "if: needs.import-shards.result == 'success' && steps.progress.outcome == 'success'",
+            "if: always()",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "idx-filings.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(
+            any("guard" in error or "dispatch" in error for error in errors)
+        )
 
     def test_discovery_dispatches_validation_for_the_pushed_head(self):
         self.assertIn("actions: write", IDX_WORKFLOW)

@@ -261,28 +261,37 @@ class ProductionDatabaseLockTests(unittest.TestCase):
                     events.append(cursor.fetchone()[0])
                 return subprocess.CompletedProcess(command, 0)
 
-            def second_runner(command, check=False):
-                code = run_with_production_db_lock(
-                    ["probe"],
-                    mode="exclusive",
-                    wait_seconds=0,
-                    connect=lambda: probe,
-                    runner=probe_runner,
-                )
-                return subprocess.CompletedProcess(command, code)
-
-            code = run_with_production_db_lock(
-                ["second"],
-                mode="shared",
-                wait_seconds=0,
-                connect=lambda: second,
-                runner=second_runner,
-            )
-            self.assertEqual(code, 75)
+            with second.cursor() as cursor:
+                cursor.execute("SELECT pg_try_advisory_lock_shared(%s, %s)", LOCK_KEY)
+                self.assertTrue(cursor.fetchone()[0])
+            probe_runner(["probe"])
             self.assertEqual(events, [False])
         finally:
             first.close()
             second.close()
+            probe.close()
+
+    @unittest.skipUnless(
+        os.getenv("PASTICUAN_TEST_DATABASE_URL"),
+        "disposable PostgreSQL required",
+    )
+    def test_real_exclusive_holders_exclude_an_exclusive_holder(self):
+        import psycopg
+
+        url = os.environ["PASTICUAN_TEST_DATABASE_URL"]
+        holder = psycopg.connect(url)
+        probe = psycopg.connect(url)
+        try:
+            holder.autocommit = True
+            probe.autocommit = True
+            with holder.cursor() as cursor:
+                cursor.execute("SELECT pg_try_advisory_lock(%s, %s)", LOCK_KEY)
+                self.assertTrue(cursor.fetchone()[0])
+            with probe.cursor() as cursor:
+                cursor.execute("SELECT pg_try_advisory_lock(%s, %s)", LOCK_KEY)
+                self.assertFalse(cursor.fetchone()[0])
+        finally:
+            holder.close()
             probe.close()
 
 
