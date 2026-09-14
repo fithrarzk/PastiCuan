@@ -86,9 +86,12 @@ Then inspect only the relevant workflow state, task card, spec, and files. Use `
 - Worktrees live outside the repository at `../PastiCuan-wt/<task-id>-<short-name>`.
 - Branches use `<type>/<task-id>-<short-name>` where type is `fix`, `feat`, `refactor`, `test`, `docs`, or `ops`.
 - Record task ID, owner, model, base SHA, dependencies, and file ownership before editing.
-- One agent owns one active roadmap ticket at a time. That agent may carry the
-  ticket from implementation through tests, self-review, PR, merge, cleanup,
-  and handoff; it must not edit a second ticket in the same worktree.
+- One ticket has exactly one owning agent, and one agent owns exactly one active
+  roadmap ticket at a time. The ticket agent carries that ticket end to end:
+  implementation, tests, self-review, review corrections, PR/CI monitoring,
+  merge, cleanup, post-merge verification, documentation, and handoff. The
+  orchestrator schedules and arbitrates dependencies; it is not a second ticket
+  implementer unless it is itself the named ticket agent.
 - When an agent finishes a ticket, the orchestrator may assign it the next
   dependency-ready ticket in a new worktree and branch. An independent ticket
   may be assigned to another idle agent in its own worktree, even while the
@@ -112,11 +115,13 @@ Domain ownership:
 
 - Use **Sol** for architecture, financial/statistical reasoning, incidents, migrations, contracts, task decomposition, release-risk review, and merge arbitration.
 - Use **Luna** for a bounded accepted task card: test-first implementation, fixtures, mechanical refactors, documentation, and focused verification.
-- Fast and Standard tasks use one agent for the complete ticket lifecycle by
-  default. High-risk tasks still require fresh independent Standards and Spec
-  reviews; the implementing agent may perform self-review and address review
-  feedback, but cannot substitute for either independent gate. Use a babysit
-  agent only for a long-running PR or active review discussion.
+- Every task uses one ticket agent for the complete lifecycle. High-risk tasks
+  still require fresh independent Standards and Spec opinions, but those
+  reviewers provide bounded read-only validation to the ticket agent: they do
+  not own, implement, merge, document, or advance the ticket. The ticket agent
+  addresses their findings and remains accountable for completion. Use a
+  babysit agent only for long-running CI or active review discussion; it also
+  does not become a ticket owner.
 - Give each implementation agent a one-page task card and exact file list, not conversation history.
 - Task cards state model, reasoning effort, context budget, retry ceiling, escalation condition, and allowed parallelism. Default budgets and stop rules come from the selected delivery lane; increase them only when the task card justifies it.
 - Read `AGENTS.md`, `CONTEXT.md`, the task card, and only its linked specs/runbooks.

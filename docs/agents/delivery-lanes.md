@@ -5,8 +5,8 @@ behavior in the change; a small diff is not automatically low risk.
 
 | Lane | Use when | Execution | Budget and stop rule |
 |---|---|---|---|
-| Fast | Documentation, comments, formatting, or a tiny non-behavioral test/config correction with no runtime, workflow, evidence, or contract effect | One root agent, one task worktree and PR, focused validation, self-review, required CI | 20 minutes, 8k context tokens, one correction cycle; stop with a recoverable handoff when exceeded |
-| Standard | A bounded application feature, bug fix, or refactor that does not meet any high-risk trigger | One root agent, a short task card, one task worktree and PR, focused TDD, self-review, required CI | 90 minutes, 30k context tokens, two correction cycles; stop with the exact blocker when exceeded |
+| Fast | Documentation, comments, formatting, or a tiny non-behavioral test/config correction with no runtime, workflow, evidence, or contract effect | One ticket agent, one task worktree and PR, focused validation, self-review, required CI | 20 minutes, 8k context tokens, one correction cycle; stop with a recoverable handoff when exceeded |
+| Standard | A bounded application feature, bug fix, or refactor that does not meet any high-risk trigger | One ticket agent, a short task card, one task worktree and PR, focused TDD, self-review, required CI | 90 minutes, 30k context tokens, two correction cycles; stop with the exact blocker when exceeded |
 | High-risk | Agent/governance contract, migration/schema/grant, financial or statistical semantics, point-in-time behavior, evidence/source policy, release/publication gate, credential/security boundary, production workflow, or destructive/irreversible risk | Decision-complete task card, appropriate Sol design, bounded implementation, fresh independent Standards and Spec review, full verification and guarded rollout | Stop at the first of 60k context tokens, three hours, or three correction cycles and leave a safe checkpoint |
 
 Time spent waiting on an external required check is recorded separately, but a
@@ -19,8 +19,8 @@ a high-risk trigger.
 
 - Keep one isolated task worktree. Do not create separate orchestrator and
   implementation worktrees for the same concern.
-- Fast and Standard lanes use the root agent directly. Do not spawn an
-  implementer, reviewer, or babysitter by default.
+- Fast and Standard lanes use their assigned ticket agent directly. Do not add
+  a second implementer, reviewer, or babysitter by default.
 - Use sub-agents only for disjoint parallel ownership or mandatory high-risk
   review. Poll short CI directly; use a babysitter only for long-running checks
   or active review discussion.
