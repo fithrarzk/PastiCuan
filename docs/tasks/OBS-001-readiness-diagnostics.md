@@ -2,17 +2,18 @@
 
 - Status: review
 - Priority: P0
-- Owner/model: GPT-5 root writer; Sol independent Standards and Spec reviews
+- Owner/model: GPT-5 ticket agent; Sol independent Standards and Spec reviews
 - Delivery lane: High-risk (point-in-time evidence/source diagnostics)
 - Reasoning effort: high
 - Context budget: `AGENTS.md`, `CONTEXT.md`, TDD/Supabase/Postgres skills, this card, `docs/specs/ingestion-contract.md`, `docs/runbooks/{stale-snapshot,refresh}.md`, and exact owned files; maximum 60k tokens
 - Retry ceiling: three correction cycles
 - Escalation: any schema/migration/grant or write query, production access, changed readiness threshold, evidence eligibility, source policy, publication/release behavior, or unbounded/unredacted output
-- Parallelism: one root writer; two fresh read-only reviewers only after the final exact head
-- Base SHA: `d2acfbe4a6df6bda631fab577405ad3d8c0a1c8a`
+- Parallelism: one ticket agent; two fresh read-only reviewers only after the final exact head
+- Base SHA: `02475e6f8d6a712d883ef49ec4415639c1609012`
 - Branch/worktree: `feat/OBS-001-readiness-diagnostics` / `../PastiCuan-wt/obs-001-readiness-diagnostics`
 - Issue: #48
-- Depends on: verified ING-002 and merged/documented ING-004 (`d2acfbe`)
+- Depends on: verified ING-002 and merged/documented ING-004 (`d2acfbe`);
+  rebased after the ticket-ownership contract merged as `02475e6`
 - File ownership: `storage/repository.py`, `operations/{readiness_diagnostics,research_cli}.py`, `tests/test_readiness_diagnostics.py`, `tests/test_research_automation.py`, `docs/architecture/data-lifecycle.md`, `docs/reference/command-data-dictionary.md`, `docs/runbooks/{stale-snapshot,refresh}.md`, this card, and `docs/tasks/CLAIMS.md`
 - Merge policy: autonomous squash merge only after complete local verification, fresh independent zero-finding reviews on the final exact head, and all required current-head checks
 
