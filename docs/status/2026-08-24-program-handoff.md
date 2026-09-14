@@ -1,8 +1,69 @@
 # Program handoff — 2026-08-24
 
-Updated 2026-09-13 after verified ING-004. Production code is `origin/main`
-at `9aeb54f9ab526a4c4ab4c514ae76b5bf6a76aa22`; accepted Supabase evidence
+Updated 2026-09-14 after verified OBS-001. Production code is `origin/main`
+at `1aeb92f4ab13b3f39c5d8158963af8dc0da7432e`; accepted Supabase evidence
 and signed published snapshots remain production research truth.
+
+## Current checkpoint — 2026-09-14
+
+- OBS-001 (High-risk, GPT-5/high ticket agent with independent Luna/high
+  Standards and Spec reviewers) merged through PR #53 as `1aeb92f`, from base
+  `02475e6f8d6a712d883ef49ec4415639c1609012` and reviewed final head
+  `4f93676417a8a2f45a7e6f5ce6c29b151385e0c4`. Both exact-head reviews passed
+  with zero findings. All eight applicable current-head PR checks passed in run
+  `34865929925`; `Supabase Preview` and the main-only `verify-main` job were
+  correctly skipped on the PR.
+- The delivery adds a read-only, set-based point-in-time inventory plus bounded
+  per-Issuer candidate diagnostics. CLI and failed daily-research reports now
+  identify exact unverified, Business-Score-unscored, and quant-ineligible
+  tickers; existing gate results; annual history; financial periods; official
+  source identities; checksums; missing semantic concept groups; and stable
+  diagnostic errors. Invalid, unsafe, incomplete, or overflowing metadata fails
+  closed. No score, threshold, source fallback, release, publication, risk,
+  promotion, or model behavior changed.
+- Changed files: `operations/{readiness_diagnostics,research_cli}.py`,
+  `storage/repository.py`, `tests/test_{readiness_diagnostics,research_automation}.py`,
+  readiness architecture/reference/runbooks, and the OBS-001 task/claim records.
+  The remote implementation branch is deleted. The implementation worktree is
+  retained only until this documentation handoff completes, then removed.
+- Final-head local evidence: compilation passed; the complete Python 3.12 suite
+  passed 202 tests with four disposable cases skipped there and exercised
+  separately; UTF-8 and SQL-ASCII disposable PostgreSQL databases each returned
+  `verified 8 migrations`. Research-release validation passed with
+  `calculation_changed: false`, revision 2, formula/model identity unchanged,
+  and digest
+  `188c66c3df19bb92d0ba934b4886112752159f1a7eb7b3fb165ee036670765e3`.
+  Workflow policy, tracked-source security, workflow YAML, Ruff format/check,
+  CI-configured mypy for the three changed source files, and `git diff --check`
+  all passed.
+- Exact-merge main verification run `34866092316` passed compilation, release
+  validation, and the complete suite. Exact-merge research run `34866092219`
+  failed closed at preflight with exit 40, `REQUIRED_MIGRATION_MISSING` for
+  migrations 007 and 008. No research publication or production recovery is
+  claimed. Neither migration was applied, and exact-SHA Railway deployment
+  remains unproven.
+- Supabase production evidence is not applicable: no Supabase MCP session,
+  production query, mutation, schema application, secret operation, or rollout
+  occurred. PostgreSQL guidance informed the parameterized, index-aligned,
+  bounded read and disposable compatibility verification only.
+- Limitations and rollback: diagnostics expose only evidence known by `as_of`;
+  they do not repair absent evidence or authorize publication. Production
+  remains blocked until migrations 007/008 have explicit rollout authorization,
+  a verified backup, protected migrator, compatibility/grant proof,
+  session-compatible writer, and read-only post-apply verification. Roll back
+  with a reviewed code/docs revert or forward fix while retaining all accepted,
+  quarantined, and published evidence; never run a production down migration.
+  Research remains SHADOW unless exact-digest evidence passes every gate.
+- Delivery took approximately one day wall-clock including reviewer-quota
+  pauses, about 60k context tokens, and four correction cycles: removal of an
+  initial calculation-path design, malformed-history refusal, preservation of
+  gate-bearing fields plus bounded safe evidence identities, and explicit
+  validity/SQL pre-aggregation bounds. ING-005 is now dependency-ready but is
+  not claimed or started; it remains data-reviewed and must not weaken evidence
+  or publication gates.
+
+The September 13 and earlier sections below are historical; this checkpoint
+supersedes their present-tense delivery and next-task statements.
 
 ## Current checkpoint — 2026-09-13
 

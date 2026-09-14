@@ -1,8 +1,8 @@
 # OBS-001: Per-issuer readiness diagnostics
 
-- Status: review
+- Status: verified
 - Priority: P0
-- Owner/model: GPT-5 ticket agent; Sol independent Standards and Spec reviews
+- Owner/model: GPT-5/high ticket agent; Luna/high independent Standards and Spec reviews
 - Delivery lane: High-risk (point-in-time evidence/source diagnostics)
 - Reasoning effort: high
 - Context budget: `AGENTS.md`, `CONTEXT.md`, TDD/Supabase/Postgres skills, this card, `docs/specs/ingestion-contract.md`, `docs/runbooks/{stale-snapshot,refresh}.md`, and exact owned files; maximum 60k tokens
@@ -10,6 +10,10 @@
 - Escalation: any schema/migration/grant or write query, production access, changed readiness threshold, evidence eligibility, source policy, publication/release behavior, or unbounded/unredacted output
 - Parallelism: one ticket agent; two fresh read-only reviewers only after the final exact head
 - Base SHA: `02475e6f8d6a712d883ef49ec4415639c1609012`
+- Final reviewed SHA: `4f93676417a8a2f45a7e6f5ce6c29b151385e0c4`
+- Merge SHA: `1aeb92f4ab13b3f39c5d8158963af8dc0da7432e`
+- Pull request/checks: PR #53; all eight applicable current-head checks passed
+  in run `34865929925`
 - Branch/worktree: `feat/OBS-001-readiness-diagnostics` / `../PastiCuan-wt/obs-001-readiness-diagnostics`
 - Issue: #48
 - Depends on: verified ING-002 and merged/documented ING-004 (`d2acfbe`);
@@ -73,7 +77,7 @@ optimization, model change, or Railway deployment claim.
   `available_at`; the new SQL is read-only, set-based, parameterized, and covered
   on a disposable database. No schema or write query is added or changed.
 
-## Implementation evidence — 2026-09-13
+## Implementation evidence — 2026-09-14
 
 - Red/green slices cover profile-specific semantic concept groups, unverified
   profile refusal, one shared cutoff for profile/Filing/fact evidence, candidate
@@ -111,8 +115,13 @@ optimization, model change, or Railway deployment claim.
   red/green correction carries explicit validity markers, rejects incomplete
   profile provenance and impossible dates, catches malformed URLs, and limits
   each pre-aggregation evidence partition to a 21st-item overflow sentinel.
-- Final exact-head reviews, PR/CI/merge/cleanup, post-merge verification, and the
-  dated handoff remain pending.
+- Fresh independent Standards and Spec reviews on exact final head `4f93676`
+  both passed with zero findings. PR #53 was squash-merged as `1aeb92f`; all
+  eight applicable current-head checks passed in `34865929925`, and the remote
+  implementation branch was deleted. Main verification `34866092316` passed.
+  Research run `34866092219` failed closed at preflight with exit 40 and
+  `REQUIRED_MIGRATION_MISSING` for 007/008; nothing was published. The local
+  implementation worktree is removed after this dated handoff merges.
 
 ## Verification commands
 

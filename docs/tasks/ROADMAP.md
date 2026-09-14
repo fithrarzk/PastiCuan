@@ -18,7 +18,7 @@ Observed on 2026-08-22 from `origin/main` at `f5166c7` and GitHub Actions runs t
 
 ## Execution waves
 
-Current delivery and incident state is summarized in the [program handoff](../status/2026-08-24-program-handoff.md), updated after ING-004 merged as `9aeb54f` via PR #46. Telegram-only delivery, skip-before-download import, deterministic bounded shards, and durable aggregation are verified. OBS-001 is next; production recovery remains open because migrations 007/008 have no production rollout proof, and post-merge research run `34710537324` failed closed with `REQUIRED_MIGRATION_MISSING`.
+Current delivery and incident state is summarized in the [program handoff](../status/2026-08-24-program-handoff.md), updated after OBS-001 merged as `1aeb92f` via PR #53. Telegram-only delivery, skip-before-download import, deterministic bounded shards, durable aggregation, and bounded point-in-time readiness diagnostics are verified. ING-005 is next and remains data-reviewed; it is not claimed or started. Production recovery remains open because migrations 007/008 have no production rollout proof, and post-merge research run `34866092219` failed closed with `REQUIRED_MIGRATION_MISSING`.
 
 Delivery-process work is tracked separately from the production dependency
 graph: DOC-004 introduced risk-tiered execution lanes as `93d3086`; CI-003
