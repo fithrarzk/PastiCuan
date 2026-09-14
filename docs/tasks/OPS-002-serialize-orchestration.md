@@ -94,7 +94,7 @@ rollout gates pass.
 
 ## Delivery gate — 2026-09-14
 
-PR #52 is open at exact head `1d0ce24`; all required current-head CI contexts
+PR #52 is open at exact head `4b8f584`; all required current-head CI contexts
 are green and no review findings are present. The mandatory independent
 Standards and Spec reviewer service failed before execution on every attempted
 route with an external account usage-limit error. Merge, branch cleanup,
