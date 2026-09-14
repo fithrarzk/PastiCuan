@@ -11,7 +11,10 @@ from uuid import uuid4
 import pandas as pd
 
 from analysis.snapshots import ResearchSnapshot
-from operations.readiness_diagnostics import concept_diagnostics
+from operations.readiness_diagnostics import (
+    concept_diagnostics,
+    with_readiness_evidence,
+)
 from operations.research_cli import build_snapshot, candidate_readiness, main
 from storage.repository import SnapshotRepository
 
@@ -86,6 +89,7 @@ class ConceptDiagnosticsTests(unittest.TestCase):
         self.assertIn("i.profile_verified_at <= %s", cursor.sql)
         self.assertIn("f.available_at<=%s", cursor.sql)
         self.assertIn("sf.available_at<=%s", cursor.sql)
+        self.assertGreaterEqual(cursor.sql.count("[1:20]"), 3)
         self.assertEqual(cursor.parameters[:5], (cutoff,) * 5)
         self.assertEqual(result[0]["issuer_profile"], None)
 
@@ -128,6 +132,100 @@ class ConceptDiagnosticsTests(unittest.TestCase):
 
 
 class CandidateDiagnosticTests(unittest.TestCase):
+    def test_evidence_diagnostics_never_change_existing_candidate_gates(self):
+        rankings = {
+            f"T{index:03d}": {
+                "composite_percentile": 50,
+                "factor_coverage_pct": 75,
+                "raw_component_coverage_pct": 70,
+                "issuer_profile": "GENERAL",
+                "issuer_profile_checksum": "a" * 64,
+                "business_score": 70,
+            }
+            for index in range(45)
+        }
+        snapshot = candidate(rankings)
+        before = candidate_readiness(snapshot)
+        enriched = with_readiness_evidence(
+            snapshot,
+            [
+                {
+                    "ticker": "T000",
+                    "issuer_profile": "GENERAL",
+                    "available_concepts": [],
+                }
+            ],
+        )
+        after = candidate_readiness(enriched)
+        self.assertEqual(after["checks"], before["checks"])
+        self.assertEqual(after["verified_profile_count"], 45)
+        self.assertEqual(enriched.rankings["T000"]["issuer_profile_checksum"], "a" * 64)
+        self.assertEqual(
+            after["issuers"][0]["concept_diagnostic_status"],
+            "PROFILE_UNVERIFIED",
+        )
+
+    def test_profile_specific_diagnostics_require_complete_official_provenance(self):
+        snapshot = candidate(
+            {
+                "AAAA": {
+                    "issuer_profile": "GENERAL",
+                    "issuer_profile_checksum": "a" * 64,
+                }
+            }
+        )
+        enriched = with_readiness_evidence(
+            snapshot,
+            [
+                {
+                    "ticker": "AAAA",
+                    "issuer_profile": "GENERAL",
+                    "profile_checksum": None,
+                    "profile_source_url": None,
+                    "available_concepts": [],
+                }
+            ],
+        )
+        issuer = candidate_readiness(enriched)["issuers"][0]
+        self.assertEqual(issuer["concept_diagnostic_status"], "PROFILE_UNVERIFIED")
+        self.assertEqual(issuer["missing_concepts"], [])
+
+    def test_evidence_attachment_discards_unsafe_or_unbounded_metadata(self):
+        snapshot = candidate({"AAAA": {}})
+        enriched = with_readiness_evidence(
+            snapshot,
+            [
+                {
+                    "ticker": "AAAA",
+                    "issuer_profile": "GENERAL",
+                    "profile_checksum": "a" * 64,
+                    "profile_source_url": (
+                        "https://user:supersecret@idx.co.id/profile?token=private"
+                    ),
+                    "annual_history_years": "provider text",
+                    "financial_periods": [
+                        f"{year}-12-31" for year in range(2000, 2021)
+                    ],
+                    "source_urls": [
+                        "https://example.com/not-official.zip",
+                        "https://www.idx.co.id/safe.zip?token=private",
+                    ],
+                    "source_documents": [f"{index:064x}" for index in range(21)],
+                    "available_concepts": [],
+                }
+            ],
+        )
+        ranking = enriched.rankings["AAAA"]
+        self.assertIsNone(ranking["diagnostic_profile_source_url"])
+        self.assertIsNone(ranking["diagnostic_profile_checksum"])
+        self.assertIsNone(ranking["diagnostic_annual_history_years"])
+        self.assertEqual(ranking["diagnostic_financial_periods"], [])
+        self.assertEqual(ranking["diagnostic_source_urls"], [])
+        self.assertEqual(ranking["diagnostic_source_documents"], [])
+        rendered = json.dumps(enriched.to_dict())
+        self.assertNotIn("supersecret", rendered)
+        self.assertNotIn("token=private", rendered)
+
     def test_malformed_evidence_fields_fail_closed_without_echoing_values(self):
         snapshot = candidate(
             {
@@ -159,6 +257,37 @@ class CandidateDiagnosticTests(unittest.TestCase):
         self.assertEqual(issuer["sources"], [])
         self.assertEqual(issuer["checksums"], {"issuer_profile": None, "documents": []})
         self.assertNotIn("raw provider body", json.dumps(issuer))
+
+    def test_missing_history_and_unsafe_or_unbounded_sources_fail_closed(self):
+        snapshot = candidate(
+            {
+                "AAAA": {
+                    "issuer_profile": "GENERAL",
+                    "issuer_profile_checksum": "a" * 64,
+                    "diagnostic_source_urls": [
+                        "https://user:supersecret@idx.co.id/a.zip?token=private",
+                        "https://example.com/not-official.zip",
+                    ],
+                    "diagnostic_source_documents": ["b" * 64] * 21,
+                    "diagnostic_financial_periods": [
+                        f"{year}-12-31" for year in range(2000, 2021)
+                    ],
+                    "diagnostic_missing_concepts": [],
+                    "diagnostic_concept_status": "AVAILABLE",
+                }
+            }
+        )
+        issuer = candidate_readiness(snapshot)["issuers"][0]
+        self.assertEqual(
+            issuer["diagnostic_errors"],
+            ["checksums", "financial_periods", "history", "sources"],
+        )
+        self.assertEqual(issuer["sources"], [])
+        self.assertEqual(issuer["checksums"]["documents"], [])
+        self.assertEqual(issuer["history"]["financial_periods"], [])
+        rendered = json.dumps(issuer)
+        self.assertNotIn("supersecret", rendered)
+        self.assertNotIn("token=private", rendered)
 
     def test_candidate_carries_point_in_time_concept_diagnostics(self):
         with TemporaryDirectory() as root:
@@ -204,6 +333,8 @@ class CandidateDiagnosticTests(unittest.TestCase):
                         {
                             "ticker": "AAAA",
                             "issuer_profile": "GENERAL",
+                            "profile_source_url": "https://www.idx.co.id/AAAA.zip",
+                            "profile_checksum": "a" * 64,
                             "available_concepts": [
                                 "net_income",
                                 "operating_cash_flow",
@@ -216,10 +347,11 @@ class CandidateDiagnosticTests(unittest.TestCase):
                     ],
                 )
         self.assertEqual(
-            snapshot.rankings["AAAA"]["missing_concepts"], ["cash", "debt"]
+            snapshot.rankings["AAAA"]["diagnostic_missing_concepts"],
+            ["cash", "debt"],
         )
         self.assertEqual(
-            snapshot.rankings["AAAA"]["concept_diagnostic_status"], "AVAILABLE"
+            snapshot.rankings["AAAA"]["diagnostic_concept_status"], "AVAILABLE"
         )
 
     def test_readiness_lists_exact_blockers_and_bounded_redacted_evidence(self):

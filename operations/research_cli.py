@@ -15,7 +15,6 @@ import math
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 from typing import Any
-from urllib.parse import urlparse
 
 import pandas as pd
 
@@ -48,6 +47,12 @@ from operations.job_outcomes import (
     OutcomeFailure,
     infrastructure_failure,
     outcome,
+)
+from operations.readiness_diagnostics import (
+    MAX_DIAGNOSTIC_ITEMS,
+    MAX_DIAGNOSTIC_TEXT_LENGTH,
+    are_semantic_groups,
+    is_official_source_url,
 )
 
 
@@ -362,8 +367,11 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
             and raw_coverage >= 70.0
         )
 
-    def string_list(row: dict, key: str) -> tuple[list[str], bool]:
-        value = row.get(key, [])
+    def diagnostic_value(row: dict, key: str, fallback: str):
+        return row[key] if key in row else row.get(fallback)
+
+    def string_list(row: dict, key: str, fallback: str) -> tuple[list[str], bool]:
+        value = diagnostic_value(row, key, fallback)
         if isinstance(value, str):
             try:
                 value = ast.literal_eval(value)
@@ -371,7 +379,13 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
                 return [], False
         if not isinstance(value, (list, tuple, set)):
             return [], False
-        return sorted({str(item).strip() for item in value if str(item).strip()}), True
+        if len(value) > MAX_DIAGNOSTIC_ITEMS or not all(
+            isinstance(item, str)
+            and 0 < len(item.strip()) <= MAX_DIAGNOSTIC_TEXT_LENGTH
+            for item in value
+        ):
+            return [], False
+        return sorted({item.strip() for item in value}), True
 
     eligible = [
         ticker for ticker, row in snapshot.rankings.items() if row_eligible(row)
@@ -452,10 +466,14 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
         quant_scored = finite_value(row, "composite_percentile") is not None
         factor_coverage = finite_value(row, "factor_coverage_pct", "coverage_pct")
         raw_coverage = finite_value(row, "raw_component_coverage_pct", "coverage_pct")
-        raw_annual_years = row.get("annual_history_years")
-        annual_years_value = finite_value(row, "annual_history_years")
-        history_valid = raw_annual_years is None or (
-            annual_years_value is not None
+        raw_annual_years = diagnostic_value(
+            row, "diagnostic_annual_history_years", "annual_history_years"
+        )
+        history_row = {"value": raw_annual_years}
+        annual_years_value = finite_value(history_row, "value")
+        history_valid = (
+            raw_annual_years is not None
+            and annual_years_value is not None
             and annual_years_value >= 0
             and annual_years_value.is_integer()
             and not isinstance(raw_annual_years, bool)
@@ -465,31 +483,52 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
             if history_valid and annual_years_value is not None
             else 0
         )
-        missing_concepts, concepts_valid = string_list(row, "missing_concepts")
-        periods, periods_valid = string_list(row, "financial_periods")
-        sources, sources_valid = string_list(row, "source_urls")
-        documents, documents_valid = string_list(row, "source_documents")
-        profile_source = row.get("issuer_profile_source")
+        missing_concepts, concepts_valid = string_list(
+            row, "diagnostic_missing_concepts", "missing_concepts"
+        )
+        concepts_valid = concepts_valid and are_semantic_groups(missing_concepts)
+        periods, periods_valid = string_list(
+            row, "diagnostic_financial_periods", "financial_periods"
+        )
+        periods_valid = periods_valid and all(
+            re.fullmatch(r"\d{4}-\d{2}-\d{2}", period) for period in periods
+        )
+        sources, sources_valid = string_list(
+            row, "diagnostic_source_urls", "source_urls"
+        )
+        documents, documents_valid = string_list(
+            row, "diagnostic_source_documents", "source_documents"
+        )
+        profile_source = diagnostic_value(
+            row, "diagnostic_profile_source_url", "issuer_profile_source"
+        )
         if profile_source:
             sources.append(str(profile_source).strip())
         sources = sorted(set(sources))
+        sources_valid = sources_valid and len(sources) <= MAX_DIAGNOSTIC_ITEMS
         sources_valid = sources_valid and all(
-            urlparse(source).scheme == "https" and bool(urlparse(source).hostname)
-            for source in sources
+            is_official_source_url(source) for source in sources
         )
         sources = sources if sources_valid else []
         documents_valid = documents_valid and all(
             re.fullmatch(r"[0-9a-f]{64}", checksum) for checksum in documents
         )
         documents = documents if documents_valid else []
-        profile_checksum = row.get("issuer_profile_checksum")
+        profile_checksum = diagnostic_value(
+            row, "diagnostic_profile_checksum", "issuer_profile_checksum"
+        )
         if profile_checksum is not None:
             profile_checksum = str(profile_checksum).strip().lower()
             if not re.fullmatch(r"[0-9a-f]{64}", profile_checksum):
                 profile_checksum = None
                 documents_valid = False
         concept_status = (
-            str(row.get("concept_diagnostic_status") or "UNAVAILABLE").upper()
+            str(
+                diagnostic_value(
+                    row, "diagnostic_concept_status", "concept_diagnostic_status"
+                )
+                or "UNAVAILABLE"
+            ).upper()
             if ranking_present
             else "RANKING_MISSING"
         )

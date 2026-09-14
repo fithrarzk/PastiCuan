@@ -1,8 +1,17 @@
 """Diagnostic-only evidence inventory for candidate readiness."""
 
+from datetime import date
+import math
+import re
+from collections.abc import Callable
+from urllib.parse import urlparse
+
 from analysis.snapshots import ResearchSnapshot
 
 
+MAX_DIAGNOSTIC_ITEMS = 20
+MAX_DIAGNOSTIC_TEXT_LENGTH = 2048
+_CHECKSUM_PATTERN = re.compile(r"[0-9a-f]{64}")
 _GENERAL_CONCEPTS = {
     "assets": {"total_assets"},
     "basic_eps": {"basic_earnings_per_share"},
@@ -31,6 +40,84 @@ _BANK_CONCEPTS = {
     "loans": {"gross_loans"},
     "net_income": {"net_income", "net_income_common_stockholders"},
 }
+_SEMANTIC_GROUPS = frozenset(_GENERAL_CONCEPTS) | frozenset(_BANK_CONCEPTS)
+_NORMALIZED_CONCEPTS = frozenset(
+    concept
+    for definitions in (_GENERAL_CONCEPTS, _BANK_CONCEPTS)
+    for aliases in definitions.values()
+    for concept in aliases
+)
+
+
+def is_official_source_url(value: object) -> bool:
+    """Accept only bounded, credential-free canonical IDX HTTPS identities."""
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > MAX_DIAGNOSTIC_TEXT_LENGTH
+    ):
+        return False
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    official = (
+        host == "idx.co.id"
+        or host.endswith(".idx.co.id")
+        or host == "idx.id"
+        or host.endswith(".idx.id")
+    )
+    return bool(
+        parsed.scheme == "https"
+        and official
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
+def are_semantic_groups(values: list[str]) -> bool:
+    """Reject arbitrary text masquerading as normalized concept diagnostics."""
+    return all(value in _SEMANTIC_GROUPS for value in values)
+
+
+def _bounded_strings(value: object, validator: Callable[[str], bool]) -> list[str]:
+    if not isinstance(value, (list, tuple, set)) or len(value) > MAX_DIAGNOSTIC_ITEMS:
+        return []
+    normalized = []
+    for item in value:
+        if not isinstance(item, str):
+            return []
+        item = item.strip()
+        if not item or len(item) > MAX_DIAGNOSTIC_TEXT_LENGTH or not validator(item):
+            return []
+        normalized.append(item)
+    return sorted(set(normalized))
+
+
+def _is_iso_date(value: str) -> bool:
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _annual_history_years(value: object) -> int | None:
+    if (
+        value is None
+        or isinstance(value, bool)
+        or not isinstance(value, (str, int, float))
+    ):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return (
+        int(number)
+        if math.isfinite(number) and number >= 0 and number.is_integer()
+        else None
+    )
 
 
 def concept_diagnostics(concepts, issuer_profile: str) -> dict:
@@ -58,21 +145,52 @@ def merge_readiness_evidence(rankings: dict, evidence_rows: list[dict]) -> dict:
     merged = {}
     for ticker, ranking in rankings.items():
         evidence = evidence_by_ticker.get(ticker, {})
-        profile = str(evidence.get("issuer_profile") or "UNVERIFIED").upper()
-        concept_status = concept_diagnostics(
-            evidence.get("available_concepts") or [], profile
+        candidate_profile = str(evidence.get("issuer_profile") or "UNVERIFIED").upper()
+        raw_profile_checksum = str(evidence.get("profile_checksum") or "").lower()
+        profile_checksum = (
+            raw_profile_checksum
+            if _CHECKSUM_PATTERN.fullmatch(raw_profile_checksum)
+            else None
         )
+        raw_profile_source = evidence.get("profile_source_url")
+        profile_source = (
+            raw_profile_source if is_official_source_url(raw_profile_source) else None
+        )
+        profile = (
+            candidate_profile
+            if candidate_profile in {"GENERAL", "BANK"}
+            and profile_checksum is not None
+            and profile_source is not None
+            else "UNVERIFIED"
+        )
+        if profile == "UNVERIFIED":
+            profile_source = None
+            profile_checksum = None
+        available_concepts = _bounded_strings(
+            evidence.get("available_concepts") or [],
+            lambda value: value.lower() in _NORMALIZED_CONCEPTS,
+        )
+        concept_status = concept_diagnostics(available_concepts, profile)
         merged[ticker] = {
             **ranking,
-            "issuer_profile": profile,
-            "issuer_profile_source": evidence.get("profile_source_url"),
-            "issuer_profile_checksum": evidence.get("profile_checksum"),
-            "annual_history_years": int(evidence.get("annual_history_years") or 0),
-            "financial_periods": sorted(evidence.get("financial_periods") or []),
-            "source_documents": sorted(evidence.get("source_documents") or []),
-            "source_urls": sorted(evidence.get("source_urls") or []),
-            "concept_diagnostic_status": concept_status["status"],
-            "missing_concepts": concept_status["missing_concepts"],
+            "diagnostic_issuer_profile": profile,
+            "diagnostic_profile_source_url": profile_source,
+            "diagnostic_profile_checksum": profile_checksum,
+            "diagnostic_annual_history_years": _annual_history_years(
+                evidence.get("annual_history_years")
+            ),
+            "diagnostic_financial_periods": _bounded_strings(
+                evidence.get("financial_periods") or [], _is_iso_date
+            ),
+            "diagnostic_source_documents": _bounded_strings(
+                evidence.get("source_documents") or [],
+                lambda value: bool(_CHECKSUM_PATTERN.fullmatch(value.lower())),
+            ),
+            "diagnostic_source_urls": _bounded_strings(
+                evidence.get("source_urls") or [], is_official_source_url
+            ),
+            "diagnostic_concept_status": concept_status["status"],
+            "diagnostic_missing_concepts": concept_status["missing_concepts"],
         }
     return merged
 

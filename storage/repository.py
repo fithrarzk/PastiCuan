@@ -1298,18 +1298,38 @@ class SnapshotRepository:
                 cursor.execute(
                     """
                     SELECT i.ticker,
-                           CASE WHEN i.profile_verified_at <= %s THEN upper(i.issuer_type) END AS issuer_profile,
-                           CASE WHEN i.profile_verified_at <= %s THEN i.profile_source_url END AS profile_source_url,
-                           CASE WHEN i.profile_verified_at <= %s THEN i.profile_checksum END AS profile_checksum,
-                           COALESCE(array_agg(DISTINCT lower(sf.normalized_concept)
-                                    ORDER BY lower(sf.normalized_concept))
-                                    FILTER (WHERE sf.normalized_concept IS NOT NULL), '{}') AS available_concepts,
-                           COALESCE(array_agg(DISTINCT sf.period_end::text ORDER BY sf.period_end::text)
-                                    FILTER (WHERE sf.period_end IS NOT NULL), '{}') AS financial_periods,
-                           COALESCE(array_agg(DISTINCT sf.source_url ORDER BY sf.source_url)
-                                    FILTER (WHERE sf.source_url IS NOT NULL), '{}') AS source_urls,
-                           COALESCE(array_agg(DISTINCT sf.document_checksum ORDER BY sf.document_checksum)
-                                    FILTER (WHERE sf.document_checksum IS NOT NULL), '{}') AS source_documents,
+                           CASE WHEN i.profile_verified_at <= %s
+                                  AND i.profile_source_url IS NOT NULL
+                                  AND i.profile_checksum IS NOT NULL
+                                THEN upper(i.issuer_type) END AS issuer_profile,
+                           CASE WHEN i.profile_verified_at <= %s
+                                  AND i.profile_source_url IS NOT NULL
+                                  AND i.profile_checksum IS NOT NULL
+                                THEN i.profile_source_url END AS profile_source_url,
+                           CASE WHEN i.profile_verified_at <= %s
+                                  AND i.profile_source_url IS NOT NULL
+                                  AND i.profile_checksum IS NOT NULL
+                                THEN i.profile_checksum END AS profile_checksum,
+                           COALESCE((array_agg(DISTINCT lower(sf.normalized_concept)
+                                     ORDER BY lower(sf.normalized_concept))
+                                     FILTER (WHERE lower(sf.normalized_concept) IN (
+                                         'total_assets','basic_earnings_per_share',
+                                         'cash_and_cash_equivalents',
+                                         'cash_cash_equivalents_and_short_term_investments',
+                                         'total_debt','short_and_long_term_debt',
+                                         'stockholders_equity','common_stock_equity','total_equity',
+                                         'net_income','net_income_common_stockholders',
+                                         'operating_cash_flow','cash_flow_from_operations',
+                                         'capital_adequacy_ratio','credit_impairment_expense',
+                                         'customer_deposits','impaired_loans','loan_loss_allowance',
+                                         'gross_loans'
+                                     ))[1:20], '{}') AS available_concepts,
+                           COALESCE((array_agg(DISTINCT sf.period_end::text ORDER BY sf.period_end::text)
+                                     FILTER (WHERE sf.period_end IS NOT NULL))[1:20], '{}') AS financial_periods,
+                           COALESCE((array_agg(DISTINCT sf.source_url ORDER BY sf.source_url)
+                                     FILTER (WHERE sf.source_url IS NOT NULL))[1:20], '{}') AS source_urls,
+                           COALESCE((array_agg(DISTINCT sf.document_checksum ORDER BY sf.document_checksum)
+                                     FILTER (WHERE sf.document_checksum IS NOT NULL))[1:20], '{}') AS source_documents,
                            count(DISTINCT sf.fiscal_year) FILTER (
                                WHERE upper(COALESCE(sf.duration_class,''))='FY'
                                  AND lower(sf.normalized_concept) IN
