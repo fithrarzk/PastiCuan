@@ -58,12 +58,17 @@ jobs:
             requirements-jobs.txt
             requirements-bot.txt
       - run: pip install -r requirements-jobs.txt
+      - name: Validate reviewed source manifest before discovery
+        run: python scripts/ci/validate_manifest.py data/source_manifest.json --kind source
+      - name: Validate reviewed Filing manifest before source ingestion
+        run: python scripts/ci/validate_manifest.py data/idx_filing_manifest.json --kind filing
       - name: Import reviewed source manifest
         run: |
           flags=()
           if [[ -n "$R2_BUCKET" ]]; then flags+=(--r2); fi
-          python -m operations.research_cli ingest-manifest \
-            --manifest data/source_manifest.json --report /tmp/source-ingestion-report.json "${flags[@]}"
+          python -m operations.production_db_lock --mode exclusive --wait-seconds 300 -- \
+            python -m operations.research_cli ingest-manifest \
+              --manifest data/source_manifest.json --report /tmp/source-ingestion-report.json "${flags[@]}"
       - name: Discover official attachments
         run: |
           history_flags=()
@@ -73,10 +78,11 @@ jobs:
           if [[ -n "${{ inputs.annual_end_year }}" ]]; then
             history_flags+=(--annual-end-year "${{ inputs.annual_end_year }}")
           fi
-          python -m operations.research_cli discover-idx-xbrl \
-            --output /tmp/idx_filing_manifest.json \
-            --as-of "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" --period auto \
-            "${history_flags[@]}"
+          python -m operations.production_db_lock --mode exclusive --wait-seconds 300 -- \
+            python -m operations.research_cli discover-idx-xbrl \
+              --output /tmp/idx_filing_manifest.json \
+              --as-of "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" --period auto \
+              "${history_flags[@]}"
       - name: Open manifest review PR when changed
         run: |
           branch="idx-manifest-review"
@@ -139,12 +145,17 @@ jobs:
             requirements-jobs.txt
             requirements-bot.txt
       - run: pip install -r requirements-jobs.txt
+      - name: Validate reviewed manifests before import
+        run: |
+          python scripts/ci/validate_manifest.py data/source_manifest.json --kind source
+          python scripts/ci/validate_manifest.py data/idx_filing_manifest.json --kind filing
       - name: Import reviewed source manifest
         run: |
           flags=()
           if [[ -n "$R2_BUCKET" ]]; then flags+=(--r2); fi
-          python -m operations.research_cli ingest-manifest \
-            --manifest data/source_manifest.json --report /tmp/source-ingestion-report.json "${flags[@]}"
+          python -m operations.production_db_lock --mode exclusive --wait-seconds 300 -- \
+            python -m operations.research_cli ingest-manifest \
+              --manifest data/source_manifest.json --report /tmp/source-ingestion-report.json "${flags[@]}"
 
   import-shards:
     needs: prepare-import
@@ -176,12 +187,13 @@ jobs:
         run: |
           flags=()
           if [[ -n "$R2_BUCKET" ]]; then flags+=(--r2); fi
-          python -m operations.research_cli ingest-idx-xbrl \
-            --manifest data/idx_filing_manifest.json \
-            --report "/tmp/idx-xbrl-ingestion-${{ matrix.shard }}.json" \
-            --shard-count 8 --shard-index "${{ matrix.shard }}" \
-            --run-id "${{ github.run_id }}" --max-attempts 3 \
-            --retry-backoff-seconds 5 --time-budget-seconds 1200 "${flags[@]}"
+          python -m operations.production_db_lock --mode shared --wait-seconds 300 -- \
+            python -m operations.research_cli ingest-idx-xbrl \
+              --manifest data/idx_filing_manifest.json \
+              --report "/tmp/idx-xbrl-ingestion-${{ matrix.shard }}.json" \
+              --shard-count 8 --shard-index "${{ matrix.shard }}" \
+              --run-id "${{ github.run_id }}" --max-attempts 3 \
+              --retry-backoff-seconds 5 --time-budget-seconds 1200 "${flags[@]}"
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         if: always()
         with:
@@ -210,14 +222,15 @@ jobs:
             requirements-jobs.txt
             requirements-bot.txt
       - run: pip install -r requirements-jobs.txt
-      - name: Read durable cross-shard progress
+      - name: Verify durable import readiness
         id: progress
         continue-on-error: true
         run: |
-          python -m operations.research_cli ingest-idx-xbrl \
-            --manifest data/idx_filing_manifest.json \
-            --report /tmp/idx-xbrl-progress.json \
-            --run-id "${{ github.run_id }}" --aggregate-only
+          python -m operations.production_db_lock --mode exclusive --wait-seconds 300 -- \
+            python -m operations.research_cli ingest-idx-xbrl \
+              --manifest data/idx_filing_manifest.json \
+              --report /tmp/idx-xbrl-progress.json \
+              --run-id "${{ github.run_id }}" --aggregate-only
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         if: always()
         with:

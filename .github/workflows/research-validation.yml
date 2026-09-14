@@ -34,19 +34,25 @@ jobs:
             requirements-bot.txt
       - run: pip install -r requirements-jobs.txt
       - name: Rebuild twice and validate holdout
+        env:
+          VALIDATION_START: ${{ inputs.validation_start }}
+          VALIDATION_END: ${{ inputs.validation_end }}
         run: |
-          python -m operations.research_cli rebuild-monthly-panel \
-            --start "${{ inputs.validation_start }}" --end "${{ inputs.validation_end }}" \
-            --scores-output /tmp/scores-a.csv --bars-output /tmp/bars-a.csv
-          python -m operations.research_cli rebuild-monthly-panel \
-            --start "${{ inputs.validation_start }}" --end "${{ inputs.validation_end }}" \
-            --scores-output /tmp/scores-b.csv --bars-output /tmp/bars-b.csv
-          cmp /tmp/scores-a.csv /tmp/scores-b.csv
-          cmp /tmp/bars-a.csv /tmp/bars-b.csv
-          python -m operations.research_cli validate-quant \
-            --scores /tmp/scores-a.csv --bars /tmp/bars-a.csv \
-            --output /tmp/validation.json --persist \
-            --model-version lq45-factor-v1-shadow --deterministic-rebuild
+          python -m operations.production_db_lock --mode exclusive --wait-seconds 300 -- \
+            bash -euo pipefail -c '
+              python -m operations.research_cli rebuild-monthly-panel \
+                --start "$VALIDATION_START" --end "$VALIDATION_END" \
+                --scores-output /tmp/scores-a.csv --bars-output /tmp/bars-a.csv
+              python -m operations.research_cli rebuild-monthly-panel \
+                --start "$VALIDATION_START" --end "$VALIDATION_END" \
+                --scores-output /tmp/scores-b.csv --bars-output /tmp/bars-b.csv
+              cmp /tmp/scores-a.csv /tmp/scores-b.csv
+              cmp /tmp/bars-a.csv /tmp/bars-b.csv
+              python -m operations.research_cli validate-quant \
+                --scores /tmp/scores-a.csv --bars /tmp/bars-a.csv \
+                --output /tmp/validation.json --persist \
+                --model-version lq45-factor-v1-shadow --deterministic-rebuild
+            '
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

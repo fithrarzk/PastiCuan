@@ -1,3 +1,4 @@
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,8 @@ IDX_WORKFLOW = (ROOT / ".github/workflows/idx-filings.yml").read_text()
 VALIDATE_WORKFLOW = (ROOT / ".github/workflows/validate-branch.yml").read_text()
 RESEARCH_WORKFLOW = (ROOT / ".github/workflows/research-daily.yml").read_text()
 RESEARCH_WORKFLOW_PATH = ROOT / ".github/workflows/research-daily.yml"
+VALIDATION_WORKFLOW = (ROOT / ".github/workflows/research-validation.yml").read_text()
+BACKUP_WORKFLOW = (ROOT / ".github/workflows/backup.yml").read_text()
 
 
 class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
@@ -46,6 +49,74 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
             "needs.import-shards.result == 'success' && steps.progress.outcome == 'success'",
         )
 
+    def test_import_validates_before_source_ingestion_and_uses_shared_shards(self):
+        workflow = _workflow_data(ROOT / ".github/workflows/idx-filings.yml")
+        discover_steps = workflow["jobs"]["discover"]["steps"]
+        discover_names = [step.get("name") for step in discover_steps]
+        self.assertLess(
+            discover_names.index("Validate reviewed source manifest before discovery"),
+            discover_names.index("Import reviewed source manifest"),
+        )
+        self.assertLess(
+            discover_names.index(
+                "Validate reviewed Filing manifest before source ingestion"
+            ),
+            discover_names.index("Import reviewed source manifest"),
+        )
+        discover_validation = "\n".join(
+            step.get("run", "")
+            for step in discover_steps
+            if step.get("name")
+            in {
+                "Validate reviewed source manifest before discovery",
+                "Validate reviewed Filing manifest before source ingestion",
+            }
+        )
+        self.assertIn("data/source_manifest.json --kind source", discover_validation)
+        self.assertIn(
+            "data/idx_filing_manifest.json --kind filing", discover_validation
+        )
+        prepare_steps = workflow["jobs"]["prepare-import"]["steps"]
+        validation = next(
+            index
+            for index, step in enumerate(prepare_steps)
+            if step.get("name") == "Validate reviewed manifests before import"
+        )
+        ingestion = next(
+            index
+            for index, step in enumerate(prepare_steps)
+            if step.get("name") == "Import reviewed source manifest"
+        )
+        self.assertLess(validation, ingestion)
+        self.assertIn(
+            "validate_manifest.py data/source_manifest.json",
+            prepare_steps[validation]["run"],
+        )
+        self.assertIn(
+            "validate_manifest.py data/idx_filing_manifest.json",
+            prepare_steps[validation]["run"],
+        )
+        shard_runs = "\n".join(
+            step.get("run", "") for step in workflow["jobs"]["import-shards"]["steps"]
+        )
+        self.assertIn("production_db_lock --mode shared", shard_runs)
+        aggregate_runs = "\n".join(
+            step.get("run", "") for step in workflow["jobs"]["aggregate"]["steps"]
+        )
+        self.assertIn("production_db_lock --mode exclusive", aggregate_runs)
+
+    def test_all_production_writer_workflows_use_the_shared_lock_wrapper(self):
+        for path, text in (
+            (ROOT / ".github/workflows/idx-filings.yml", IDX_WORKFLOW),
+            (ROOT / ".github/workflows/research-daily.yml", RESEARCH_WORKFLOW),
+            (ROOT / ".github/workflows/research-validation.yml", VALIDATION_WORKFLOW),
+            (ROOT / ".github/workflows/backup.yml", BACKUP_WORKFLOW),
+        ):
+            self.assertIn("SUPABASE_WRITER_DATABASE_URL", text, path)
+            self.assertIn("operations.production_db_lock", text, path)
+        self.assertIn("production_db_lock --mode exclusive", VALIDATION_WORKFLOW)
+        self.assertIn("production_db_lock --mode exclusive", BACKUP_WORKFLOW)
+
     def test_research_push_ignores_only_reviewed_non_runtime_paths(self):
         workflow = _workflow_data(RESEARCH_WORKFLOW_PATH)
         trigger = workflow.get("on", workflow.get(True, {}))
@@ -66,6 +137,8 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
                 "requirements-ci.txt",
                 "scripts/ci/**",
                 "tests/**",
+                "data/idx_filing_manifest.json",
+                "data/source_manifest.json",
             },
         )
         self.assertEqual(validate_workflow(RESEARCH_WORKFLOW_PATH), [])
@@ -80,6 +153,144 @@ class GeneratedPullRequestWorkflowPolicyTests(unittest.TestCase):
             path.write_text(unsafe)
             errors = validate_workflow(path)
         self.assertTrue(any("safe paths-ignore" in error for error in errors))
+
+    def test_research_policy_rejects_unwrapped_writer_command(self):
+        unsafe = RESEARCH_WORKFLOW.replace(
+            "operations.production_db_lock", "operations.not_a_lock"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "research-daily.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(any("lock coverage mismatch" in error for error in errors))
+
+    def test_idx_policy_rejects_unwrapped_discovery_writer(self):
+        unsafe = IDX_WORKFLOW.replace(
+            "operations.production_db_lock", "operations.not_a_lock"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "idx-filings.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(any("discover-idx-xbrl" in error for error in errors))
+
+    def test_idx_policy_rejects_missing_discover_filing_validation(self):
+        unsafe = IDX_WORKFLOW.replace(
+            "      - name: Validate reviewed Filing manifest before source ingestion\n"
+            "        run: python scripts/ci/validate_manifest.py data/idx_filing_manifest.json --kind filing\n",
+            "",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "idx-filings.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(any("Filing manifest" in error for error in errors))
+
+    def test_idx_policy_rejects_unguarded_refresh_dispatch(self):
+        unsafe = IDX_WORKFLOW.replace(
+            "if: needs.import-shards.result == 'success' && steps.progress.outcome == 'success'",
+            "if: always()",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "idx-filings.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(
+            any("guard" in error or "dispatch" in error for error in errors)
+        )
+
+    def test_writer_policy_rejects_mixed_wrapped_and_unwrapped_commands(self):
+        unsafe = RESEARCH_WORKFLOW.replace(
+            "            python -m operations.research_cli run-daily-research \\\n",
+            "            python -m operations.research_cli run-daily-research \\\n"
+            "          python -m operations.research_cli backup\n",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "research-daily.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(any("lock coverage mismatch" in error for error in errors))
+
+    def test_writer_policy_rejects_decoy_wrapper_before_unwrapped_command(self):
+        unsafe = RESEARCH_WORKFLOW.replace(
+            "            python -m operations.research_cli run-daily-research \\\n",
+            "            echo wrapped-looking command\n"
+            "          python -m operations.research_cli run-daily-research\n",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "research-daily.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(any("lock coverage mismatch" in error for error in errors))
+
+    def test_writer_policy_checks_folded_backup_command_mode(self):
+        unsafe = BACKUP_WORKFLOW.replace(
+            "production_db_lock --mode exclusive",
+            "production_db_lock --mode shared",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "backup.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(
+            any(
+                "backup" in error and "lock coverage mismatch" in error
+                for error in errors
+            )
+        )
+
+    def test_writer_policy_rejects_unclassified_research_command(self):
+        unsafe = RESEARCH_WORKFLOW.replace(
+            "          exit_code=$?\n",
+            "          python -m operations.research_cli publish-snapshot\n"
+            "          exit_code=$?\n",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "research-daily.yml"
+            path.write_text(unsafe)
+            errors = validate_workflow(path)
+        self.assertTrue(any("unclassified research_cli" in error for error in errors))
+
+    def test_new_writer_workflow_is_not_exempt_from_lock_policy(self):
+        unsafe = RESEARCH_WORKFLOW.replace("name: research-daily", "name: new-writer")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "new-writer.yml"
+            path.write_text(
+                unsafe.replace("operations.production_db_lock", "operations.not_a_lock")
+            )
+            errors = validate_workflow(path)
+        self.assertTrue(
+            any(
+                "production database lock wrapper is required" in error
+                for error in errors
+            )
+        )
+
+    def test_validation_inputs_are_env_quoted_for_nested_shell(self):
+        self.assertIn(
+            "VALIDATION_START: ${{ inputs.validation_start }}", VALIDATION_WORKFLOW
+        )
+        self.assertIn(
+            "VALIDATION_END: ${{ inputs.validation_end }}", VALIDATION_WORKFLOW
+        )
+        self.assertIn(
+            '--start "$VALIDATION_START" --end "$VALIDATION_END"',
+            VALIDATION_WORKFLOW,
+        )
+        run_body = VALIDATION_WORKFLOW.split("        run: |", 1)[1]
+        self.assertNotIn("${{ inputs.validation_start }}", run_body)
+        self.assertNotIn("${{ inputs.validation_end }}", run_body)
+
+    def test_hostile_validation_input_remains_data_in_nested_shell(self):
+        hostile = "2026-01-01'; touch /tmp/not-a-command; echo '"
+        result = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", 'printf "%s" "$VALIDATION_START"'],
+            env={"VALIDATION_START": hostile},
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.stdout, hostile)
 
     def test_discovery_dispatches_validation_for_the_pushed_head(self):
         self.assertIn("actions: write", IDX_WORKFLOW)

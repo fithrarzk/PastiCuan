@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
+from collections import Counter
 from pathlib import Path
 
 import yaml
@@ -34,6 +35,8 @@ SAFE_RESEARCH_PUSH_IGNORES = {
     "requirements-ci.txt",
     "scripts/ci/**",
     "tests/**",
+    "data/idx_filing_manifest.json",
+    "data/source_manifest.json",
 }
 IDX_JOB_PERMISSIONS = {
     "discover": {"contents": "write", "pull-requests": "write", "actions": "write"},
@@ -41,6 +44,29 @@ IDX_JOB_PERMISSIONS = {
     "import-shards": {"contents": "read"},
     "aggregate": {"contents": "read", "actions": "write"},
 }
+PRODUCTION_DATABASE_COMMANDS = {
+    "ingest-manifest": "exclusive",
+    "ingest-idx-xbrl": "exclusive",
+    "discover-idx-xbrl": "exclusive",
+    "run-daily-research": "exclusive",
+    "rebuild-monthly-panel": "exclusive",
+    "validate-quant": "exclusive",
+    "backup": "exclusive",
+}
+WRITER_COMMAND_RE = re.compile(
+    r"python\s+-m\s+operations\.research_cli\s+(?P<command>[a-z0-9-]+)\b"
+)
+DIRECT_WRAPPER_RE = re.compile(
+    r"(?m)^\s*python\s+-m\s+operations\.production_db_lock\s+"
+    r"--mode\s+(?P<mode>shared|exclusive)\b[^\n]*?--\s*"
+    r"(?:\\\s*\n\s*)?python\s+-m\s+operations\.research_cli\s+"
+    r"(?P<command>[a-z0-9-]+)\b"
+)
+SHELL_WRAPPER_RE = re.compile(
+    r"(?ms)^\s*python\s+-m\s+operations\.production_db_lock\s+"
+    r"--mode\s+(?P<mode>shared|exclusive)\b[^\n]*?--\s*\\?\s*\n"
+    r"\s*bash\s+-[^\n]*?-c\s+'(?P<body>.*?)\n\s*'\s*$"
+)
 
 
 def _workflow_data(path: Path) -> dict:
@@ -48,6 +74,185 @@ def _workflow_data(path: Path) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"{path}: workflow is not a mapping")
     return data
+
+
+def _validate_production_writer_lock(path: Path, workflow: dict) -> list[str]:
+    """Require every production database command to use the shared lock CLI."""
+    text = path.read_text()
+    if "SUPABASE_WRITER_DATABASE_URL" not in text:
+        return []
+    errors: list[str] = []
+    if "operations.production_db_lock" not in text:
+        errors.append(f"{path}: production database lock wrapper is required")
+    for job_name, job in (workflow.get("jobs") or {}).items():
+        for step in job.get("steps", []):
+            run = step.get("run", "") if isinstance(step, dict) else ""
+            if not isinstance(run, str):
+                continue
+            all_commands = list(WRITER_COMMAND_RE.finditer(run))
+            unknown_commands = sorted(
+                {
+                    match.group("command")
+                    for match in all_commands
+                    if match.group("command") not in PRODUCTION_DATABASE_COMMANDS
+                }
+            )
+            if unknown_commands:
+                errors.append(
+                    f"{path}: {job_name}/{step.get('name', 'run')} "
+                    "contains unclassified research_cli command(s): "
+                    f"{', '.join(unknown_commands)}"
+                )
+            command_hits = [
+                (
+                    match.group("command"),
+                    PRODUCTION_DATABASE_COMMANDS[match.group("command")],
+                )
+                for match in all_commands
+                if match.group("command") in PRODUCTION_DATABASE_COMMANDS
+            ]
+            if not command_hits:
+                continue
+            expected = [
+                (
+                    command,
+                    "shared"
+                    if command == "ingest-idx-xbrl" and job_name == "import-shards"
+                    else mode,
+                )
+                for command, mode in command_hits
+            ]
+            wrapped: list[tuple[str, str]] = [
+                (match.group("command"), match.group("mode"))
+                for match in DIRECT_WRAPPER_RE.finditer(run)
+            ]
+            for match in SHELL_WRAPPER_RE.finditer(run):
+                wrapped.extend(
+                    (body_match.group("command"), match.group("mode"))
+                    for body_match in WRITER_COMMAND_RE.finditer(match.group("body"))
+                    if body_match.group("command") in PRODUCTION_DATABASE_COMMANDS
+                )
+            if Counter(expected) != Counter(wrapped):
+                errors.append(
+                    f"{path}: {job_name}/{step.get('name', 'run')} "
+                    f"writer lock coverage mismatch: expected {expected}, got {wrapped}"
+                )
+    if path.name == "idx-filings.yml":
+        jobs = workflow.get("jobs") or {}
+        discover_steps = jobs.get("discover", {}).get("steps", [])
+        discover_names = [step.get("name") for step in discover_steps]
+        discover_validation_names = {
+            "Validate reviewed source manifest before discovery",
+            "Validate reviewed Filing manifest before source ingestion",
+        }
+        missing_discover_validation = discover_validation_names - set(discover_names)
+        if missing_discover_validation:
+            errors.append(f"{path}: discover must validate both checked-in manifests")
+        discover_validation_text = "\n".join(
+            step.get("run", "")
+            for step in discover_steps
+            if step.get("name") in discover_validation_names
+        )
+        if "data/source_manifest.json --kind source" not in discover_validation_text:
+            errors.append(f"{path}: discover source manifest validation is required")
+        if (
+            "data/idx_filing_manifest.json --kind filing"
+            not in discover_validation_text
+        ):
+            errors.append(f"{path}: discover Filing manifest validation is required")
+        prepare_steps = jobs.get("prepare-import", {}).get("steps", [])
+        names = [step.get("name") for step in prepare_steps]
+        validation_index = (
+            names.index("Validate reviewed manifests before import")
+            if "Validate reviewed manifests before import" in names
+            else -1
+        )
+        ingest_index = (
+            names.index("Import reviewed source manifest")
+            if "Import reviewed source manifest" in names
+            else -1
+        )
+        if validation_index < 0 or ingest_index < 0 or validation_index > ingest_index:
+            errors.append(f"{path}: manifest validation must precede import")
+        discover_ingest_index = (
+            discover_names.index("Import reviewed source manifest")
+            if "Import reviewed source manifest" in discover_names
+            else -1
+        )
+        for validation_name in discover_validation_names:
+            validation_index = (
+                discover_names.index(validation_name)
+                if validation_name in discover_names
+                else -1
+            )
+            if (
+                validation_index < 0
+                or discover_ingest_index < 0
+                or validation_index > discover_ingest_index
+            ):
+                errors.append(
+                    f"{path}: discover manifest validation must precede source import"
+                )
+        shard_runs = "\n".join(
+            step.get("run", "")
+            for step in jobs.get("import-shards", {}).get("steps", [])
+        )
+        if "production_db_lock --mode shared" not in shard_runs:
+            errors.append(f"{path}: import shards must use shared production_db_lock")
+        aggregate = jobs.get("aggregate", {})
+        readiness = next(
+            (
+                step
+                for step in aggregate.get("steps", [])
+                if step.get("name") == "Verify durable import readiness"
+            ),
+            None,
+        )
+        if readiness is None:
+            errors.append(f"{path}: durable import readiness step is required")
+        else:
+            readiness_run = readiness.get("run", "")
+            if (
+                "production_db_lock --mode exclusive" not in readiness_run
+                or "operations.research_cli ingest-idx-xbrl" not in readiness_run
+                or "--aggregate-only" not in readiness_run
+            ):
+                errors.append(
+                    f"{path}: durable readiness must run aggregate-only under an exclusive lock"
+                )
+            if readiness.get("id") != "progress":
+                errors.append(f"{path}: durable readiness must expose id progress")
+        needs = set(aggregate.get("needs", []))
+        if not {"prepare-import", "import-shards"}.issubset(needs):
+            errors.append(
+                f"{path}: aggregate readiness must depend on prepare-import and import-shards"
+            )
+        refresh_dispatches = sum(
+            step.get("run", "").count("gh workflow run research-daily.yml")
+            for step in aggregate.get("steps", [])
+        )
+        if refresh_dispatches != 1:
+            errors.append(
+                f"{path}: exactly one guarded research refresh dispatch is required"
+            )
+        refresh_steps = [
+            step
+            for step in aggregate.get("steps", [])
+            if "gh workflow run research-daily.yml" in step.get("run", "")
+        ]
+        if len(refresh_steps) != 1 or refresh_steps[0].get("if") != (
+            "needs.import-shards.result == 'success' && "
+            "steps.progress.outcome == 'success'"
+        ):
+            errors.append(
+                f"{path}: research refresh dispatch must be guarded by readiness"
+            )
+    if path.name == "research-daily.yml":
+        trigger = workflow.get("on", workflow.get(True, {}))
+        ignored = set((trigger.get("push") or {}).get("paths-ignore", []))
+        if {"data/idx_filing_manifest.json", "data/source_manifest.json"} - ignored:
+            errors.append(f"{path}: manifest pushes must not launch research directly")
+    return errors
 
 
 def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> list[str]:
@@ -130,6 +335,7 @@ def validate_workflow(path: Path, *, require_required_jobs: bool = False) -> lis
                 errors.append(
                     f"{path}: generated validation contains recursion command: {forbidden}"
                 )
+    errors.extend(_validate_production_writer_lock(path, workflow))
     return errors
 
 
