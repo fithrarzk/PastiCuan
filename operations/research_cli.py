@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import ast
 from datetime import datetime, timezone
 import json
 import hashlib
 import os
 from pathlib import Path
+import re
 import subprocess
 import math
 from tempfile import TemporaryDirectory
@@ -46,6 +48,13 @@ from operations.job_outcomes import (
     infrastructure_failure,
     outcome,
 )
+from operations.readiness_diagnostics import (
+    MAX_DIAGNOSTIC_ITEMS,
+    MAX_DIAGNOSTIC_TEXT_LENGTH,
+    are_semantic_groups,
+    is_iso_date,
+    is_official_source_url,
+)
 
 
 def _signed_snapshot(**values) -> ResearchSnapshot:
@@ -63,6 +72,7 @@ def build_snapshot(
     *,
     provenance: dict | None = None,
     formula_version: str | None = None,
+    readiness_evidence: list[dict] | None = None,
 ) -> ResearchSnapshot:
     frame = pd.read_csv(input_path)
     result = compute_cross_sectional_factors(
@@ -130,6 +140,10 @@ def build_snapshot(
         sources=[provenance] if provenance else [],
         formula_version=formula_version or "lq45-cross-section-v4+business-quality-v2",
     )
+    if readiness_evidence is not None:
+        from operations.readiness_diagnostics import with_readiness_evidence
+
+        snapshot = with_readiness_evidence(snapshot, readiness_evidence)
     write_snapshot(snapshot, output_path, allow_candidate=True)
     return snapshot
 
@@ -354,6 +368,26 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
             and raw_coverage >= 70.0
         )
 
+    def diagnostic_value(row: dict, key: str, fallback: str):
+        return row[key] if key in row else row.get(fallback)
+
+    def string_list(row: dict, key: str, fallback: str) -> tuple[list[str], bool]:
+        value = diagnostic_value(row, key, fallback)
+        if isinstance(value, str):
+            try:
+                value = ast.literal_eval(value)
+            except (SyntaxError, ValueError):
+                return [], False
+        if not isinstance(value, (list, tuple, set)):
+            return [], False
+        if len(value) > MAX_DIAGNOSTIC_ITEMS or not all(
+            isinstance(item, str)
+            and 0 < len(item.strip()) <= MAX_DIAGNOSTIC_TEXT_LENGTH
+            for item in value
+        ):
+            return [], False
+        return sorted({item.strip() for item in value}), True
+
     eligible = [
         ticker for ticker, row in snapshot.rankings.items() if row_eligible(row)
     ]
@@ -420,6 +454,162 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
     if accuracy_v2:
         checks["verified_issuer_profiles"] = len(verified_profiles) == expected
         checks["eligible_business_rows"] = len(business_scored) >= required_eligible
+    issuer_diagnostics = []
+    for ticker in sorted(snapshot.constituents):
+        row = snapshot.rankings.get(ticker)
+        ranking_present = isinstance(row, dict)
+        row = row if ranking_present else {}
+        profile_verified = bool(
+            str(row.get("issuer_profile") or "").upper() in {"GENERAL", "BANK"}
+            and row.get("issuer_profile_checksum")
+        )
+        business_scored_row = finite_value(row, "business_score") is not None
+        quant_scored = finite_value(row, "composite_percentile") is not None
+        factor_coverage = finite_value(row, "factor_coverage_pct", "coverage_pct")
+        raw_coverage = finite_value(row, "raw_component_coverage_pct", "coverage_pct")
+        raw_annual_years = diagnostic_value(
+            row, "diagnostic_annual_history_years", "annual_history_years"
+        )
+        history_row = {"value": raw_annual_years}
+        annual_years_value = finite_value(history_row, "value")
+        history_valid = (
+            raw_annual_years is not None
+            and annual_years_value is not None
+            and annual_years_value >= 0
+            and annual_years_value.is_integer()
+            and not isinstance(raw_annual_years, bool)
+        )
+        if "diagnostic_history_valid" in row:
+            history_valid = history_valid and row["diagnostic_history_valid"] is True
+        annual_years = (
+            int(annual_years_value)
+            if history_valid and annual_years_value is not None
+            else 0
+        )
+        missing_concepts, concepts_valid = string_list(
+            row, "diagnostic_missing_concepts", "missing_concepts"
+        )
+        concepts_valid = concepts_valid and are_semantic_groups(missing_concepts)
+        if "diagnostic_concepts_valid" in row:
+            concepts_valid = concepts_valid and row["diagnostic_concepts_valid"] is True
+        periods, periods_valid = string_list(
+            row, "diagnostic_financial_periods", "financial_periods"
+        )
+        periods_valid = periods_valid and all(is_iso_date(period) for period in periods)
+        if "diagnostic_financial_periods_valid" in row:
+            periods_valid = (
+                periods_valid and row["diagnostic_financial_periods_valid"] is True
+            )
+        sources, sources_valid = string_list(
+            row, "diagnostic_source_urls", "source_urls"
+        )
+        documents, documents_valid = string_list(
+            row, "diagnostic_source_documents", "source_documents"
+        )
+        profile_source = diagnostic_value(
+            row, "diagnostic_profile_source_url", "issuer_profile_source"
+        )
+        if profile_source:
+            sources.append(str(profile_source).strip())
+        sources = sorted(set(sources))
+        sources_valid = sources_valid and len(sources) <= MAX_DIAGNOSTIC_ITEMS
+        sources_valid = sources_valid and all(
+            is_official_source_url(source) for source in sources
+        )
+        if "diagnostic_sources_valid" in row:
+            sources_valid = sources_valid and row["diagnostic_sources_valid"] is True
+        sources = sources if sources_valid else []
+        documents_valid = documents_valid and all(
+            re.fullmatch(r"[0-9a-f]{64}", checksum) for checksum in documents
+        )
+        if "diagnostic_checksums_valid" in row:
+            documents_valid = (
+                documents_valid and row["diagnostic_checksums_valid"] is True
+            )
+        diagnostic_profile = str(
+            diagnostic_value(row, "diagnostic_issuer_profile", "issuer_profile") or ""
+        ).upper()
+        profile_checksum = diagnostic_value(
+            row, "diagnostic_profile_checksum", "issuer_profile_checksum"
+        )
+        if profile_checksum is not None:
+            profile_checksum = str(profile_checksum).strip().lower()
+            if not re.fullmatch(r"[0-9a-f]{64}", profile_checksum):
+                profile_checksum = None
+                documents_valid = False
+        profile_valid = bool(
+            diagnostic_profile in {"GENERAL", "BANK"}
+            and profile_checksum
+            and is_official_source_url(profile_source)
+        )
+        if "diagnostic_profile_valid" in row:
+            profile_valid = profile_valid and row["diagnostic_profile_valid"] is True
+        documents = documents if documents_valid else []
+        concept_status = (
+            str(
+                diagnostic_value(
+                    row, "diagnostic_concept_status", "concept_diagnostic_status"
+                )
+                or "UNAVAILABLE"
+            ).upper()
+            if ranking_present
+            else "RANKING_MISSING"
+        )
+        if not profile_valid and ranking_present:
+            concept_status = "PROFILE_UNVERIFIED"
+            missing_concepts = []
+        elif not concepts_valid and ranking_present:
+            concept_status = "UNAVAILABLE"
+            missing_concepts = []
+        elif concept_status not in {
+            "AVAILABLE",
+            "PROFILE_UNVERIFIED",
+            "RANKING_MISSING",
+        }:
+            concept_status = "UNAVAILABLE"
+            concepts_valid = False
+        diagnostics_valid = {
+            "profile": profile_valid,
+            "history": history_valid,
+            "missing_concepts": concepts_valid,
+            "financial_periods": periods_valid,
+            "sources": sources_valid,
+            "checksums": documents_valid,
+        }
+        issuer_diagnostics.append(
+            {
+                "ticker": ticker,
+                "gates": {
+                    "ranking_present": ranking_present,
+                    "profile_verified": profile_verified,
+                    "business_scored": business_scored_row,
+                    "quant_scored": quant_scored,
+                    "factor_coverage_75": bool(
+                        factor_coverage is not None and factor_coverage >= 75.0
+                    ),
+                    "raw_coverage_70": bool(
+                        raw_coverage is not None and raw_coverage >= 70.0
+                    ),
+                    "quant_eligible": bool(ranking_present and row_eligible(row)),
+                },
+                "concept_diagnostic_status": concept_status,
+                "missing_concepts": missing_concepts if concepts_valid else [],
+                "history": {
+                    "annual_years": annual_years,
+                    "target_annual_years": 5,
+                    "missing_annual_years": max(0, 5 - annual_years),
+                    "financial_periods": periods if periods_valid else [],
+                },
+                "sources": sources,
+                "checksums": {
+                    "issuer_profile": profile_checksum if profile_valid else None,
+                    "documents": documents,
+                },
+                "diagnostic_errors": sorted(
+                    key for key, valid in diagnostics_valid.items() if not valid
+                ),
+            }
+        )
     return {
         "ready": all(checks.values()),
         "checks": checks,
@@ -434,17 +624,37 @@ def candidate_readiness(snapshot: ResearchSnapshot) -> dict:
         "verified_profile_count": len(verified_profiles),
         "business_scored_count": len(business_scored),
         "required_eligible_count": required_eligible,
+        "unverified_tickers": [
+            row["ticker"]
+            for row in issuer_diagnostics
+            if not row["gates"]["profile_verified"]
+        ],
+        "business_unscored_tickers": [
+            row["ticker"]
+            for row in issuer_diagnostics
+            if not row["gates"]["business_scored"]
+        ],
+        "quant_ineligible_tickers": [
+            row["ticker"]
+            for row in issuer_diagnostics
+            if not row["gates"]["quant_eligible"]
+        ],
+        "issuers": issuer_diagnostics,
     }
 
 
-def check_candidate(path: str) -> dict:
+def inspect_candidate_readiness(path: str) -> dict:
     raw = Path(path).read_bytes()
     if path.endswith(".gz"):
         import gzip
 
         raw = gzip.decompress(raw)
     snapshot = ResearchSnapshot(**json.loads(raw))
-    readiness = candidate_readiness(snapshot)
+    return candidate_readiness(snapshot)
+
+
+def check_candidate(path: str) -> dict:
+    readiness = inspect_candidate_readiness(path)
     if not readiness["ready"]:
         failed = ", ".join(
             key for key, passed in readiness["checks"].items() if not passed
@@ -932,6 +1142,10 @@ def run_daily_research(
                     )
                 readiness = candidate_readiness(candidate)
                 if not readiness["ready"]:
+                    report["stages"]["quant"] = {
+                        "status": "REJECTED",
+                        "readiness": readiness,
+                    }
                     failed = ", ".join(
                         key for key, passed in readiness["checks"].items() if not passed
                     )
@@ -1032,12 +1246,16 @@ def run_daily_research(
         if not _write_job_report(output_path, report):
             return _report_write_failure(report, repository, base_run)
         try:
+            metrics = {"outcome": result.to_dict()}
+            quant_stage = report.get("stages", {}).get("quant", {})
+            if quant_stage.get("readiness") is not None:
+                metrics["readiness"] = quant_stage["readiness"]
             repository.record_research_job(
                 {
                     **base_run,
                     "completed_at": datetime.now(timezone.utc).isoformat(),
                     "status": result.persisted_status,
-                    "metrics": {"outcome": result.to_dict()},
+                    "metrics": metrics,
                     "error_type": result.code,
                 }
             )
@@ -1081,6 +1299,9 @@ def build_snapshot_from_database(
     frame = build_factor_inputs(repository, effective_at)
     if frame.empty:
         raise EvidenceUnavailable()
+    readiness_evidence = repository.readiness_evidence_as_of(
+        "LQ45", effective_at[:10], effective_at
+    )
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(".factor-inputs.csv")
@@ -1093,6 +1314,7 @@ def build_snapshot_from_database(
             model_version,
             provenance=provenance,
             formula_version=formula_version,
+            readiness_evidence=readiness_evidence,
         )
     finally:
         temporary.unlink(missing_ok=True)
@@ -1306,6 +1528,8 @@ def main(argv=None) -> int:
     publish_shadow.add_argument("--output", required=True)
     check = sub.add_parser("check-candidate")
     check.add_argument("--snapshot", required=True)
+    inspect_readiness = sub.add_parser("inspect-candidate-readiness")
+    inspect_readiness.add_argument("--snapshot", required=True)
     validate = sub.add_parser("validate-quant")
     validate.add_argument("--scores", required=True)
     validate.add_argument("--bars", required=True)
@@ -1424,6 +1648,11 @@ def main(argv=None) -> int:
         print(strict_json_dumps(publish_reviewed_shadow(args.candidate, args.output)))
     elif args.command == "check-candidate":
         print(strict_json_dumps(check_candidate(args.snapshot)))
+    elif args.command == "inspect-candidate-readiness":
+        readiness = inspect_candidate_readiness(args.snapshot)
+        print(strict_json_dumps(readiness))
+        if not readiness["ready"]:
+            return 2
     elif args.command == "validate-quant":
         result = validate_quant(
             args.scores,
